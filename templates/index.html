@@ -415,18 +415,11 @@
                 fetch('/api/turnover-minute')
                     .then(res => res.json())
                     .then(turnoverResult => {
-                        let turnoverTimes = [];
-                        let turnovers = [];
-                        let predictTurnovers = [];
+                        const headerDiv1 = indexCard.querySelector('div[style*="gap: 30px"]');
                         let turnoverHeader = {};
-
-                        if (turnoverResult.success && turnoverResult.data.times) {
-                            turnoverTimes = turnoverResult.data.times;
-                            turnovers = turnoverResult.data.turnovers;
-                            predictTurnovers = turnoverResult.data.predict_turnovers;
-                            turnoverHeader = turnoverResult.data.header || {};
+                        if (turnoverResult.success && turnoverResult.data.header) {
+                            turnoverHeader = turnoverResult.data.header;
                         }
-
                         let headerInfo = '';
                         if (turnoverHeader && turnoverHeader.turnover) {
                             const todayTurnover = turnoverHeader.turnover / 100000000;
@@ -440,9 +433,33 @@
                                 </div>
                             `;
                         }
+                        if (headerDiv1) headerDiv1.innerHTML = headerInfo || '<span style="color:#888;">暂无成交额数据</span>';
+                    })
+                    .catch(err => console.log('成交额数据加载失败:', err));
 
-                        const headerDiv = indexCard.querySelector('div[style*="gap: 30px"]');
-                        if (headerDiv) headerDiv.innerHTML = headerInfo || '<span style="color:#888;">暂无成交额数据</span>';
+                fetch('/api/market-fund-flow')
+                    .then(res => res.json())
+                    .then(flowResult => {
+                        let flowTimes = [];
+                        let flows = [];
+                        let flowsMid = [];
+                        let flowsSmall = [];
+                        let totalFlow = 0;
+
+                        if (flowResult.success && flowResult.data.times) {
+                            flowTimes = flowResult.data.times;
+                            flows = flowResult.data.flows;
+                            flowsMid = flowResult.data.flows_mid || [];
+                            flowsSmall = flowResult.data.flows_small || [];
+                            totalFlow = flows.length > 0 ? flows[flows.length - 1] : 0;
+                        }
+
+                        // 更新 header 追加大盘资金净流入
+                        const headerDiv2 = indexCard.querySelector('div[style*="gap: 30px"]');
+                        if (headerDiv2 && flowResult.success) {
+                            const flowColor = totalFlow >= 0 ? '#e94560' : '#4ade80';
+                            headerDiv2.innerHTML += `<span>大盘资金净流入: <span style="color: ${flowColor};">${totalFlow >= 0 ? '+' : ''}${totalFlow.toFixed(2)}亿</span></span>`;
+                        }
 
                         const ctxTurnover = document.getElementById('turnoverChart').getContext('2d');
                         if (turnoverChart) turnoverChart.destroy();
@@ -450,10 +467,9 @@
                         turnoverChart = new Chart(ctxTurnover, {
                             type: 'line',
                             data: {
-                                labels: turnoverTimes,
+                                labels: flowTimes,
                                 datasets: [{
-                                    label: '净流入',
-                                    data: turnovers.map((v, i) => v - (predictTurnovers[i] || 0)),
+                                    data: flows,
                                     borderColor: '#fbbf24',
                                     backgroundColor: function(context) {
                                         const chart = context.chart;
@@ -471,7 +487,27 @@
                                     tension: 0.3,
                                     fill: true
                                 }, {
-                                    data: Array(turnoverTimes.length).fill(0),
+                                    data: flowsMid,
+                                    borderColor: '#a78bfa',
+                                    backgroundColor: 'transparent',
+                                    borderWidth: 1.5,
+                                    borderDash: [3, 5],
+                                    pointRadius: 0,
+                                    pointHoverRadius: 3,
+                                    tension: 0.3,
+                                    fill: false
+                                }, {
+                                    data: flowsSmall,
+                                    borderColor: '#60a5fa',
+                                    backgroundColor: 'transparent',
+                                    borderWidth: 1.5,
+                                    borderDash: [4, 3],
+                                    pointRadius: 0,
+                                    pointHoverRadius: 3,
+                                    tension: 0.3,
+                                    fill: false
+                                }, {
+                                    data: Array(flowTimes.length).fill(0),
                                     borderColor: 'rgba(255,255,255,0.3)',
                                     borderWidth: 1,
                                     borderDash: [4, 4],
@@ -487,7 +523,7 @@
                                     tooltip: {
                                         mode: 'index', intersect: false,
                                         backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
-                                        callbacks: { label: function(context) { const v = context.raw; return (v >= 0 ? '+' : '') + v.toFixed(2) + '亿'; } }
+                                        callbacks: { label: function(context) { const v = context.raw; if (context.datasetIndex === 3) return ''; const labels = ['大盘资金', '中单', '散户']; return labels[context.datasetIndex] + ': ' + (v >= 0 ? '+' : '') + v.toFixed(2) + '亿'; } }
                                     }
                                 },
                                 scales: {
@@ -498,7 +534,7 @@
                             }
                         });
                     })
-                    .catch(err => console.log('成交额数据加载失败:', err));
+                    .catch(err => console.log('资金流数据加载失败:', err));
 
                 fetch('/api/sh000001-minute')
                     .then(res => res.json())

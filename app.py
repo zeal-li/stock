@@ -474,6 +474,66 @@ def get_sh000001_minute_data():
     except Exception as e:
         return {'success': False, 'error': f'All sources failed: {str(e)}'}
 
+def get_market_fund_flow():
+    """获取大盘主力资金净流入分时数据（东方财富 push2delay）"""
+    try:
+        url = "https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get"
+        params = {
+            'lmt': 0, 'klt': 1,
+            'secid': '1.000001',
+            'fields1': 'f1,f2,f3,f7',
+            'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
+            'ut': 'b2884a393a59ad64002292a3e90d46a5',
+        }
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Referer': 'https://data.eastmoney.com/',
+            'Accept': '*/*',
+        }
+        r = requests.get(url, params=params, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        data = r.json()
+        klines = data.get('data', {}).get('klines', [])
+
+        if klines:
+            # 按日期分组，只取最近一个交易日
+            day_groups = {}
+            for k in klines:
+                parts = str(k).split(',')
+                if len(parts) >= 2:
+                    date_key = parts[0].split(' ')[0] if ' ' in parts[0] else parts[0]
+                    if date_key not in day_groups:
+                        day_groups[date_key] = []
+                    day_groups[date_key].append(parts)
+
+            latest_day = sorted(day_groups.keys())[-1]
+            filtered = day_groups[latest_day]
+
+            times = []
+            flows = []       # 大盘资金 = 超大单+大单（f52 主力）
+            flows_mid = []    # 中单（f54）
+            flows_small = []  # 散户资金 = 小单（f53）
+            for parts in filtered:
+                times.append(parts[0].split(' ')[-1][:5])
+                flows.append(round(float(parts[1]) / 1e8, 2))
+                flows_mid.append(round(float(parts[3]) / 1e8, 2))
+                flows_small.append(round(float(parts[2]) / 1e8, 2))
+
+            return {
+                'success': True,
+                'data': {
+                    'date': latest_day,
+                    'times': times,
+                    'flows': flows,
+                    'flows_mid': flows_mid,
+                    'flows_small': flows_small,
+                }
+            }
+
+        return {'success': False, 'error': 'No fund flow data'}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -505,6 +565,10 @@ def turnover_day():
 @app.route('/api/sh000001-minute')
 def sh000001_minute():
     return jsonify(get_sh000001_minute_data())
+
+@app.route('/api/market-fund-flow')
+def market_fund_flow():
+    return jsonify(get_market_fund_flow())
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
