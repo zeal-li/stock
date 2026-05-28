@@ -907,6 +907,93 @@
         });
 
         loadAllData();
+
+        // 自动刷新：每10秒更新实时数据
+        async function refreshRealtimeData() {
+            try {
+                // 更新上证指数价格
+                const idxRes = await fetch('/api/major-indices');
+                const idxData = await idxRes.json();
+                if (idxData.success && idxData.data.length > 0) {
+                    const d = idxData.data[0];
+                    const isUp = d.change.startsWith('+');
+                    const color = isUp ? '#e94560' : '#4ade80';
+                    const priceEl = document.querySelector('.index-price');
+                    const changeEl = document.querySelector('.index-change');
+                    if (priceEl) { priceEl.textContent = d.price; priceEl.style.color = color; }
+                    if (changeEl) { changeEl.textContent = d.change + ' ' + d.change_value; changeEl.className = 'index-change ' + (isUp ? 'up' : 'down'); }
+                }
+
+                // 更新分时走势
+                const minRes = await fetch('/api/sh000001-minute');
+                const minData = await minRes.json();
+                if (minuteChart && minData.success && minData.data.times) {
+                    minuteChart.data.labels = minData.data.times;
+                    minuteChart.data.datasets[0].data = minData.data.prices;
+                    minuteChart.data.datasets[1].data = Array(minData.data.times.length).fill(minData.data.preClose);
+                    const isUp2 = parseFloat(minData.data.change) >= 0;
+                    const lc = isUp2 ? '#e94560' : '#4ade80';
+                    minuteChart.data.datasets[0].borderColor = lc;
+                    minuteChart.data.datasets[0].backgroundColor = (ctx => { const g = ctx.chart.ctx.createLinearGradient(0,0,0,180); g.addColorStop(0, isUp2 ? 'rgba(233,69,96,0.2)' : 'rgba(74,222,128,0.2)'); g.addColorStop(1, 'rgba(26,26,46,0)'); return g; });
+                    minuteChart.update('none');
+                }
+
+                // 更新资金流
+                const flowRes = await fetch('/api/market-fund-flow');
+                const flowData = await flowRes.json();
+                if (turnoverChart && flowData.success && flowData.data.times) {
+                    turnoverChart.data.labels = flowData.data.times;
+                    turnoverChart.data.datasets[0].data = flowData.data.flows;
+                    turnoverChart.data.datasets[1].data = flowData.data.flows_mid || [];
+                    turnoverChart.data.datasets[2].data = flowData.data.flows_small || [];
+                    turnoverChart.data.datasets[3].data = Array(flowData.data.times.length).fill(0);
+                    turnoverChart.update('none');
+                    // 更新 header 大盘资金净流入
+                    const flows = flowData.data.flows;
+                    const totalFlow = flows.length > 0 ? flows[flows.length - 1] : 0;
+                    const headerDiv = document.querySelector('#marketBreadth');
+                    if (headerDiv && headerDiv.nextElementSibling) {
+                        const fc = totalFlow >= 0 ? '#e94560' : '#4ade80';
+                        headerDiv.nextElementSibling.innerHTML = `大盘净流入: <span style="color:${fc};">${totalFlow >= 0 ? '+' : ''}${totalFlow.toFixed(2)}亿</span>`;
+                    }
+                }
+
+                // 更新恐慌/风险指数
+                const fearRes = await fetch('/api/fear-index');
+                const fearData = await fearRes.json();
+                if (fearData.success && fearData.data) {
+                    const fd = fearData.data;
+                    const fDiv = document.getElementById('fearIndex');
+                    if (fDiv) {
+                        fDiv.querySelector('div:nth-child(1)').textContent = fd.score;
+                        fDiv.querySelector('div:nth-child(1)').style.color = fd.color;
+                        fDiv.querySelector('div:nth-child(2)').textContent = fd.level;
+                        fDiv.querySelector('div:nth-child(2)').style.color = fd.color;
+                        const ptr = fDiv.querySelector('div[style*="position:absolute"]');
+                        if (ptr) ptr.style.left = fd.score + '%';
+                    }
+                    // 涨跌数据
+                    const bDiv = document.getElementById('marketBreadth');
+                    if (bDiv) bDiv.innerHTML = `涨<span style="color:#e94560;">${fd.rise}</span> 跌<span style="color:#4ade80;">${fd.fall}</span> 平<span style="color:#888;">${fd.flat}</span>`;
+                }
+
+                const riskRes = await fetch('/api/risk-index');
+                const riskData = await riskRes.json();
+                if (riskData.success && riskData.data) {
+                    const rd = riskData.data;
+                    const rDiv = document.getElementById('riskIndex');
+                    if (rDiv && rDiv.children[0]) {
+                        rDiv.children[0].textContent = rd.score;
+                        rDiv.children[0].style.color = rd.color;
+                        if (rDiv.children[1]) { rDiv.children[1].textContent = rd.level; rDiv.children[1].style.color = rd.color; }
+                        const ptr = rDiv.querySelector('div[style*="position:absolute"]');
+                        if (ptr) ptr.style.left = rd.score + '%';
+                    }
+                }
+            } catch(e) { console.log('Auto refresh error:', e); }
+        }
+
+        setInterval(refreshRealtimeData, 10000);
     </script>
 </body>
 </html>
