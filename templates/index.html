@@ -355,7 +355,186 @@
     <script>
         let currentPage = 'concept';
         let minuteChart = null;
-        let flowChart = null;
+        let turnoverChart = null;
+
+        function formatTurnover(value) {
+            if (value >= 10000) {
+                return (value / 10000).toFixed(2) + '万亿';
+            }
+            return value.toFixed(2) + '亿';
+        }
+
+        async function loadIndexWithChart() {
+            const indexCard = document.getElementById('index-card');
+            indexCard.innerHTML = '<div class="loading">正在加载上证指数...</div>';
+
+            try {
+                const indexRes = await fetch('/api/major-indices');
+                const indexResult = await indexRes.json();
+
+                let indexData = null;
+                if (indexResult.success && indexResult.data.length > 0) {
+                    indexData = indexResult.data[0];
+                }
+
+                if (!indexData) {
+                    indexCard.innerHTML = '<div class="error">暂无指数数据</div>';
+                    return;
+                }
+
+                const isUp = indexData.change.startsWith('+');
+                const changeClass = isUp ? 'up' : 'down';
+                const lineColor = isUp ? '#e94560' : '#4ade80';
+                const gradientColor = isUp ? 'rgba(233, 69, 96, 0.2)' : 'rgba(74, 222, 128, 0.2)';
+
+                indexCard.innerHTML = `
+                        <div class="index-header">
+                            <div class="index-info">
+                                <span class="index-name">${indexData.name}</span>
+                                <span class="index-price">${indexData.price}</span>
+                                <span class="index-change ${changeClass}">${indexData.change} ${indexData.change_value}</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 30px; font-size: 13px; color: #888; margin-bottom: 15px;">
+                            <span>加载中...</span>
+                        </div>
+                        <div class="chart-row">
+                            <div class="chart-box" style="position:relative;">
+                                <canvas id="minuteChart"></canvas>
+                                <div id="minuteLoading" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;pointer-events:none;">加载中...</div>
+                                <div class="chart-title">分时走势</div>
+                            </div>
+                            <div class="chart-box">
+                                <canvas id="turnoverChart"></canvas>
+                                <div class="chart-title">市场成交额分时</div>
+                            </div>
+                        </div>
+                    `;
+
+                // 等待真实分时数据到达后再绘制图表，避免显示直线 mock 数据
+
+                fetch('/api/turnover-minute')
+                    .then(res => res.json())
+                    .then(turnoverResult => {
+                        let turnoverTimes = [];
+                        let turnovers = [];
+                        let predictTurnovers = [];
+                        let turnoverHeader = {};
+
+                        if (turnoverResult.success && turnoverResult.data.times) {
+                            turnoverTimes = turnoverResult.data.times;
+                            turnovers = turnoverResult.data.turnovers;
+                            predictTurnovers = turnoverResult.data.predict_turnovers;
+                            turnoverHeader = turnoverResult.data.header || {};
+                        }
+
+                        let headerInfo = '';
+                        if (turnoverHeader && turnoverHeader.turnover) {
+                            const todayTurnover = turnoverHeader.turnover / 100000000;
+                            const yesterdayTurnover = turnoverHeader.turnover_pre / 100000000;
+                            const change = turnoverHeader.turnover_change / 100000000;
+                            headerInfo = `
+                                <div style="display: flex; gap: 30px; font-size: 13px; color: #888;">
+                                    <span>当日成交额: <span style="color: #fff;">${formatTurnover(todayTurnover)}</span></span>
+                                    <span>昨日成交额: <span style="color: #fff;">${formatTurnover(yesterdayTurnover)}</span></span>
+                                    <span>较昨日变动: <span style="color: ${change >= 0 ? '#e94560' : '#4ade80'};">${change >= 0 ? '+' : ''}${formatTurnover(change)}</span></span>
+                                </div>
+                            `;
+                        }
+
+                        const headerDiv = indexCard.querySelector('div[style*="gap: 30px"]');
+                        if (headerDiv) headerDiv.innerHTML = headerInfo || '<span style="color:#888;">暂无成交额数据</span>';
+
+                        const ctxTurnover = document.getElementById('turnoverChart').getContext('2d');
+                        if (turnoverChart) turnoverChart.destroy();
+
+                        turnoverChart = new Chart(ctxTurnover, {
+                            type: 'bar',
+                            data: {
+                                labels: turnoverTimes,
+                                datasets: [
+                                    { label: '当日成交额', data: turnovers, backgroundColor: 'rgba(233, 69, 96, 0.6)', borderColor: '#e94560', borderWidth: 1 },
+                                    { label: '昨日同期成交额', data: predictTurnovers, backgroundColor: 'rgba(74, 222, 128, 0.6)', borderColor: '#4ade80', borderWidth: 1 }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: true, position: 'top', labels: { color: '#888', font: { size: 10 }, boxWidth: 12, padding: 5 } },
+                                    tooltip: {
+                                        mode: 'index', intersect: false,
+                                        backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
+                                        callbacks: { label: function(context) { return context.dataset.label + ': ' + formatTurnover(context.raw); } }
+                                    }
+                                },
+                                scales: {
+                                    x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', maxTicksLimit: 6, font: { size: 10 } } },
+                                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(value) { return formatTurnover(value); } } }
+                                },
+                                interaction: { mode: 'index', intersect: false }
+                            }
+                        });
+                    })
+                    .catch(err => console.log('成交额数据加载失败:', err));
+
+                fetch('/api/sh000001-minute')
+                    .then(res => res.json())
+                    .then(minuteResult => {
+                        const minuteLoading = document.getElementById('minuteLoading');
+                        if (minuteResult.success && minuteResult.data.times && minuteResult.data.prices && minuteResult.data.times.length > 0) {
+                            const times = minuteResult.data.times;
+                            const prices = minuteResult.data.prices;
+
+                            const ctxMinute = document.getElementById('minuteChart').getContext('2d');
+                            if (minuteChart) minuteChart.destroy();
+
+                            const gradient = ctxMinute.createLinearGradient(0, 0, 0, 180);
+                            gradient.addColorStop(0, gradientColor);
+                            gradient.addColorStop(1, 'rgba(26, 26, 46, 0)');
+
+                            minuteChart = new Chart(ctxMinute, {
+                                type: 'line',
+                                data: {
+                                    labels: times,
+                                    datasets: [{
+                                        data: prices,
+                                        borderColor: lineColor,
+                                        backgroundColor: gradient,
+                                        borderWidth: 2,
+                                        fill: true,
+                                        tension: 0.1,
+                                        pointRadius: 0,
+                                        pointHoverRadius: 4
+                                    }]
+                                },
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    plugins: { legend: { display: false } },
+                                    scales: {
+                                        x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', maxTicksLimit: 6 } },
+                                        y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888' } }
+                                    },
+                                    interaction: { mode: 'nearest', axis: 'x', intersect: false }
+                                }
+                            });
+                            if (minuteLoading) minuteLoading.style.display = 'none';
+                        } else {
+                            // 分时数据获取失败
+                            if (minuteLoading) minuteLoading.textContent = '暂无分时数据';
+                        }
+                    })
+                    .catch(err => {
+                        console.log('分时数据加载失败:', err);
+                        const minuteLoading = document.getElementById('minuteLoading');
+                        if (minuteLoading) minuteLoading.textContent = '分时数据加载失败';
+                    });
+
+            } catch (error) {
+                indexCard.innerHTML = `<div class="error">指数加载失败</div>`;
+            }
+        }
 
         function generateMockFlowData() {
             const times = [];
@@ -381,209 +560,6 @@
             }
 
             return { times, netFlows };
-        }
-
-        async function loadIndexWithChart() {
-            const indexCard = document.getElementById('index-card');
-            indexCard.innerHTML = '<div class="loading">正在加载上证指数...</div>';
-
-            try {
-                const [indexRes, minuteRes] = await Promise.all([
-                    fetch('/api/major-indices'),
-                    fetch('/api/index-minute')
-                ]);
-
-                const indexResult = await indexRes.json();
-                const minuteResult = await minuteRes.json();
-
-                if (indexResult.success && indexResult.data.length > 0) {
-                    const item = indexResult.data[0];
-                    const isUp = item.change.startsWith('+');
-                    const changeClass = isUp ? 'up' : 'down';
-                    const lineColor = isUp ? '#e94560' : '#4ade80';
-                    const gradientColor = isUp ? 'rgba(233, 69, 96, 0.2)' : 'rgba(74, 222, 128, 0.2)';
-
-                    let times = ['09:30', '09:35', '09:40', '09:45', '09:50', '09:55',
-                         '10:00', '10:05', '10:10', '10:15', '10:20', '10:25', '10:30',
-                         '10:35', '10:40', '10:45', '10:50', '10:55', '11:00',
-                         '13:00', '13:05', '13:10', '13:15', '13:20', '13:25', '13:30',
-                         '13:35', '13:40', '13:45', '13:50', '13:55', '14:00',
-                         '14:05', '14:10', '14:15', '14:20', '14:25', '14:30',
-                         '14:35', '14:40', '14:45', '14:50', '14:55', '15:00'];
-                    let prices = [3256.32, 3258.45, 3257.23, 3259.67, 3260.12, 3258.90,
-                         3261.34, 3262.56, 3260.89, 3263.21, 3262.45, 3264.78, 3263.56,
-                         3265.23, 3264.67, 3266.12, 3265.89, 3267.34, 3266.78,
-                         3268.12, 3267.56, 3269.23, 3268.67, 3270.12, 3269.56, 3270.89,
-                         3271.23, 3270.56, 3272.34, 3271.67, 3273.12, 3272.45,
-                         3273.89, 3272.34, 3274.56, 3273.12, 3275.67, 3274.23,
-                         3276.12, 3275.34, 3277.56, 3276.12, 3278.45, 3276.89];
-
-                    if (minuteResult.success) {
-                        times = minuteResult.data.times;
-                        prices = minuteResult.data.prices;
-                    }
-
-                    const flowData = generateMockFlowData();
-
-                    indexCard.innerHTML = `
-                        <div class="index-header">
-                            <div class="index-info">
-                                <span class="index-name">${item.name}</span>
-                                <span class="index-price">${item.price}</span>
-                                <span class="index-change ${changeClass}">${item.change} ${item.change_value}</span>
-                            </div>
-                        </div>
-                        <div class="chart-row">
-                            <div class="chart-box">
-                                <canvas id="minuteChart"></canvas>
-                                <div class="chart-title">分时走势</div>
-                            </div>
-                            <div class="chart-box">
-                                <canvas id="flowChart"></canvas>
-                                <div class="chart-title">大盘资金净流入</div>
-                            </div>
-                        </div>
-                    `;
-
-                    setTimeout(() => {
-                        const ctxMinute = document.getElementById('minuteChart').getContext('2d');
-
-                        if (minuteChart) {
-                            minuteChart.destroy();
-                        }
-
-                        const gradient = ctxMinute.createLinearGradient(0, 0, 0, 180);
-                        gradient.addColorStop(0, gradientColor);
-                        gradient.addColorStop(1, 'rgba(26, 26, 46, 0)');
-
-                        minuteChart = new Chart(ctxMinute, {
-                            type: 'line',
-                            data: {
-                                labels: times,
-                                datasets: [{
-                                    data: prices,
-                                    borderColor: lineColor,
-                                    backgroundColor: gradient,
-                                    borderWidth: 2,
-                                    fill: true,
-                                    tension: 0.1,
-                                    pointRadius: 0,
-                                    pointHoverRadius: 4
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { display: false },
-                                    tooltip: {
-                                        mode: 'index',
-                                        intersect: false,
-                                        backgroundColor: '#16213e',
-                                        titleColor: '#fff',
-                                        bodyColor: '#ddd',
-                                        borderColor: '#0f3460',
-                                        borderWidth: 1
-                                    }
-                                },
-                                scales: {
-                                    x: {
-                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                        ticks: { color: '#888', maxTicksLimit: 6 }
-                                    },
-                                    y: {
-                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                        ticks: { color: '#888' }
-                                    }
-                                },
-                                interaction: {
-                                    mode: 'nearest',
-                                    axis: 'x',
-                                    intersect: false
-                                }
-                            }
-                        });
-
-                        const ctxFlow = document.getElementById('flowChart').getContext('2d');
-
-                        if (flowChart) {
-                            flowChart.destroy();
-                        }
-
-                        const flowIsUp = flowData.netFlows[flowData.netFlows.length - 1] >= 0;
-                        const flowLineColor = flowIsUp ? '#e94560' : '#4ade80';
-                        const flowGradientColor = flowIsUp ? 'rgba(233, 69, 96, 0.2)' : 'rgba(74, 222, 128, 0.2)';
-
-                        const flowGradient = ctxFlow.createLinearGradient(0, 0, 0, 180);
-                        flowGradient.addColorStop(0, flowGradientColor);
-                        flowGradient.addColorStop(1, 'rgba(26, 26, 46, 0)');
-
-                        flowChart = new Chart(ctxFlow, {
-                            type: 'line',
-                            data: {
-                                labels: flowData.times,
-                                datasets: [{
-                                    data: flowData.netFlows,
-                                    borderColor: flowLineColor,
-                                    backgroundColor: flowGradient,
-                                    borderWidth: 2,
-                                    fill: true,
-                                    tension: 0.1,
-                                    pointRadius: 0,
-                                    pointHoverRadius: 4
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { display: false },
-                                    tooltip: {
-                                        mode: 'index',
-                                        intersect: false,
-                                        backgroundColor: '#16213e',
-                                        titleColor: '#fff',
-                                        bodyColor: '#ddd',
-                                        borderColor: '#0f3460',
-                                        borderWidth: 1,
-                                        callbacks: {
-                                            label: function(context) {
-                                                const value = context.raw;
-                                                return value >= 0 ? '净流入: +' + value.toLocaleString() + '万' : '净流出: ' + value.toLocaleString() + '万';
-                                            }
-                                        }
-                                    }
-                                },
-                                scales: {
-                                    x: {
-                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                        ticks: { color: '#888', maxTicksLimit: 6 }
-                                    },
-                                    y: {
-                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
-                                        ticks: {
-                                            color: '#888',
-                                            callback: function(value) {
-                                                return value >= 0 ? '+' + value.toLocaleString() : value.toLocaleString();
-                                            }
-                                        }
-                                    }
-                                },
-                                interaction: {
-                                    mode: 'nearest',
-                                    axis: 'x',
-                                    intersect: false
-                                }
-                            }
-                        });
-                    }, 0);
-
-                } else {
-                    indexCard.innerHTML = '<div class="error">暂无指数数据</div>';
-                }
-            } catch (error) {
-                indexCard.innerHTML = `<div class="error">指数加载失败</div>`;
-            }
         }
 
         async function loadMoneyFlowData() {
@@ -666,8 +642,8 @@
         }
 
         async function loadAllData() {
-            await loadIndexWithChart();
-            await loadMoneyFlowData();
+            loadIndexWithChart();
+            loadMoneyFlowData();
         }
 
         document.querySelectorAll('.tab-btn').forEach(btn => {

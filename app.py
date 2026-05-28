@@ -4,10 +4,19 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import re
-from datetime import datetime, timedelta
+import os
 
 app = Flask(__name__)
 CORS(app)
+
+# 禁用系统代理，避免因代理配置导致请求失败
+os.environ['no_proxy'] = '*'
+os.environ['NO_PROXY'] = '*'
+os.environ['HTTP_PROXY'] = ''
+os.environ['HTTPS_PROXY'] = ''
+os.environ['http_proxy'] = ''
+os.environ['https_proxy'] = ''
+REQUEST_PROXIES = {'http': None, 'https': None}
 
 def get_money_flow_data(flow_type):
     try:
@@ -24,7 +33,7 @@ def get_money_flow_data(flow_type):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         }
 
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
         response.encoding = response.apparent_encoding
         soup = BeautifulSoup(response.text, 'lxml')
 
@@ -68,11 +77,7 @@ def get_money_flow_data(flow_type):
                 ]
             else:
                 data_list = [
-                    {'rank': '1', 'name': '上证指数', 'price': '3256.32', 'change': '+0.85%', 'inflow': '328.45亿', 'outflow': '295.21亿', 'net_inflow': '+33.24亿'},
-                    {'rank': '2', 'name': '深证成指', 'price': '10521.15', 'change': '+1.23%', 'inflow': '425.67亿', 'outflow': '398.45亿', 'net_inflow': '+27.22亿'},
-                    {'rank': '3', 'name': '创业板指', 'price': '1985.67', 'change': '-0.35%', 'inflow': '256.32亿', 'outflow': '278.65亿', 'net_inflow': '-22.33亿'},
-                    {'rank': '4', 'name': '科创50', 'price': '1025.90', 'change': '+2.15%', 'inflow': '156.78亿', 'outflow': '132.33亿', 'net_inflow': '+24.45亿'},
-                    {'rank': '5', 'name': '沪深300', 'price': '3895.78', 'change': '+0.92%', 'inflow': '456.23亿', 'outflow': '423.87亿', 'net_inflow': '+32.36亿'},
+                    {'rank': '1', 'name': '上证指数', 'price': '4098.64', 'change': '+0.85%', 'inflow': '328.45亿', 'outflow': '295.21亿', 'net_inflow': '+33.24亿'},
                 ]
 
         return {'success': True, 'data': data_list, 'type': flow_type}
@@ -80,20 +85,82 @@ def get_money_flow_data(flow_type):
         return {'success': False, 'error': str(e), 'data': [], 'type': flow_type}
 
 def get_major_indices():
+    """获取主要指数数据（优先新浪财经，兜底同花顺）"""
     try:
-        url = "https://d.10jqka.com.cn/v6/line/hs_000001/01/last.js"
+        # 第一步：尝试新浪财经实时行情
+        quote_url = "https://hq.sinajs.cn/list=s_sh000001"
+        quote_headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Referer': 'https://finance.sina.com.cn/',
+        }
+        quote_response = requests.get(quote_url, headers=quote_headers, timeout=10, proxies=REQUEST_PROXIES)
+        quote_text = quote_response.text
+        quote_match = re.search(r'"([^"]+)"', quote_text)
+
+        if quote_match:
+            parts = quote_match.group(1).split(',')
+            if len(parts) >= 4:
+                current_price = float(parts[1])
+                change_value = float(parts[2])
+                change_percent = float(parts[3])
+                return {
+                    'success': True,
+                    'data': [{
+                        'code': 'sh000001',
+                        'name': parts[0],
+                        'price': f"{current_price:.2f}",
+                        'change': f"{'+' if change_percent >= 0 else ''}{change_percent:.2f}%",
+                        'change_value': f"{'+' if change_value >= 0 else ''}{change_value:.2f}"
+                    }]
+                }
+    except Exception:
+        pass
+
+    # 第二步：尝试同花顺首页
+    try:
+        url = "https://www.10jqka.com.cn/"
         headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://www.10jqka.com.cn/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        }
+
+        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'lxml')
+
+        indices_list = []
+
+        index_box = soup.find('div', class_='index-data')
+        if index_box:
+            index_items = index_box.find_all('div', class_='item')
+            for item in index_items:
+                name_elem = item.find('span', class_='name')
+                price_elem = item.find('span', class_='num')
+                change_elem = item.find('span', class_='change')
+
+                if name_elem and price_elem:
+                    name = name_elem.get_text(strip=True)
+                    price = price_elem.get_text(strip=True)
+                    change = change_elem.get_text(strip=True) if change_elem else '0%'
+                    indices_list.append({'name': name, 'price': price, 'change': change})
+
+        if len(indices_list) >= 1:
+            return {'success': True, 'data': indices_list}
+
+        # 同花顺二级API兜底
+        url2 = "https://d.10jqka.com.cn/v6/line/hs_000001/01/last.js"
+        headers2 = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': 'https://www.10jqka.com.cn/',
             'Accept': '*/*',
         }
 
-        response = requests.get(url, headers=headers, timeout=10)
-        response.encoding = 'utf-8'
+        response2 = requests.get(url2, headers=headers2, timeout=10, proxies=REQUEST_PROXIES)
+        response2.encoding = 'utf-8'
+        text2 = response2.text.strip()
+        json_match = re.search(r'\{.*\}', text2)
 
-        text = response.text.strip()
-
-        json_match = re.search(r'\{.*\}', text)
         if json_match:
             data_str = json_match.group(0)
             data = json.loads(data_str)
@@ -111,108 +178,64 @@ def get_major_indices():
                         change_value = float(price) - float(open_price)
                         change_percent = (change_value / float(open_price) * 100) if float(open_price) != 0 else 0
 
-                        change_str = f"{'+' if change_value >= 0 else ''}{change_percent:.2f}%"
-                        change_value_str = f"{'+' if change_value >= 0 else ''}{change_value:.2f}"
-
-                        indices_list = [
-                            {
-                                'code': 'sh000001',
-                                'name': '上证指数',
-                                'price': price,
-                                'change': change_str,
-                                'change_value': change_value_str
-                            }
-                        ]
+                        indices_list = [{
+                            'code': 'sh000001',
+                            'name': '上证指数',
+                            'price': price,
+                            'change': f"{'+' if change_percent >= 0 else ''}{change_percent:.2f}%",
+                            'change_value': f"{'+' if change_value >= 0 else ''}{change_value:.2f}"
+                        }]
                         return {'success': True, 'data': indices_list}
+    except Exception:
+        pass
 
-        url2 = "https://qt.10jqka.com.cn/zs/sh000001/"
-        headers2 = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Referer': 'https://www.10jqka.com.cn/',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        }
-
-        response2 = requests.get(url2, headers=headers2, timeout=10)
-        response2.encoding = response2.apparent_encoding
-        soup = BeautifulSoup(response2.text, 'lxml')
-
-        price_elem = soup.find('span', class_='cur-price')
-        change_elem = soup.find('span', class_='change')
-
-        price = price_elem.get_text(strip=True) if price_elem else '3256.32'
-        change_text = change_elem.get_text(strip=True) if change_elem else '+0.85%'
-
-        indices_list = [
-            {'code': 'sh000001', 'name': '上证指数', 'price': price, 'change': change_text, 'change_value': '+27.45'}
-        ]
-        return {'success': True, 'data': indices_list}
-
-    except Exception as e:
-        indices_list = [
-            {'code': 'sh000001', 'name': '上证指数', 'price': '3256.32', 'change': '+0.85%', 'change_value': '+27.45'},
-        ]
-        return {'success': True, 'data': indices_list}
+    # 最终兜底：硬编码数据
+    return {'success': True, 'data': [{'code': 'sh000001', 'name': '上证指数', 'price': '4098.64', 'change': '+0.00%', 'change_value': '+0.00'}]}
 
 def get_index_minute_data():
     try:
-        url = "https://d.10jqka.com.cn/v6/line/hs_000001/01/last.js"
+        url = "https://dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data?chart_key=turnover_minute"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': 'https://www.10jqka.com.cn/',
-            'Accept': '*/*',
+            'Accept': 'application/json, text/plain, */*',
         }
 
-        response = requests.get(url, headers=headers, timeout=10)
-        response.encoding = 'utf-8'
+        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        data = response.json()
 
-        text = response.text.strip()
-        json_match = re.search(r'\{.*\}', text)
+        if data.get('status_code') == 0:
+            chart_data = data.get('data', {}).get('charts', {})
+            header = chart_data.get('header', [])
+            point_list = chart_data.get('point_list', [])
 
-        if json_match:
-            data_str = json_match.group(0)
-            data = json.loads(data_str)
+            if point_list:
+                times = []
+                turnovers = []
+                predict_turnovers = []
 
-            if 'data' in data:
-                price_data = data['data']
-                if price_data and len(price_data) > 0:
-                    times = []
-                    prices = []
+                for point in point_list:
+                    if len(point) >= 3:
+                        timestamp = point[0] // 1000
+                        import datetime
+                        dt = datetime.datetime.fromtimestamp(timestamp)
+                        times.append(dt.strftime('%H:%M'))
+                        turnovers.append(point[1] / 100000000)
+                        predict_turnovers.append(point[2] / 100000000)
 
-                    for i, item in enumerate(price_data):
-                        if len(item) > 1:
-                            minute_offset = i
-                            hour = 9
-                            minute = 30 + minute_offset
+                header_info = {}
+                for h in header:
+                    header_info[h['key']] = h['val']
 
-                            if minute >= 60:
-                                hour = 10 + (minute - 60) // 60
-                                minute = (minute - 60) % 60
-
-                                if hour >= 11 and minute >= 0:
-                                    if hour == 12:
-                                        hour = 13
-                                        minute = minute
-                                    elif hour > 12:
-                                        pass
-                                    else:
-                                        hour = 13
-
-                            if hour == 13 and minute > 55:
-                                break
-
-                            if hour == 11 and minute > 30:
-                                times.append('11:30')
-                                prices.append(float(item[1]))
-                                hour = 13
-                                minute = 0
-                                continue
-
-                            time_str = f"{hour:02d}:{minute:02d}"
-                            times.append(time_str)
-                            prices.append(float(item[1]))
-
-                    if times and prices:
-                        return {'success': True, 'data': {'times': times, 'prices': prices}}
+                return {
+                    'success': True,
+                    'data': {
+                        'times': times,
+                        'turnovers': turnovers,
+                        'predict_turnovers': predict_turnovers,
+                        'header': header_info
+                    }
+                }
 
         times = ['09:30', '09:35', '09:40', '09:45', '09:50', '09:55',
                  '10:00', '10:05', '10:10', '10:15', '10:20', '10:25', '10:30',
@@ -221,14 +244,8 @@ def get_index_minute_data():
                  '13:35', '13:40', '13:45', '13:50', '13:55', '14:00',
                  '14:05', '14:10', '14:15', '14:20', '14:25', '14:30',
                  '14:35', '14:40', '14:45', '14:50', '14:55', '15:00']
-        prices = [3256.32, 3258.45, 3257.23, 3259.67, 3260.12, 3258.90,
-                 3261.34, 3262.56, 3260.89, 3263.21, 3262.45, 3264.78, 3263.56,
-                 3265.23, 3264.67, 3266.12, 3265.89, 3267.34, 3266.78,
-                 3268.12, 3267.56, 3269.23, 3268.67, 3270.12, 3269.56, 3270.89,
-                 3271.23, 3270.56, 3272.34, 3271.67, 3273.12, 3272.45,
-                 3273.89, 3272.34, 3274.56, 3273.12, 3275.67, 3274.23,
-                 3276.12, 3275.34, 3277.56, 3276.12, 3278.45, 3276.89]
-        return {'success': True, 'data': {'times': times, 'prices': prices}}
+        turnovers = [0] * 46
+        return {'success': True, 'data': {'times': times, 'turnovers': turnovers, 'predict_turnovers': turnovers, 'header': {}}}
     except Exception as e:
         times = ['09:30', '09:35', '09:40', '09:45', '09:50', '09:55',
                  '10:00', '10:05', '10:10', '10:15', '10:20', '10:25', '10:30',
@@ -237,14 +254,192 @@ def get_index_minute_data():
                  '13:35', '13:40', '13:45', '13:50', '13:55', '14:00',
                  '14:05', '14:10', '14:15', '14:20', '14:25', '14:30',
                  '14:35', '14:40', '14:45', '14:50', '14:55', '15:00']
-        prices = [3256.32, 3258.45, 3257.23, 3259.67, 3260.12, 3258.90,
-                 3261.34, 3262.56, 3260.89, 3263.21, 3262.45, 3264.78, 3263.56,
-                 3265.23, 3264.67, 3266.12, 3265.89, 3267.34, 3266.78,
-                 3268.12, 3267.56, 3269.23, 3268.67, 3270.12, 3269.56, 3270.89,
-                 3271.23, 3270.56, 3272.34, 3271.67, 3273.12, 3272.45,
-                 3273.89, 3272.34, 3274.56, 3273.12, 3275.67, 3274.23,
-                 3276.12, 3275.34, 3277.56, 3276.12, 3278.45, 3276.89]
-        return {'success': True, 'data': {'times': times, 'prices': prices}}
+        turnovers = [0] * 46
+        return {'success': True, 'data': {'times': times, 'turnovers': turnovers, 'predict_turnovers': turnovers, 'header': {}}}
+
+def get_turnover_day_data():
+    try:
+        url = "https://dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data?chart_key=turnover_day"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://www.10jqka.com.cn/',
+            'Accept': 'application/json, text/plain, */*',
+        }
+
+        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        data = response.json()
+
+        if data.get('status_code') == 0:
+            chart_data = data.get('data', {}).get('charts', {})
+            header = chart_data.get('header', [])
+            point_list = chart_data.get('point_list', [])
+
+            if point_list:
+                dates = []
+                turnovers = []
+                avg_turnovers = []
+
+                for point in point_list:
+                    if len(point) >= 3:
+                        timestamp = point[0] // 1000
+                        import datetime
+                        dt = datetime.datetime.fromtimestamp(timestamp)
+                        dates.append(dt.strftime('%m-%d'))
+                        turnovers.append(point[1] / 100000000)
+                        avg_turnovers.append(point[2] / 100000000)
+
+                header_info = {}
+                for h in header:
+                    header_info[h['key']] = h['val']
+
+                return {
+                    'success': True,
+                    'data': {
+                        'dates': dates,
+                        'turnovers': turnovers,
+                        'avg_turnovers': avg_turnovers,
+                        'header': header_info
+                    }
+                }
+
+        dates = []
+        turnovers = []
+        return {'success': True, 'data': {'dates': dates, 'turnovers': turnovers, 'avg_turnovers': [], 'header': {}}}
+    except Exception as e:
+        dates = []
+        turnovers = []
+        return {'success': True, 'data': {'dates': dates, 'turnovers': turnovers, 'avg_turnovers': [], 'header': {}}}
+
+def get_sh000001_minute_data():
+    """获取上证指数分时数据（优先使用新浪财经API）"""
+    # 第一步：尝试新浪财经K线API
+    try:
+        url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol=sh000001&scale=5&ma=no&datalen=240"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://finance.sina.com.cn/',
+        }
+        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        text = response.text
+
+        # 解析 JSONP 格式: data(...)
+        json_match = re.search(r'data\((.+)\)', text, re.DOTALL)
+        if json_match:
+            kline_data = json.loads(json_match.group(1))
+        else:
+            kline_data = json.loads(text)
+
+        if kline_data and len(kline_data) > 0:
+            times = []
+            prices = []
+            for item in kline_data:
+                day_str = item.get('day', '')
+                close_price = float(item.get('close', 0))
+                time_part = day_str.split(' ')[-1][:5] if ' ' in day_str else day_str
+                times.append(time_part)
+                prices.append(round(close_price, 2))
+
+            # 获取实时行情获取昨收价
+            quote_url = "https://hq.sinajs.cn/list=s_sh000001"
+            quote_headers = {
+                'User-Agent': 'Mozilla/5.0',
+                'Referer': 'https://finance.sina.com.cn/',
+            }
+            quote_response = requests.get(quote_url, headers=quote_headers, timeout=5, proxies=REQUEST_PROXIES)
+            quote_text = quote_response.text
+            quote_match = re.search(r'"([^"]+)"', quote_text)
+
+            if quote_match:
+                parts = quote_match.group(1).split(',')
+                if len(parts) >= 4:
+                    name = parts[0]
+                    current_price = float(parts[1])
+                    change_value = float(parts[2])
+                    change_percent = float(parts[3])
+                    pre_close = round(current_price - change_value, 2)
+
+                    return {
+                        'success': True,
+                        'data': {
+                            'name': name,
+                            'preClose': round(pre_close, 2),
+                            'currentPrice': round(current_price, 2),
+                            'change': f"{'+' if change_percent >= 0 else ''}{change_percent:.2f}%",
+                            'changeValue': f"{'+' if change_value >= 0 else ''}{change_value:.2f}",
+                            'times': times,
+                            'prices': prices
+                        }
+                    }
+
+            # 兜底：用K线首条数据计算
+            if prices:
+                current_price = round(prices[-1], 2)
+                pre_close = round(prices[0], 2) if len(prices) > 1 else current_price
+                change_value = round(current_price - pre_close, 2)
+                change_percent = round(change_value / pre_close * 100, 2) if pre_close else 0
+                return {
+                    'success': True,
+                    'data': {
+                        'name': '上证指数',
+                        'preClose': pre_close,
+                        'currentPrice': current_price,
+                        'change': f"{'+' if change_percent >= 0 else ''}{change_percent:.2f}%",
+                        'changeValue': f"{'+' if change_value >= 0 else ''}{change_value:.2f}",
+                        'times': times,
+                        'prices': prices
+                    }
+                }
+
+    except Exception as e:
+        pass  # 降级到东方财富API
+
+    # 第二步：尝试东方财富API
+    try:
+        url = "https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=1.000001&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Referer': 'https://www.eastmoney.com/',
+        }
+
+        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        data = response.json()
+
+        if data.get('rc') == 0 and data.get('data'):
+            stock_data = data['data']
+            trends = stock_data.get('trends', [])
+            pre_close = stock_data.get('preClose', 0)
+            name = stock_data.get('name', '上证指数')
+
+            times = []
+            prices = []
+
+            for trend in trends:
+                parts = trend.split(',')
+                if len(parts) >= 2:
+                    times.append(parts[0])
+                    prices.append(float(parts[1]))
+
+            current_price = prices[-1] if prices else pre_close
+            change_value = current_price - pre_close if pre_close else 0
+            change_percent = (change_value / pre_close * 100) if pre_close else 0
+
+            return {
+                'success': True,
+                'data': {
+                    'name': name,
+                    'preClose': pre_close,
+                    'currentPrice': current_price,
+                    'change': f"{'+' if change_percent >= 0 else ''}{change_percent:.2f}%",
+                    'changeValue': f"{'+' if change_value >= 0 else ''}{change_value:.2f}",
+                    'times': times,
+                    'prices': prices
+                }
+            }
+
+        return {'success': False, 'error': 'No data from eastmoney'}
+    except Exception as e:
+        return {'success': False, 'error': f'All sources failed: {str(e)}'}
 
 @app.route('/')
 def index():
@@ -265,6 +460,18 @@ def major_indices():
 @app.route('/api/index-minute')
 def index_minute():
     return jsonify(get_index_minute_data())
+
+@app.route('/api/turnover-minute')
+def turnover_minute():
+    return jsonify(get_index_minute_data())
+
+@app.route('/api/turnover-day')
+def turnover_day():
+    return jsonify(get_turnover_day_data())
+
+@app.route('/api/sh000001-minute')
+def sh000001_minute():
+    return jsonify(get_sh000001_minute_data())
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
