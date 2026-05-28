@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鑫多多 - 资金流向</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 200px;
+            background: #16213e;
+            padding: 20px 0;
+            border-right: 1px solid #0f3460;
+        }
+
+        .logo {
+            padding: 20px;
+            text-align: center;
+            border-bottom: 1px solid #0f3460;
+            margin-bottom: 20px;
+        }
+
+        .logo h1 {
+            font-size: 24px;
+            color: #e94560;
+            font-weight: bold;
+        }
+
+        .nav-section {
+            margin-bottom: 10px;
+        }
+
+        .section-title {
+            padding: 10px 20px;
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .nav-item {
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border-left: 3px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+
+        .nav-item:hover {
+            background: #0f3460;
+            border-left-color: #e94560;
+        }
+
+        .nav-item.active {
+            background: #0f3460;
+            border-left-color: #e94560;
+            color: #e94560;
+        }
+
+        .nav-icon {
+            font-size: 18px;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .page-title {
+            font-size: 24px;
+            color: #fff;
+        }
+
+        .refresh-btn {
+            background: #e94560;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+
+        .refresh-btn:hover {
+            background: #d63850;
+        }
+
+        .index-card {
+            background: #16213e;
+            border-radius: 10px;
+            border: 1px solid #0f3460;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .index-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .index-info {
+            display: flex;
+            align-items: baseline;
+            gap: 15px;
+        }
+
+        .index-name {
+            font-size: 16px;
+            color: #888;
+        }
+
+        .index-price {
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .index-change {
+            font-size: 16px;
+        }
+
+        .index-change.up {
+            color: #e94560;
+        }
+
+        .index-change.down {
+            color: #4ade80;
+        }
+
+        .chart-row {
+            display: flex;
+            gap: 20px;
+        }
+
+        .chart-box {
+            flex: 1;
+            height: 180px;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-box canvas {
+            flex: 1;
+            min-height: 0;
+            max-height: 150px;
+        }
+
+        .chart-title {
+            font-size: 13px;
+            color: #888;
+            text-align: center;
+            margin-top: 5px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            background: #16213e;
+            padding: 5px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            background: transparent;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.3s;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tab-btn:hover {
+            color: #fff;
+            background: #0f3460;
+        }
+
+        .tab-btn.active {
+            background: #e94560;
+            color: white;
+        }
+
+        .stats-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #16213e;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #0f3460;
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 10px;
+        }
+
+        .stat-card .value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .stat-card .value.positive {
+            color: #e94560;
+        }
+
+        .stat-card .value.negative {
+            color: #4ade80;
+        }
+
+        .data-table {
+            width: 100%;
+            background: #16213e;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid #0f3460;
+        }
+
+        .data-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .data-table thead {
+            background: #0f3460;
+        }
+
+        .data-table th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .data-table tbody tr {
+            border-bottom: 1px solid #0f3460;
+            transition: background 0.3s;
+        }
+
+        .data-table tbody tr:hover {
+            background: #0f3460;
+        }
+
+        .data-table td {
+            padding: 15px;
+            color: #ddd;
+        }
+
+        .change-up {
+            color: #e94560 !important;
+        }
+
+        .change-down {
+            color: #4ade80 !important;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: #888;
+        }
+
+        .error {
+            text-align: center;
+            padding: 50px;
+            color: #e94560;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="logo">
+                <h1>鑫多多</h1>
+            </div>
+            <div class="nav-section">
+                <div class="section-title">行情数据</div>
+                <div class="nav-item active" data-page="money-flow">
+                    <span class="nav-icon">💰</span>
+                    <span>资金流向</span>
+                </div>
+            </div>
+        </div>
+        <div class="main-content">
+            <div class="page-header">
+                <h1 class="page-title">💰 资金流向</h1>
+                <button class="refresh-btn" onclick="loadAllData()">🔄 刷新数据</button>
+            </div>
+
+            <div class="index-card" id="index-card">
+                <div class="loading">正在加载上证指数...</div>
+            </div>
+
+            <div class="tabs">
+                <button class="tab-btn active" data-page="concept">
+                    💡 概念板块
+                </button>
+                <button class="tab-btn" data-page="industry">
+                    🏭 行业板块
+                </button>
+                <button class="tab-btn" data-page="index">
+                    📊 指数板块
+                </button>
+            </div>
+
+            <div id="content-area">
+                <div class="loading">正在加载数据...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 'concept';
+        let minuteChart = null;
+        let flowChart = null;
+
+        function generateMockFlowData() {
+            const times = [];
+            const netFlows = [];
+
+            let cumulative = 0;
+            for (let i = 0; i < 46; i++) {
+                const hour = i < 19 ? 9 : 13;
+                const minute = i < 19 ? 30 + (i * 5) : (i - 19) * 5;
+                if (i === 19) {
+                    times.push('11:30');
+                    netFlows.push(cumulative);
+                    continue;
+                }
+                if (hour === 13 && minute > 55) break;
+
+                const timeStr = `${hour}:${minute.toString().padStart(2, '0')}`;
+                times.push(timeStr);
+
+                const change = (Math.random() - 0.5) * 100;
+                cumulative += change;
+                netFlows.push(Math.round(cumulative));
+            }
+
+            return { times, netFlows };
+        }
+
+        async function loadIndexWithChart() {
+            const indexCard = document.getElementById('index-card');
+            indexCard.innerHTML = '<div class="loading">正在加载上证指数...</div>';
+
+            try {
+                const [indexRes, minuteRes] = await Promise.all([
+                    fetch('/api/major-indices'),
+                    fetch('/api/index-minute')
+                ]);
+
+                const indexResult = await indexRes.json();
+                const minuteResult = await minuteRes.json();
+
+                if (indexResult.success && indexResult.data.length > 0) {
+                    const item = indexResult.data[0];
+                    const isUp = item.change.startsWith('+');
+                    const changeClass = isUp ? 'up' : 'down';
+                    const lineColor = isUp ? '#e94560' : '#4ade80';
+                    const gradientColor = isUp ? 'rgba(233, 69, 96, 0.2)' : 'rgba(74, 222, 128, 0.2)';
+
+                    let times = ['09:30', '09:35', '09:40', '09:45', '09:50', '09:55',
+                         '10:00', '10:05', '10:10', '10:15', '10:20', '10:25', '10:30',
+                         '10:35', '10:40', '10:45', '10:50', '10:55', '11:00',
+                         '13:00', '13:05', '13:10', '13:15', '13:20', '13:25', '13:30',
+                         '13:35', '13:40', '13:45', '13:50', '13:55', '14:00',
+                         '14:05', '14:10', '14:15', '14:20', '14:25', '14:30',
+                         '14:35', '14:40', '14:45', '14:50', '14:55', '15:00'];
+                    let prices = [3256.32, 3258.45, 3257.23, 3259.67, 3260.12, 3258.90,
+                         3261.34, 3262.56, 3260.89, 3263.21, 3262.45, 3264.78, 3263.56,
+                         3265.23, 3264.67, 3266.12, 3265.89, 3267.34, 3266.78,
+                         3268.12, 3267.56, 3269.23, 3268.67, 3270.12, 3269.56, 3270.89,
+                         3271.23, 3270.56, 3272.34, 3271.67, 3273.12, 3272.45,
+                         3273.89, 3272.34, 3274.56, 3273.12, 3275.67, 3274.23,
+                         3276.12, 3275.34, 3277.56, 3276.12, 3278.45, 3276.89];
+
+                    if (minuteResult.success) {
+                        times = minuteResult.data.times;
+                        prices = minuteResult.data.prices;
+                    }
+
+                    const flowData = generateMockFlowData();
+
+                    indexCard.innerHTML = `
+                        <div class="index-header">
+                            <div class="index-info">
+                                <span class="index-name">${item.name}</span>
+                                <span class="index-price">${item.price}</span>
+                                <span class="index-change ${changeClass}">${item.change} ${item.change_value}</span>
+                            </div>
+                        </div>
+                        <div class="chart-row">
+                            <div class="chart-box">
+                                <canvas id="minuteChart"></canvas>
+                                <div class="chart-title">分时走势</div>
+                            </div>
+                            <div class="chart-box">
+                                <canvas id="flowChart"></canvas>
+                                <div class="chart-title">大盘资金净流入</div>
+                            </div>
+                        </div>
+                    `;
+
+                    setTimeout(() => {
+                        const ctxMinute = document.getElementById('minuteChart').getContext('2d');
+
+                        if (minuteChart) {
+                            minuteChart.destroy();
+                        }
+
+                        const gradient = ctxMinute.createLinearGradient(0, 0, 0, 180);
+                        gradient.addColorStop(0, gradientColor);
+                        gradient.addColorStop(1, 'rgba(26, 26, 46, 0)');
+
+                        minuteChart = new Chart(ctxMinute, {
+                            type: 'line',
+                            data: {
+                                labels: times,
+                                datasets: [{
+                                    data: prices,
+                                    borderColor: lineColor,
+                                    backgroundColor: gradient,
+                                    borderWidth: 2,
+                                    fill: true,
+                                    tension: 0.1,
+                                    pointRadius: 0,
+                                    pointHoverRadius: 4
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        mode: 'index',
+                                        intersect: false,
+                                        backgroundColor: '#16213e',
+                                        titleColor: '#fff',
+                                        bodyColor: '#ddd',
+                                        borderColor: '#0f3460',
+                                        borderWidth: 1
+                                    }
+                                },
+                                scales: {
+                                    x: {
+                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                        ticks: { color: '#888', maxTicksLimit: 6 }
+                                    },
+                                    y: {
+                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                        ticks: { color: '#888' }
+                                    }
+                                },
+                                interaction: {
+                                    mode: 'nearest',
+                                    axis: 'x',
+                                    intersect: false
+                                }
+                            }
+                        });
+
+                        const ctxFlow = document.getElementById('flowChart').getContext('2d');
+
+                        if (flowChart) {
+                            flowChart.destroy();
+                        }
+
+                        const flowIsUp = flowData.netFlows[flowData.netFlows.length - 1] >= 0;
+                        const flowLineColor = flowIsUp ? '#e94560' : '#4ade80';
+                        const flowGradientColor = flowIsUp ? 'rgba(233, 69, 96, 0.2)' : 'rgba(74, 222, 128, 0.2)';
+
+                        const flowGradient = ctxFlow.createLinearGradient(0, 0, 0, 180);
+                        flowGradient.addColorStop(0, flowGradientColor);
+                        flowGradient.addColorStop(1, 'rgba(26, 26, 46, 0)');
+
+                        flowChart = new Chart(ctxFlow, {
+                            type: 'line',
+                            data: {
+                                labels: flowData.times,
+                                datasets: [{
+                                    data: flowData.netFlows,
+                                    borderColor: flowLineColor,
+                                    backgroundColor: flowGradient,
+                                    borderWidth: 2,
+                                    fill: true,
+                                    tension: 0.1,
+                                    pointRadius: 0,
+                                    pointHoverRadius: 4
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        mode: 'index',
+                                        intersect: false,
+                                        backgroundColor: '#16213e',
+                                        titleColor: '#fff',
+                                        bodyColor: '#ddd',
+                                        borderColor: '#0f3460',
+                                        borderWidth: 1,
+                                        callbacks: {
+                                            label: function(context) {
+                                                const value = context.raw;
+                                                return value >= 0 ? '净流入: +' + value.toLocaleString() + '万' : '净流出: ' + value.toLocaleString() + '万';
+                                            }
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    x: {
+                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                        ticks: { color: '#888', maxTicksLimit: 6 }
+                                    },
+                                    y: {
+                                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                                        ticks: {
+                                            color: '#888',
+                                            callback: function(value) {
+                                                return value >= 0 ? '+' + value.toLocaleString() : value.toLocaleString();
+                                            }
+                                        }
+                                    }
+                                },
+                                interaction: {
+                                    mode: 'nearest',
+                                    axis: 'x',
+                                    intersect: false
+                                }
+                            }
+                        });
+                    }, 0);
+
+                } else {
+                    indexCard.innerHTML = '<div class="error">暂无指数数据</div>';
+                }
+            } catch (error) {
+                indexCard.innerHTML = `<div class="error">指数加载失败</div>`;
+            }
+        }
+
+        async function loadMoneyFlowData() {
+            const contentArea = document.getElementById('content-area');
+            contentArea.innerHTML = '<div class="loading">正在加载数据...</div>';
+
+            try {
+                const response = await fetch(`/api/money-flow/${currentPage}`);
+                const result = await response.json();
+
+                if (result.success && result.data.length > 0) {
+                    let totalInflow = 0;
+                    let totalOutflow = 0;
+
+                    result.data.forEach(item => {
+                        const inflowVal = parseFloat(item.inflow.replace('亿', '')) || 0;
+                        const outflowVal = parseFloat(item.outflow.replace('亿', '')) || 0;
+                        totalInflow += inflowVal;
+                        totalOutflow += outflowVal;
+                    });
+
+                    const netFlow = (totalInflow - totalOutflow).toFixed(2);
+
+                    let html = `
+                        <div class="stats-cards">
+                            <div class="stat-card">
+                                <h3>总流入</h3>
+                                <div class="value positive">${totalInflow.toFixed(2)}亿</div>
+                            </div>
+                            <div class="stat-card">
+                                <h3>总流出</h3>
+                                <div class="value negative">${totalOutflow.toFixed(2)}亿</div>
+                            </div>
+                            <div class="stat-card">
+                                <h3>净流入</h3>
+                                <div class="value ${netFlow >= 0 ? 'positive' : 'negative'}">${netFlow >= 0 ? '+' : ''}${netFlow}亿</div>
+                            </div>
+                            <div class="stat-card">
+                                <h3>板块数量</h3>
+                                <div class="value">${result.data.length}</div>
+                            </div>
+                        </div>
+                        <div class="data-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>排名</th>
+                                        <th>板块名称</th>
+                                        <th>涨跌幅</th>
+                                        <th>流入</th>
+                                        <th>流出</th>
+                                        <th>净流入</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+
+                    result.data.forEach(item => {
+                        const changeClass = item.change.startsWith('+') ? 'change-up' : 'change-down';
+                        html += `
+                            <tr>
+                                <td>${item.rank}</td>
+                                <td>${item.name}</td>
+                                <td class="${changeClass}">${item.change}</td>
+                                <td>${item.inflow}</td>
+                                <td>${item.outflow}</td>
+                                <td class="${changeClass}">${item.net_inflow}</td>
+                            </tr>
+                        `;
+                    });
+
+                    html += '</tbody></table></div>';
+                    contentArea.innerHTML = html;
+                } else {
+                    contentArea.innerHTML = '<div class="error">暂无数据，请稍后重试</div>';
+                }
+            } catch (error) {
+                contentArea.innerHTML = `<div class="error">数据加载失败: ${error.message}</div>`;
+            }
+        }
+
+        async function loadAllData() {
+            await loadIndexWithChart();
+            await loadMoneyFlowData();
+        }
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+
+                currentPage = this.getAttribute('data-page');
+                loadMoneyFlowData();
+            });
+        });
+
+        loadAllData();
+    </script>
+</body>
+</html>
