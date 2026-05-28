@@ -18,6 +18,15 @@ git config user.name >nul 2>&1 || (
 echo.
 echo Adding changes...
 git add .
+echo Git Status...
+git status
+echo.
+set /p confirm="确认提交? (Y/n): "
+if /i not "%confirm%"=="Y" (
+    echo 已取消.
+    pause
+    exit /b
+)
 echo Committing...
 git commit -m "%msg%"
 echo Pushing to remote...
