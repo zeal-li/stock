@@ -518,6 +518,13 @@ def get_market_fund_flow():
                 flows_mid.append(round(float(parts[3]) / 1e8, 2))
                 flows_small.append(round(float(parts[2]) / 1e8, 2))
 
+            # 补上 09:30 起点（开盘时资金流为 0）
+            if times and times[0] != '09:30':
+                times.insert(0, '09:30')
+                flows.insert(0, 0)
+                flows_mid.insert(0, 0)
+                flows_small.insert(0, 0)
+
             return {
                 'success': True,
                 'data': {
@@ -561,6 +568,106 @@ def turnover_minute():
 @app.route('/api/turnover-day')
 def turnover_day():
     return jsonify(get_turnover_day_data())
+
+@app.route('/api/fear-index')
+def fear_index():
+    """市场恐慌指数：基于沪深两市上涨/下跌家数比"""
+    try:
+        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+        params = {
+            'fltt': 2, 'invt': 2,
+            'fields': 'f104,f105,f106',
+            'secids': '1.000001,0.399001',
+            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+        }
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://data.eastmoney.com/',
+        }
+        r = requests.get(url, params=params, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        data = r.json()
+        diff = (data.get('data') or {}).get('diff') or []
+
+        rise = sum(int(row.get('f104', 0)) for row in diff)
+        fall = sum(int(row.get('f105', 0)) for row in diff)
+        flat = sum(int(row.get('f106', 0)) for row in diff)
+        total_active = rise + fall
+
+        # 恐慌指数: 0=极度恐慌, 100=极度贪婪
+        if total_active > 0:
+            fear_score = round(rise / total_active * 100, 1)
+        else:
+            fear_score = 50
+
+        if fear_score <= 30:
+            level, color = '极度恐慌', '#4ade80'
+        elif fear_score <= 45:
+            level, color = '恐慌', '#86efac'
+        elif fear_score <= 55:
+            level, color = '中性', '#fbbf24'
+        elif fear_score <= 70:
+            level, color = '乐观', '#f97316'
+        else:
+            level, color = '极度贪婪', '#e94560'
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'score': fear_score,
+                'level': level,
+                'color': color,
+                'rise': rise,
+                'fall': fall,
+                'flat': flat,
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/margin-trading')
+def margin_trading():
+    """融资融券数据：沪市每日融资余额趋势"""
+    try:
+        from datetime import date, timedelta
+        import akshare as ak
+        end = date.today().strftime('%Y%m%d')
+        start = (date.today() - timedelta(days=60)).strftime('%Y%m%d')
+        df = ak.stock_margin_sse(start_date=start, end_date=end)
+        if df is None or df.empty:
+            return jsonify({'success': False, 'error': 'No data'})
+
+        dates = []
+        rz_balances = []     # 融资余额(亿)
+        rq_balances = []     # 融券余额(亿)
+        total_balances = []  # 两融余额(亿)
+        buy_amounts = []     # 融资买入额(亿)
+        for _, row in df.iterrows():
+            d = str(row['信用交易日期'])[:4] + '-' + str(row['信用交易日期'])[4:6] + '-' + str(row['信用交易日期'])[6:8]
+            dates.insert(0, d[-5:])
+            rz_balances.insert(0, round(float(row['融资余额']) / 1e8, 2))
+            rq_balances.insert(0, round(float(row['融券余量金额']) / 1e8, 2))
+            total_balances.insert(0, round(float(row['融资融券余额']) / 1e8, 2))
+            buy_amounts.insert(0, round(float(row['融资买入额']) / 1e8, 2))
+
+        latest = df.iloc[0]  # akshare 返回最新在前
+        return jsonify({
+            'success': True,
+            'data': {
+                'dates': dates,
+                'rz_balances': rz_balances,
+                'rq_balances': rq_balances,
+                'total_balances': total_balances,
+                'buy_amounts': buy_amounts,
+                'latest_date': dates[-1] if dates else '',
+                'latest_rz': round(float(latest['融资余额']) / 1e8, 2),
+                'latest_rq': round(float(latest['融券余量金额']) / 1e8, 2),
+                'latest_total': round(float(latest['融资融券余额']) / 1e8, 2),
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 
 @app.route('/api/sh000001-minute')
 def sh000001_minute():

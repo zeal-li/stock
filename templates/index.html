@@ -355,6 +355,7 @@
         let currentPage = 'concept';
         let minuteChart = null;
         let turnoverChart = null;
+        let marginChart = null;
 
         function formatTurnover(value) {
             if (value >= 10000) {
@@ -390,22 +391,37 @@
                         <div class="index-header">
                             <div class="index-info">
                                 <span class="index-name">${indexData.name}</span>
-                                <span class="index-price">${indexData.price}</span>
+                                <span class="index-price" style="color: ${lineColor};">${indexData.price}</span>
                                 <span class="index-change ${changeClass}">${indexData.change} ${indexData.change_value}</span>
+                                <span id="marketBreadth" style="font-size: 12px; color: #888;"></span>
                             </div>
                         </div>
                         <div style="display: flex; gap: 30px; font-size: 13px; color: #888; margin-bottom: 15px;">
                             <span>加载中...</span>
                         </div>
-                        <div class="chart-row">
-                            <div class="chart-box" style="position:relative;">
-                                <canvas id="minuteChart"></canvas>
-                                <div id="minuteLoading" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;pointer-events:none;">加载中...</div>
-                                <div class="chart-title">分时走势</div>
+                        <div style="display: flex; gap: 20px;">
+                            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 15px;">
+                                <div class="chart-box" style="position:relative;">
+                                    <canvas id="minuteChart"></canvas>
+                                    <div id="minuteLoading" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;pointer-events:none;">加载中...</div>
+                                    <div class="chart-title">分时走势</div>
+                                </div>
+                                <div class="chart-box">
+                                    <canvas id="turnoverChart"></canvas>
+                                    <div class="chart-title">大盘净资金流入</div>
+                                </div>
+                                <div class="chart-box">
+                                    <canvas id="marginChart"></canvas>
+                                    <div class="chart-title">融资融券</div>
+                                </div>
                             </div>
-                            <div class="chart-box">
-                                <canvas id="turnoverChart"></canvas>
-                                <div class="chart-title">大盘净资金流入</div>
+                            <div style="width: 280px; min-width: 280px;">
+                                <div class="index-card" style="height: 100%; padding: 20px;">
+                                    <div class="chart-title" style="margin-bottom: 15px;">市场恐慌指数</div>
+                                    <div id="fearIndex" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100% - 30px);">
+                                        <div class="loading">加载中...</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     `;
@@ -518,6 +534,7 @@
                             options: {
                                 responsive: true,
                                 maintainAspectRatio: false,
+                                layout: { padding: { left: 10, right: 10 } },
                                 plugins: {
                                     legend: { display: false },
                                     tooltip: {
@@ -528,13 +545,146 @@
                                 },
                                 scales: {
                                     x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, font: { size: 10 }, callback: function(value, index) { return index % 15 === 0 ? this.getLabelForValue(value) : ''; } } },
-                                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(value) { return value.toFixed(2) + '亿'; } } }
+                                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(value) { return value.toFixed(2) + '亿'; } }, afterFit: function(scale) { scale.width = 65; } }
                                 },
                                 interaction: { mode: 'index', intersect: false }
                             }
                         });
                     })
                     .catch(err => console.log('资金流数据加载失败:', err));
+
+                fetch('/api/margin-trading')
+                    .then(res => res.json())
+                    .then(marginResult => {
+                        const ctxMargin = document.getElementById('marginChart').getContext('2d');
+                        if (marginChart) marginChart.destroy();
+
+                        let marginDates = [];
+                        let rzBalances = [];
+                        let rqBalances = [];
+                        let totalBalances = [];
+                        let buyAmounts = [];
+
+                        if (marginResult.success && marginResult.data.dates) {
+                            marginDates = marginResult.data.dates;
+                            rzBalances = marginResult.data.rz_balances;
+                            rqBalances = marginResult.data.rq_balances;
+                            totalBalances = marginResult.data.total_balances;
+                            buyAmounts = marginResult.data.buy_amounts;
+                        }
+
+                        marginChart = new Chart(ctxMargin, {
+                            type: 'line',
+                            data: {
+                                labels: marginDates,
+                                datasets: [{
+                                    label: '两融余额',
+                                    data: totalBalances,
+                                    borderColor: '#fbbf24',
+                                    backgroundColor: 'rgba(251,191,36,0.08)',
+                                    borderWidth: 2,
+                                    pointRadius: 0,
+                                    pointHoverRadius: 3,
+                                    tension: 0.3,
+                                    fill: true,
+                                    yAxisID: 'y'
+                                }, {
+                                    label: '融资余额',
+                                    data: rzBalances,
+                                    borderColor: '#e94560',
+                                    backgroundColor: 'transparent',
+                                    borderWidth: 2,
+                                    pointRadius: 0,
+                                    pointHoverRadius: 3,
+                                    tension: 0.3,
+                                    fill: false,
+                                    yAxisID: 'y'
+                                }, {
+                                    label: '融券余额',
+                                    data: rqBalances,
+                                    borderColor: '#4ade80',
+                                    backgroundColor: 'transparent',
+                                    borderWidth: 1.5,
+                                    pointRadius: 0,
+                                    pointHoverRadius: 3,
+                                    tension: 0.3,
+                                    fill: false,
+                                    yAxisID: 'y1'
+                                }, {
+                                    label: '融资买入额',
+                                    data: buyAmounts,
+                                    borderColor: '#60a5fa',
+                                    backgroundColor: 'transparent',
+                                    borderWidth: 1.5,
+                                    borderDash: [4, 3],
+                                    pointRadius: 0,
+                                    pointHoverRadius: 3,
+                                    tension: 0.3,
+                                    fill: false,
+                                    yAxisID: 'y1'
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                layout: { padding: { left: 10, right: 10 } },
+                                plugins: {
+                                    legend: { display: true, position: 'top', labels: { color: '#888', font: { size: 10 }, boxWidth: 12, padding: 5 } },
+                                    tooltip: {
+                                        mode: 'index', intersect: false,
+                                        backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
+                                        callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.raw.toFixed(2) + '亿' }
+                                    }
+                                },
+                                scales: {
+                                    x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#888', font: { size: 10 }, maxTicksLimit: 14 } },
+                                    y: {
+                                        type: 'linear', position: 'left',
+                                        grid: { color: 'rgba(255,255,255,0.1)' },
+                                        ticks: { color: '#e94560', font: { size: 10 }, callback: v => (v / 10000).toFixed(2) + '万亿' },
+                                        afterFit: function(scale) { scale.width = 65; }
+                                    },
+                                    y1: {
+                                        type: 'linear', position: 'right',
+                                        grid: { display: false },
+                                        ticks: { color: '#4ade80', font: { size: 10 }, callback: v => v.toFixed(0) + '亿' },
+                                        afterFit: function(scale) { scale.width = 50; }
+                                    }
+                                },
+                                interaction: { mode: 'index', intersect: false }
+                            }
+                        });
+                    })
+                    .catch(err => console.log('融资融券数据加载失败:', err));
+
+                fetch('/api/fear-index')
+                    .then(res => res.json())
+                    .then(fearResult => {
+                        const fearDiv = document.getElementById('fearIndex');
+                        if (fearResult.success && fearResult.data) {
+                            const d = fearResult.data;
+                            // 涨跌数据放到 header
+                            const breadthDiv = document.getElementById('marketBreadth');
+                            if (breadthDiv) {
+                                breadthDiv.innerHTML = `涨<span style="color:#e94560;">${d.rise}</span> 跌<span style="color:#4ade80;">${d.fall}</span> 平<span style="color:#888;">${d.flat}</span>`;
+                            }
+                            // 恐慌指数卡片
+                            fearDiv.innerHTML = `
+                                <div style="font-size:28px; font-weight:bold; color:${d.color}; margin-bottom:5px;">${d.score}</div>
+                                <div style="font-size:14px; color:${d.color}; margin-bottom:12px;">${d.level}</div>
+                                <div style="width:100%; position:relative; margin-bottom:8px;">
+                                    <div style="width:100%; height:12px; border-radius:6px; background: linear-gradient(to right, #4ade80 0%, #86efac 30%, #fbbf24 50%, #f97316 70%, #e94560 100%);"></div>
+                                    <div style="position:absolute; top:-3px; left:${d.score}%; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 6px rgba(255,255,255,0.5);"></div>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:10px; color:#666;">
+                                    <span>恐慌</span><span>中性</span><span>贪婪</span>
+                                </div>
+                            `;
+                        } else {
+                            fearDiv.innerHTML = '<div class="error">暂无数据</div>';
+                        }
+                    })
+                    .catch(err => console.log('恐慌指数加载失败:', err));
 
                 fetch('/api/sh000001-minute')
                     .then(res => res.json())
@@ -577,13 +727,14 @@
                                     }]
                                 },
                                 options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    plugins: { legend: { display: false } },
-                                    scales: {
-                                        x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { return index % 4 === 0 ? this.getLabelForValue(value) : ''; } } },
-                                        y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888' } }
-                                    },
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                layout: { padding: { left: 10, right: 10 } },
+                                plugins: { legend: { display: false } },
+                                scales: {
+                                    x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { return index % 3 === 0 ? this.getLabelForValue(value) : ''; } } },
+                                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888' }, afterFit: function(scale) { scale.width = 65; } }
+                                },
                                     interaction: { mode: 'nearest', axis: 'x', intersect: false }
                                 }
                             });
