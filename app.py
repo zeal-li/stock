@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import json
 import re
 import os
+import datetime
 
 app = Flask(__name__)
 CORS(app)
@@ -210,18 +211,28 @@ def get_index_minute_data():
             point_list = chart_data.get('point_list', [])
 
             if point_list:
-                times = []
-                turnovers = []
-                predict_turnovers = []
-
+                # 按日期分组，只取最近一个交易日的数据
+                day_groups = {}
                 for point in point_list:
                     if len(point) >= 3:
                         timestamp = point[0] // 1000
-                        import datetime
                         dt = datetime.datetime.fromtimestamp(timestamp)
+                        date_key = dt.strftime('%Y-%m-%d')
+                        if date_key not in day_groups:
+                            day_groups[date_key] = []
+                        day_groups[date_key].append((dt, point[1] / 100000000, point[2] / 100000000))
+
+                if day_groups:
+                    latest_day = sorted(day_groups.keys())[-1]
+                    filtered_points = day_groups[latest_day]
+
+                    times = []
+                    turnovers = []
+                    predict_turnovers = []
+                    for dt, t, pt in filtered_points:
                         times.append(dt.strftime('%H:%M'))
-                        turnovers.append(point[1] / 100000000)
-                        predict_turnovers.append(point[2] / 100000000)
+                        turnovers.append(t)
+                        predict_turnovers.append(pt)
 
                 header_info = {}
                 for h in header:
@@ -282,7 +293,6 @@ def get_turnover_day_data():
                 for point in point_list:
                     if len(point) >= 3:
                         timestamp = point[0] // 1000
-                        import datetime
                         dt = datetime.datetime.fromtimestamp(timestamp)
                         dates.append(dt.strftime('%m-%d'))
                         turnovers.append(point[1] / 100000000)
@@ -330,14 +340,37 @@ def get_sh000001_minute_data():
             kline_data = json.loads(text)
 
         if kline_data and len(kline_data) > 0:
+            # 按日期分组，只取最近一个交易日的数据（避免多天数据拼接）
+            day_groups = {}
+            for item in kline_data:
+                day_str = item.get('day', '')
+                date_part = day_str.split(' ')[0] if ' ' in day_str else day_str
+                if date_part:
+                    if date_part not in day_groups:
+                        day_groups[date_part] = []
+                    day_groups[date_part].append(item)
+
+            # 取最近交易日的 K 线数据
+            if day_groups:
+                latest_day = sorted(day_groups.keys())[-1]
+                filtered_data = day_groups[latest_day]
+            else:
+                filtered_data = kline_data
+
             times = []
             prices = []
-            for item in kline_data:
+            for item in filtered_data:
                 day_str = item.get('day', '')
                 close_price = float(item.get('close', 0))
                 time_part = day_str.split(' ')[-1][:5] if ' ' in day_str else day_str
                 times.append(time_part)
                 prices.append(round(close_price, 2))
+
+            # 如果第一条数据不是 09:30（5分钟K线从 09:35 开始），补上开盘价
+            if times and times[0] != '09:30':
+                open_price = float(filtered_data[0].get('open', 0))
+                times.insert(0, '09:30')
+                prices.insert(0, round(open_price, 2))
 
             # 获取实时行情获取昨收价
             quote_url = "https://hq.sinajs.cn/list=s_sh000001"

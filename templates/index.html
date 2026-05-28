@@ -317,7 +317,6 @@
                 <h1>鑫多多</h1>
             </div>
             <div class="nav-section">
-                <div class="section-title">行情数据</div>
                 <div class="nav-item active" data-page="money-flow">
                     <span class="nav-icon">💰</span>
                     <span>资金流向</span>
@@ -406,7 +405,7 @@
                             </div>
                             <div class="chart-box">
                                 <canvas id="turnoverChart"></canvas>
-                                <div class="chart-title">市场成交额分时</div>
+                                <div class="chart-title">大盘净资金流入</div>
                             </div>
                         </div>
                     `;
@@ -435,9 +434,9 @@
                             const change = turnoverHeader.turnover_change / 100000000;
                             headerInfo = `
                                 <div style="display: flex; gap: 30px; font-size: 13px; color: #888;">
-                                    <span>当日成交额: <span style="color: #fff;">${formatTurnover(todayTurnover)}</span></span>
-                                    <span>昨日成交额: <span style="color: #fff;">${formatTurnover(yesterdayTurnover)}</span></span>
-                                    <span>较昨日变动: <span style="color: ${change >= 0 ? '#e94560' : '#4ade80'};">${change >= 0 ? '+' : ''}${formatTurnover(change)}</span></span>
+                                    <span>当日成交额: <span style="color: #fff;">${todayTurnover.toFixed(2)}亿</span></span>
+                                    <span>昨日成交额: <span style="color: #fff;">${yesterdayTurnover.toFixed(2)}亿</span></span>
+                                    <span>较昨日变动: <span style="color: ${change >= 0 ? '#e94560' : '#4ade80'};">${change >= 0 ? '+' : ''}${change.toFixed(2)}亿</span></span>
                                 </div>
                             `;
                         }
@@ -449,28 +448,51 @@
                         if (turnoverChart) turnoverChart.destroy();
 
                         turnoverChart = new Chart(ctxTurnover, {
-                            type: 'bar',
+                            type: 'line',
                             data: {
                                 labels: turnoverTimes,
-                                datasets: [
-                                    { label: '当日成交额', data: turnovers, backgroundColor: 'rgba(233, 69, 96, 0.6)', borderColor: '#e94560', borderWidth: 1 },
-                                    { label: '昨日同期成交额', data: predictTurnovers, backgroundColor: 'rgba(74, 222, 128, 0.6)', borderColor: '#4ade80', borderWidth: 1 }
-                                ]
+                                datasets: [{
+                                    label: '净流入',
+                                    data: turnovers.map((v, i) => v - (predictTurnovers[i] || 0)),
+                                    borderColor: '#fbbf24',
+                                    backgroundColor: function(context) {
+                                        const chart = context.chart;
+                                        const ctx = chart.ctx;
+                                        const gradient = ctx.createLinearGradient(0, 0, 0, 180);
+                                        gradient.addColorStop(0, 'rgba(233, 69, 96, 0.25)');
+                                        gradient.addColorStop(0.5, 'rgba(233, 69, 96, 0.05)');
+                                        gradient.addColorStop(0.5, 'rgba(74, 222, 128, 0.05)');
+                                        gradient.addColorStop(1, 'rgba(74, 222, 128, 0.25)');
+                                        return gradient;
+                                    },
+                                    borderWidth: 2,
+                                    pointRadius: 0,
+                                    pointHoverRadius: 3,
+                                    tension: 0.3,
+                                    fill: true
+                                }, {
+                                    data: Array(turnoverTimes.length).fill(0),
+                                    borderColor: 'rgba(255,255,255,0.3)',
+                                    borderWidth: 1,
+                                    borderDash: [4, 4],
+                                    pointRadius: 0,
+                                    fill: false
+                                }]
                             },
                             options: {
                                 responsive: true,
                                 maintainAspectRatio: false,
                                 plugins: {
-                                    legend: { display: true, position: 'top', labels: { color: '#888', font: { size: 10 }, boxWidth: 12, padding: 5 } },
+                                    legend: { display: false },
                                     tooltip: {
                                         mode: 'index', intersect: false,
                                         backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
-                                        callbacks: { label: function(context) { return context.dataset.label + ': ' + formatTurnover(context.raw); } }
+                                        callbacks: { label: function(context) { const v = context.raw; return (v >= 0 ? '+' : '') + v.toFixed(2) + '亿'; } }
                                     }
                                 },
                                 scales: {
-                                    x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', maxTicksLimit: 6, font: { size: 10 } } },
-                                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(value) { return formatTurnover(value); } } }
+                                    x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, font: { size: 10 }, callback: function(value, index) { return index % 15 === 0 ? this.getLabelForValue(value) : ''; } } },
+                                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(value) { return value.toFixed(2) + '亿'; } } }
                                 },
                                 interaction: { mode: 'index', intersect: false }
                             }
@@ -485,6 +507,7 @@
                         if (minuteResult.success && minuteResult.data.times && minuteResult.data.prices && minuteResult.data.times.length > 0) {
                             const times = minuteResult.data.times;
                             const prices = minuteResult.data.prices;
+                            const preClose = minuteResult.data.preClose || 0;
 
                             const ctxMinute = document.getElementById('minuteChart').getContext('2d');
                             if (minuteChart) minuteChart.destroy();
@@ -506,6 +529,15 @@
                                         tension: 0.1,
                                         pointRadius: 0,
                                         pointHoverRadius: 4
+                                    }, {
+                                        data: Array(times.length).fill(preClose),
+                                        borderColor: '#888888',
+                                        borderWidth: 1,
+                                        borderDash: [6, 4],
+                                        pointRadius: 0,
+                                        pointHoverRadius: 0,
+                                        fill: false,
+                                        order: 1
                                     }]
                                 },
                                 options: {
@@ -513,7 +545,7 @@
                                     maintainAspectRatio: false,
                                     plugins: { legend: { display: false } },
                                     scales: {
-                                        x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', maxTicksLimit: 6 } },
+                                        x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { return index % 4 === 0 ? this.getLabelForValue(value) : ''; } } },
                                         y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888' } }
                                     },
                                     interaction: { mode: 'nearest', axis: 'x', intersect: false }
