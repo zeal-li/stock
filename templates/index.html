@@ -5,310 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>鑫多多 - 资金流向</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            background: #1a1a2e;
-            color: #eee;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        .container {
-            display: flex;
-            height: 100vh;
-        }
-
-        .sidebar {
-            width: 200px;
-            background: #16213e;
-            padding: 20px 0;
-            border-right: 1px solid #0f3460;
-        }
-
-        .logo {
-            padding: 20px;
-            text-align: center;
-            border-bottom: 1px solid #0f3460;
-            margin-bottom: 20px;
-        }
-
-        .logo h1 {
-            font-size: 24px;
-            color: #e94560;
-            font-weight: bold;
-        }
-
-        .nav-section {
-            margin-bottom: 10px;
-        }
-
-        .section-title {
-            padding: 10px 20px;
-            font-size: 11px;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .nav-item {
-            padding: 12px 20px;
-            cursor: pointer;
-            transition: all 0.3s;
-            border-left: 3px solid transparent;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-size: 14px;
-        }
-
-        .nav-item:hover {
-            background: #0f3460;
-            border-left-color: #e94560;
-        }
-
-        .nav-item.active {
-            background: #0f3460;
-            border-left-color: #e94560;
-            color: #e94560;
-        }
-
-        .nav-icon {
-            font-size: 18px;
-        }
-
-        .main-content {
-            flex: 1;
-            padding: 30px;
-            overflow-y: auto;
-        }
-
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .page-title {
-            font-size: 24px;
-            color: #fff;
-        }
-
-        .refresh-btn {
-            background: #e94560;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s;
-        }
-
-        .refresh-btn:hover {
-            background: #d63850;
-        }
-
-        .index-card {
-            background: #16213e;
-            border-radius: 10px;
-            border: 1px solid #0f3460;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .index-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-
-        .index-info {
-            display: flex;
-            align-items: baseline;
-            gap: 15px;
-        }
-
-        .index-name {
-            font-size: 16px;
-            color: #888;
-        }
-
-        .index-price {
-            font-size: 28px;
-            font-weight: bold;
-        }
-
-        .index-change {
-            font-size: 16px;
-        }
-
-        .index-change.up {
-            color: #e94560;
-        }
-
-        .index-change.down {
-            color: #4ade80;
-        }
-
-        .chart-row {
-            display: flex;
-            gap: 20px;
-        }
-
-        .chart-box {
-            flex: 1;
-            height: 180px;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .chart-box canvas {
-            flex: 1;
-            min-height: 0;
-            max-height: 150px;
-        }
-
-        .chart-title {
-            font-size: 13px;
-            color: #888;
-            text-align: center;
-            margin-top: 5px;
-        }
-
-        .tabs {
-            display: flex;
-            gap: 10px;
-            background: #16213e;
-            padding: 5px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-
-        .tab-btn {
-            padding: 10px 20px;
-            background: transparent;
-            border: none;
-            color: #888;
-            cursor: pointer;
-            border-radius: 8px;
-            transition: all 0.3s;
-            font-size: 14px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .tab-btn:hover {
-            color: #fff;
-            background: #0f3460;
-        }
-
-        .tab-btn.active {
-            background: #e94560;
-            color: white;
-        }
-
-        .stats-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .stat-card {
-            background: #16213e;
-            padding: 20px;
-            border-radius: 10px;
-            border: 1px solid #0f3460;
-        }
-
-        .stat-card h3 {
-            font-size: 14px;
-            color: #888;
-            margin-bottom: 10px;
-        }
-
-        .stat-card .value {
-            font-size: 24px;
-            font-weight: bold;
-        }
-
-        .stat-card .value.positive {
-            color: #e94560;
-        }
-
-        .stat-card .value.negative {
-            color: #4ade80;
-        }
-
-        .data-table {
-            width: 100%;
-            background: #16213e;
-            border-radius: 10px;
-            overflow: hidden;
-            border: 1px solid #0f3460;
-        }
-
-        .data-table table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .data-table thead {
-            background: #0f3460;
-        }
-
-        .data-table th {
-            padding: 15px;
-            text-align: left;
-            font-weight: 600;
-            color: #fff;
-        }
-
-        .data-table tbody tr {
-            border-bottom: 1px solid #0f3460;
-            transition: background 0.3s;
-        }
-
-        .data-table tbody tr:hover {
-            background: #0f3460;
-        }
-
-        .data-table td {
-            padding: 15px;
-            color: #ddd;
-        }
-
-        .change-up {
-            color: #e94560 !important;
-        }
-
-        .change-down {
-            color: #4ade80 !important;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 50px;
-            color: #888;
-        }
-
-        .error {
-            text-align: center;
-            padding: 50px;
-            color: #e94560;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
@@ -321,32 +18,57 @@
                     <span class="nav-icon">💰</span>
                     <span>资金流向</span>
                 </div>
+                <div class="nav-item" data-page="stock-pick">
+                    <span class="nav-icon">🔍</span>
+                    <span>选股</span>
+                </div>
             </div>
         </div>
         <div class="main-content">
-            <div class="page-header">
-                <h1 class="page-title">💰 资金流向</h1>
-                <button class="refresh-btn" onclick="loadAllData()">🔄 刷新数据</button>
+            <!-- 资金流向页面 -->
+            <div id="page-money-flow">
+                <div class="page-header">
+                    <h1 class="page-title">💰 资金流向</h1>
+                    <button class="refresh-btn" onclick="loadAllData()">🔄 刷新数据</button>
+                </div>
+
+                <div class="index-card" id="index-card">
+                    <div class="loading">正在加载上证指数...</div>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab-btn active" data-page="concept">
+                        💡 概念板块
+                    </button>
+                    <button class="tab-btn" data-page="industry">
+                        🏭 行业板块
+                    </button>
+                    <button class="tab-btn" data-page="index">
+                        📊 指数板块
+                    </button>
+                </div>
+
+                <div id="content-area">
+                    <div class="loading">正在加载数据...</div>
+                </div>
             </div>
 
-            <div class="index-card" id="index-card">
-                <div class="loading">正在加载上证指数...</div>
-            </div>
-
-            <div class="tabs">
-                <button class="tab-btn active" data-page="concept">
-                    💡 概念板块
-                </button>
-                <button class="tab-btn" data-page="industry">
-                    🏭 行业板块
-                </button>
-                <button class="tab-btn" data-page="index">
-                    📊 指数板块
-                </button>
-            </div>
-
-            <div id="content-area">
-                <div class="loading">正在加载数据...</div>
+            <!-- 选股页面 -->
+            <div id="page-stock-pick" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">🔍 选股</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div style="max-width:600px; margin:0 auto;">
+                        <div style="display:flex; gap:10px; margin-bottom:20px;">
+                            <input id="searchInput" type="text" placeholder="输入股票名称或代码..." style="flex:1; padding:12px 16px; border:1px solid #0f3460; border-radius:8px; background:#1a1a2e; color:#fff; font-size:15px; outline:none;" onkeyup="if(event.key==='Enter')searchStock()">
+                            <button onclick="searchStock()" style="padding:12px 24px; background:#e94560; color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:15px;">搜索</button>
+                        </div>
+                        <div id="searchResults" style="min-height:200px;">
+                            <div style="text-align:center; color:#666; padding:40px;">输入股票名称或代码开始搜索</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -726,6 +448,13 @@
                             const prices = minuteResult.data.prices;
                             const preClose = minuteResult.data.preClose || 0;
 
+                            // 以昨收为中线，计算上下范围
+                            let maxDev = 0;
+                            prices.forEach(p => { const d = Math.abs(p - preClose); if (d > maxDev) maxDev = d; });
+                            maxDev = Math.max(maxDev * 1.15, preClose * 0.005);
+                            const yMin = preClose - maxDev;
+                            const yMax = preClose + maxDev;
+
                             const ctxMinute = document.getElementById('minuteChart').getContext('2d');
                             if (minuteChart) minuteChart.destroy();
 
@@ -758,16 +487,36 @@
                                     }]
                                 },
                                 options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                layout: { padding: { left: 10, right: 10 } },
-                                plugins: { legend: { display: false } },
-                                scales: {
-                                    x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { return index % 3 === 0 ? this.getLabelForValue(value) : ''; } } },
-                                    y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888' }, afterFit: function(scale) { scale.width = 65; } }
-                                },
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    layout: { padding: { left: 10, right: 10 } },
+                                    plugins: {
+                                        legend: { display: false },
+                                        tooltip: {
+                                            mode: 'index', intersect: false,
+                                            callbacks: {
+                                                label: function(ctx) {
+                                                    if (ctx.datasetIndex === 1) return '';
+                                                    const price = ctx.raw;
+                                                    const preClose = minuteResult.data.preClose || 0;
+                                                    const change = price - preClose;
+                                                    const pct = preClose ? (change / preClose * 100) : 0;
+                                                    const sign = change >= 0 ? '+' : '';
+                                                    return [
+                                                        '指数: ' + price.toFixed(2),
+                                                        sign + pct.toFixed(2) + '%  ' + sign + change.toFixed(2)
+                                                    ];
+                                                }
+                                            }
+                                        }
+                                    },
+                                    scales: {
+                                        x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { return index % 3 === 0 ? this.getLabelForValue(value) : ''; } } },
+                                        y: { min: yMin, max: yMax, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', callback: v => v.toFixed(0) }, afterFit: function(scale) { scale.width = 65; } }
+                                    },
                                     interaction: { mode: 'nearest', axis: 'x', intersect: false }
-                                }
+                                },
+
                             });
                             if (minuteLoading) minuteLoading.style.display = 'none';
                         } else {
@@ -896,6 +645,45 @@
             loadMoneyFlowData();
         }
 
+        // 左侧导航切换页面
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                this.classList.add('active');
+                const page = this.getAttribute('data-page');
+                document.getElementById('page-money-flow').style.display = page === 'money-flow' ? 'block' : 'none';
+                document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
+                if (page === 'money-flow') loadAllData();
+            });
+        });
+
+        // 股票搜索
+        async function searchStock() {
+            const keyword = document.getElementById('searchInput').value.trim();
+            const resultsDiv = document.getElementById('searchResults');
+            if (!keyword) { resultsDiv.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">请输入股票名称或代码</div>'; return; }
+            resultsDiv.innerHTML = '<div class="loading">搜索中...</div>';
+            try {
+                const res = await fetch('/api/search-stock?q=' + encodeURIComponent(keyword));
+                const data = await res.json();
+                if (data.success && data.data.length > 0) {
+                    let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+                    data.data.forEach(s => {
+                        html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 15px;background:#1a1a2e;border-radius:6px;border:1px solid #0f3460;">
+                            <div><span style="color:#fff;font-weight:bold;">${s.name}</span> <span style="color:#888;font-size:12px;">${s.code}</span></div>
+                            <div><span style="color:#888;font-size:12px;">${s.market === '1' ? '沪' : s.market === '0' ? '深' : ''}</span></div>
+                        </div>`;
+                    });
+                    html += '</div>';
+                    resultsDiv.innerHTML = html;
+                } else {
+                    resultsDiv.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">未找到相关股票</div>';
+                }
+            } catch(e) {
+                resultsDiv.innerHTML = '<div class="error">搜索失败</div>';
+            }
+        }
+
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', function() {
                 document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -931,6 +719,12 @@
                     minuteChart.data.labels = minData.data.times;
                     minuteChart.data.datasets[0].data = minData.data.prices;
                     minuteChart.data.datasets[1].data = Array(minData.data.times.length).fill(minData.data.preClose);
+                    const mPreClose = minData.data.preClose || 0;
+                    let mMaxDev = 0;
+                    minData.data.prices.forEach(p => { const d = Math.abs(p - mPreClose); if (d > mMaxDev) mMaxDev = d; });
+                    mMaxDev = Math.max(mMaxDev * 1.15, mPreClose * 0.005);
+                    minuteChart.options.scales.y.min = mPreClose - mMaxDev;
+                    minuteChart.options.scales.y.max = mPreClose + mMaxDev;
                     const isUp2 = parseFloat(minData.data.change) >= 0;
                     const lc = isUp2 ? '#e94560' : '#4ade80';
                     minuteChart.data.datasets[0].borderColor = lc;
