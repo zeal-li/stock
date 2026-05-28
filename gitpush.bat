@@ -21,9 +21,9 @@ git add .
 echo Git Status...
 git status
 echo.
-set /p confirm="确认提交? (Y/n): "
+set /p confirm="Proceed with commit & push? (Y/n): "
 if /i not "%confirm%"=="Y" (
-    echo 已取消.
+    echo Cancelled.
     pause
     exit /b
 )
