@@ -669,6 +669,76 @@ def margin_trading():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/risk-index')
+def risk_index():
+    """市场风险指数：基于波动率+杠杆率"""
+    try:
+        # 获取上证指数快照（波动率）
+        url = "https://push2delay.eastmoney.com/api/qt/stock/get"
+        params = {
+            'secid': '1.000001',
+            'fields': 'f43,f44,f45,f46,f60,f117',
+            'ut': 'fa5fd1943c7b386f172d6893dbfba10b',
+        }
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://data.eastmoney.com/',
+        }
+        r = requests.get(url, params=params, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        d = (r.json() or {}).get('data') or {}
+        pre_close = float(d.get('f60', 0)) / 100
+        high = float(d.get('f44', 0)) / 100
+        low = float(d.get('f45', 0)) / 100
+        total_cap = float(d.get('f117', 0))
+
+        # 波动率
+        vol = abs(high - low) / pre_close * 100 if pre_close else 0
+
+        # 融资余额取最近值
+        try:
+            from datetime import date, timedelta
+            import akshare as ak
+            end_date = date.today().strftime('%Y%m%d')
+            start_date = (date.today() - timedelta(days=3)).strftime('%Y%m%d')
+            df = ak.stock_margin_sse(start_date=start_date, end_date=end_date)
+            if df is not None and not df.empty:
+                margin_balance = float(df.iloc[0]['融资余额'])
+                leverage = margin_balance / total_cap * 100 if total_cap else 0
+            else:
+                leverage = 0
+        except:
+            leverage = 0
+
+        # 风险分: 波动率(0-3→0-50) + 杠杆率(0-5→0-50)
+        vol_score = min(vol * 16.7, 50)
+        lev_score = min(leverage * 10, 50)
+        risk_score = round(min(vol_score + lev_score, 100), 1)
+
+        if risk_score <= 20:
+            level, color = '低风险', '#4ade80'
+        elif risk_score <= 40:
+            level, color = '较低风险', '#86efac'
+        elif risk_score <= 60:
+            level, color = '中等风险', '#fbbf24'
+        elif risk_score <= 80:
+            level, color = '较高风险', '#f97316'
+        else:
+            level, color = '高风险', '#e94560'
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'score': risk_score,
+                'level': level,
+                'color': color,
+                'volatility': round(vol, 2),
+                'leverage': round(leverage, 2),
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 @app.route('/api/sh000001-minute')
 def sh000001_minute():
     return jsonify(get_sh000001_minute_data())
