@@ -65,8 +65,84 @@ def get_major_indices():
 
 
 def get_sh000001_minute_data():
-    """上证指数分时走势（新浪K线→东方财富）"""
-    # 新浪财经5分钟K线
+    """上证指数分时走势（东方财富1分钟→新浪5分钟兜底）"""
+    # 获取实时行情（新浪报价）
+    quote_info = None
+    try:
+        quote_url = "https://hq.sinajs.cn/list=s_sh000001"
+        quote_headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
+        quote_response = requests.get(quote_url, headers=quote_headers, timeout=5, proxies=REQUEST_PROXIES)
+        quote_match = re.search(r'"([^"]+)"', quote_response.text)
+        if quote_match:
+            parts = quote_match.group(1).split(',')
+            if len(parts) >= 4:
+                current_price = float(parts[1])
+                change_value = float(parts[2])
+                change_percent = float(parts[3])
+                quote_info = {
+                    'name': parts[0],
+                    'preClose': round(current_price - change_value, 2),
+                    'currentPrice': round(current_price, 2),
+                    'change': f"{'+' if change_percent >= 0 else ''}{change_percent:.2f}%",
+                    'changeValue': f"{'+' if change_value >= 0 else ''}{change_value:.2f}",
+                }
+    except Exception:
+        pass
+
+    # 东方财富1分钟分时数据（主要数据源）
+    try:
+        url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get?secid=1.000001&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*', 'Referer': 'https://www.eastmoney.com/',
+        }
+        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        data = response.json()
+        if data.get('rc') == 0 and data.get('data'):
+            sd = data['data']
+            trends = sd.get('trends', [])
+            pre_close = sd.get('preClose', 0)
+            times = []
+            prices = []
+            for trend in trends:
+                parts = trend.split(',')
+                if len(parts) >= 2:
+                    time_str = parts[0]
+                    if ' ' in time_str:
+                        time_str = time_str.split(' ')[1]
+                    if time_str < '09:30':
+                        continue
+                    times.append(time_str)
+                    prices.append(float(parts[1]))
+
+            cp = prices[-1] if prices else pre_close
+            cv = cp - pre_close if pre_close else 0
+            cpt = (cv / pre_close * 100) if pre_close else 0
+
+            result = {
+                'success': True,
+                'data': {
+                    'preClose': pre_close,
+                    'times': times, 'prices': prices,
+                }
+            }
+            # 用新浪报价覆写实时字段
+            if quote_info:
+                result['data'].update(quote_info)
+            else:
+                result['data'].update({
+                    'name': sd.get('name', '上证指数'),
+                    'currentPrice': cp,
+                    'change': f"{'+' if cpt >= 0 else ''}{cpt:.2f}%",
+                    'changeValue': f"{'+' if cv >= 0 else ''}{cv:.2f}",
+                })
+            return result
+
+        return {'success': False, 'error': 'No data from eastmoney'}
+    except Exception:
+        pass
+
+    # 新浪财经5分钟K线兜底
     try:
         url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol=sh000001&scale=5&ma=no&datalen=240"
         headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
@@ -98,36 +174,12 @@ def get_sh000001_minute_data():
                 times.insert(0, '09:30')
                 prices.insert(0, round(open_price, 2))
 
-            # 获取实时行情
-            quote_url = "https://hq.sinajs.cn/list=s_sh000001"
-            quote_headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
-            quote_response = requests.get(quote_url, headers=quote_headers, timeout=5, proxies=REQUEST_PROXIES)
-            quote_match = re.search(r'"([^"]+)"', quote_response.text)
-
-            if quote_match:
-                parts = quote_match.group(1).split(',')
-                if len(parts) >= 4:
-                    current_price = float(parts[1])
-                    change_value = float(parts[2])
-                    change_percent = float(parts[3])
-                    pre_close = round(current_price - change_value, 2)
-                    return {
-                        'success': True,
-                        'data': {
-                            'name': parts[0], 'preClose': round(pre_close, 2),
-                            'currentPrice': round(current_price, 2),
-                            'change': f"{'+' if change_percent >= 0 else ''}{change_percent:.2f}%",
-                            'changeValue': f"{'+' if change_value >= 0 else ''}{change_value:.2f}",
-                            'times': times, 'prices': prices
-                        }
-                    }
-
             if prices:
                 cp = round(prices[-1], 2)
                 pc = round(prices[0], 2) if len(prices) > 1 else cp
                 cv = round(cp - pc, 2)
                 cpt = round(cv / pc * 100, 2) if pc else 0
-                return {
+                result = {
                     'success': True,
                     'data': {
                         'name': '上证指数', 'preClose': pc, 'currentPrice': cp,
@@ -136,44 +188,13 @@ def get_sh000001_minute_data():
                         'times': times, 'prices': prices
                     }
                 }
+                if quote_info:
+                    result['data'].update(quote_info)
+                return result
     except Exception:
         pass
 
-    # 东方财富兜底
-    try:
-        url = "https://push2.eastmoney.com/api/qt/stock/trends2/get?secid=1.000001&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': '*/*', 'Referer': 'https://www.eastmoney.com/',
-        }
-        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-        data = response.json()
-        if data.get('rc') == 0 and data.get('data'):
-            sd = data['data']
-            trends = sd.get('trends', [])
-            pre_close = sd.get('preClose', 0)
-            times = []
-            prices = []
-            for trend in trends:
-                parts = trend.split(',')
-                if len(parts) >= 2:
-                    times.append(parts[0])
-                    prices.append(float(parts[1]))
-            cp = prices[-1] if prices else pre_close
-            cv = cp - pre_close if pre_close else 0
-            cpt = (cv / pre_close * 100) if pre_close else 0
-            return {
-                'success': True,
-                'data': {
-                    'name': sd.get('name', '上证指数'), 'preClose': pre_close, 'currentPrice': cp,
-                    'change': f"{'+' if cpt >= 0 else ''}{cpt:.2f}%",
-                    'changeValue': f"{'+' if cv >= 0 else ''}{cv:.2f}",
-                    'times': times, 'prices': prices
-                }
-            }
-        return {'success': False, 'error': 'No data from eastmoney'}
-    except Exception as e:
-        return {'success': False, 'error': f'All sources failed: {str(e)}'}
+    return {'success': False, 'error': 'All sources failed'}
 
 
 def get_market_fund_flow():

@@ -93,7 +93,7 @@ def get_index_minute_data():
             if point_list:
                 day_groups = {}
                 for point in point_list:
-                    if len(point) >= 3:
+                    if len(point) >= 3 and point[1] is not None and point[2] is not None:
                         timestamp = point[0] // 1000
                         dt = datetime.datetime.fromtimestamp(timestamp)
                         date_key = dt.strftime('%Y-%m-%d')
@@ -137,7 +137,7 @@ def _empty_turnover_data():
              '13:35', '13:40', '13:45', '13:50', '13:55', '14:00',
              '14:05', '14:10', '14:15', '14:20', '14:25', '14:30',
              '14:35', '14:40', '14:45', '14:50', '14:55', '15:00']
-    z = [0] * 46
+    z = [0] * len(times)
     return {'success': True, 'data': {'times': times, 'turnovers': z, 'predict_turnovers': z, 'header': {}}}
 
 

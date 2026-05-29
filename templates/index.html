@@ -81,23 +81,6 @@
         let fullMinuteSlots = [];
         let fullFlowSlots = [];
 
-        function generateMinuteSlots() {
-            const slots = [];
-            for (let h = 9, m = 30; h < 12; ) {
-                slots.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
-                m += 5;
-                if (m >= 60) { h++; m -= 60; }
-                if (h === 11 && m > 30) break;
-            }
-            for (let h = 13, m = 0; h < 15 || (h === 15 && m === 0); ) {
-                slots.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
-                m += 5;
-                if (m >= 60) { h++; m -= 60; }
-                if (h === 15 && m > 0) break;
-            }
-            return slots;
-        }
-
         function generateFlowSlots() {
             const slots = [];
             for (let h = 9, m = 30; h < 12; ) {
@@ -125,6 +108,21 @@
                 const idx = indexMap[dataTimes[i]];
                 if (idx !== undefined && idx >= 0) {
                     result[idx] = dataValues[i];
+                }
+            }
+            return result;
+        }
+
+        // 同 mapToSlots，但 13:00 若无数据则用 11:30 的值填充，避免午休折线断开
+        function mapAndFill(fullSlots, dataTimes, dataValues) {
+            const result = mapToSlots(fullSlots, dataTimes, dataValues);
+            const idx13 = fullSlots.indexOf('13:00');
+            if (idx13 > 0 && result[idx13] === null) {
+                for (let i = idx13 - 1; i >= 0; i--) {
+                    if (result[i] !== null) {
+                        result[idx13] = result[i];
+                        break;
+                    }
                 }
             }
             return result;
@@ -224,9 +222,9 @@
                             const change = turnoverHeader.turnover_change / 100000000;
                             headerInfo = `
                                 <div style="display: flex; gap: 30px; font-size: 13px; color: #888;">
-                                    <span>当日成交额: <span style="color: #fff;">${todayTurnover.toFixed(2)}亿</span></span>
-                                    <span>昨日成交额: <span style="color: #fff;">${yesterdayTurnover.toFixed(2)}亿</span></span>
-                                    <span>较昨日变动: <span style="color: ${change >= 0 ? '#e94560' : '#4ade80'};">${change >= 0 ? '+' : ''}${change.toFixed(2)}亿</span></span>
+                                    <span>当日成交额: <span id="todayTurnover" style="color: #fff;">${todayTurnover.toFixed(2)}亿</span></span>
+                                    <span>昨日成交额: <span id="yesterdayTurnover" style="color: #fff;">${yesterdayTurnover.toFixed(2)}亿</span></span>
+                                    <span>较昨日变动: <span id="turnoverChange" style="color: ${change >= 0 ? '#e94560' : '#4ade80'};">${change >= 0 ? '+' : ''}${change.toFixed(2)}亿</span></span>
                                 </div>
                             `;
                         }
@@ -246,9 +244,9 @@
                         if (flowResult.success && flowResult.data.times) {
                             fullFlowSlots = generateFlowSlots();
                             flowTimes = fullFlowSlots;
-                            flows = mapToSlots(fullFlowSlots, flowResult.data.times, flowResult.data.flows);
-                            flowsMid = mapToSlots(fullFlowSlots, flowResult.data.times, flowResult.data.flows_mid || []);
-                            flowsSmall = mapToSlots(fullFlowSlots, flowResult.data.times, flowResult.data.flows_small || []);
+                            flows = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows);
+                            flowsMid = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows_mid || []);
+                            flowsSmall = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows_small || []);
                             totalFlow = flowResult.data.flows.length > 0 ? flowResult.data.flows[flowResult.data.flows.length - 1] : 0;
                         }
 
@@ -256,7 +254,7 @@
                         const headerDiv2 = indexCard.querySelector('div[style*="gap: 30px"]');
                         if (headerDiv2 && flowResult.success) {
                             const flowColor = totalFlow >= 0 ? '#e94560' : '#4ade80';
-                            headerDiv2.innerHTML += `<span>大盘资金净流入: <span style="color: ${flowColor};">${totalFlow >= 0 ? '+' : ''}${totalFlow.toFixed(2)}亿</span></span>`;
+                            headerDiv2.innerHTML += `<span>大盘资金净流入: <span id="netFlowValue" style="color: ${flowColor};">${totalFlow >= 0 ? '+' : ''}${totalFlow.toFixed(2)}亿</span></span>`;
                         }
 
                         const ctxTurnover = document.getElementById('turnoverChart').getContext('2d');
@@ -496,9 +494,9 @@
                     .then(minuteResult => {
                         const minuteLoading = document.getElementById('minuteLoading');
                         if (minuteResult.success && minuteResult.data.times && minuteResult.data.prices && minuteResult.data.times.length > 0) {
-                            fullMinuteSlots = generateMinuteSlots();
+                            fullMinuteSlots = generateFlowSlots();
                             const times = fullMinuteSlots;
-                            const prices = mapToSlots(fullMinuteSlots, minuteResult.data.times, minuteResult.data.prices);
+                            const prices = mapAndFill(fullMinuteSlots, minuteResult.data.times, minuteResult.data.prices);
                             const preClose = minuteResult.data.preClose || 0;
 
                             // 以昨收为中线，计算上下范围
@@ -777,7 +775,7 @@
                 const minRes = await fetch('/api/sh000001-minute');
                 const minData = await minRes.json();
                 if (minuteChart && minData.success && minData.data.times && fullMinuteSlots.length > 0) {
-                    minuteChart.data.datasets[0].data = mapToSlots(fullMinuteSlots, minData.data.times, minData.data.prices);
+                    minuteChart.data.datasets[0].data = mapAndFill(fullMinuteSlots, minData.data.times, minData.data.prices);
                     minuteChart.data.datasets[1].data = Array(fullMinuteSlots.length).fill(minData.data.preClose);
                     const mPreClose = minData.data.preClose || 0;
                     let mMaxDev = 0;
@@ -792,22 +790,39 @@
                     minuteChart.update('none');
                 }
 
+                // 更新成交额 header (只改文字，不重建 DOM)
+                const turnoverRes = await fetch('/api/turnover-minute');
+                const turnoverData = await turnoverRes.json();
+                if (turnoverData.success && turnoverData.data.header && turnoverData.data.header.turnover) {
+                    const th = turnoverData.data.header;
+                    const tChange = th.turnover_change / 100000000;
+                    const elToday = document.getElementById('todayTurnover');
+                    const elYesterday = document.getElementById('yesterdayTurnover');
+                    const elChange = document.getElementById('turnoverChange');
+                    if (elToday) elToday.textContent = (th.turnover / 100000000).toFixed(2) + '亿';
+                    if (elYesterday) elYesterday.textContent = (th.turnover_pre / 100000000).toFixed(2) + '亿';
+                    if (elChange) {
+                        elChange.textContent = (tChange >= 0 ? '+' : '') + tChange.toFixed(2) + '亿';
+                        elChange.style.color = tChange >= 0 ? '#e94560' : '#4ade80';
+                    }
+                }
+
                 // 更新资金流
                 const flowRes = await fetch('/api/market-fund-flow');
                 const flowData = await flowRes.json();
                 if (turnoverChart && flowData.success && flowData.data.times && fullFlowSlots.length > 0) {
-                    turnoverChart.data.datasets[0].data = mapToSlots(fullFlowSlots, flowData.data.times, flowData.data.flows);
-                    turnoverChart.data.datasets[1].data = mapToSlots(fullFlowSlots, flowData.data.times, flowData.data.flows_mid || []);
-                    turnoverChart.data.datasets[2].data = mapToSlots(fullFlowSlots, flowData.data.times, flowData.data.flows_small || []);
+                    turnoverChart.data.datasets[0].data = mapAndFill(fullFlowSlots, flowData.data.times, flowData.data.flows);
+                    turnoverChart.data.datasets[1].data = mapAndFill(fullFlowSlots, flowData.data.times, flowData.data.flows_mid || []);
+                    turnoverChart.data.datasets[2].data = mapAndFill(fullFlowSlots, flowData.data.times, flowData.data.flows_small || []);
                     turnoverChart.data.datasets[3].data = Array(fullFlowSlots.length).fill(0);
                     turnoverChart.update('none');
-                    // 更新 header 大盘资金净流入
+                    // 更新大盘净流入 (只改文字)
                     const flows = flowData.data.flows;
                     const totalFlow = flows.length > 0 ? flows[flows.length - 1] : 0;
-                    const headerDiv = document.querySelector('#marketBreadth');
-                    if (headerDiv && headerDiv.nextElementSibling) {
-                        const fc = totalFlow >= 0 ? '#e94560' : '#4ade80';
-                        headerDiv.nextElementSibling.innerHTML = `大盘净流入: <span style="color:${fc};">${totalFlow >= 0 ? '+' : ''}${totalFlow.toFixed(2)}亿</span>`;
+                    const elFlow = document.getElementById('netFlowValue');
+                    if (elFlow) {
+                        elFlow.textContent = (totalFlow >= 0 ? '+' : '') + totalFlow.toFixed(2) + '亿';
+                        elFlow.style.color = totalFlow >= 0 ? '#e94560' : '#4ade80';
                     }
                 }
 
