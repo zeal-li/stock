@@ -138,7 +138,7 @@
         function getRiskSummary(score) {
             if (score <= 20) return '市场低风险区间，可适当积极布局。';
             if (score <= 40) return '市场风险较低，注意仓位管理。';
-            if (score <= 60) return '市场中等风险，宜控制仓位、精选标的。';
+            if (score <= 60) return '市场中等风险，建议控制仓位、择优参与。';
             if (score <= 80) return '市场风险较高，建议谨慎操作。';
             return '市场高风险，建议降低仓位、规避风险。';
         }
@@ -149,6 +149,18 @@
             }
             return value.toFixed(2) + '亿';
         }
+
+        const fearExplain = '<div style="margin-top:8px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.05); font-size:10px; color:#555; line-height:1.5;">' +
+            '沪深指数平均涨跌=上证+深证涨幅均值 | 30分钟跌速=日内最大30分跌幅 | ' +
+            '日内回撤=最高到最低跌幅 | 振幅=(高-低)/昨收 | ' +
+            '红盘率=上涨家数占比 | 主力净流入=沪深主力累计' +
+            '</div>';
+        const riskExplain = '<div style="margin-top:8px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.05); font-size:10px; color:#555; line-height:1.5;">' +
+            '融资余额5日=两市融资近5日变动 | 两融余额10日=融资+融券近10日变动 | ' +
+            '融资活跃度=当日买入vs20日均值 | 5/10日涨跌=沪深均值 | ' +
+            '回撤=20日最大跌幅 | 波动率=10日日收益率标准差 | ' +
+            '情绪面=恐慌指数+红盘率得分 | 涨跌结构=涨跌家数差得分' +
+            '</div>';
 
         async function loadIndexWithChart() {
             const indexCard = document.getElementById('index-card');
@@ -202,17 +214,17 @@
                                 </div>
                             </div>
                             <div style="width: 220px; min-width: 220px; display: flex; flex-direction: column;">
-                                <div class="index-card" style="height: 100%; padding: 18px;">
+                                <div class="index-card" style="height: 100%; padding: 18px; display: flex; flex-direction: column;">
                                     <div class="chart-title" style="margin-bottom: 12px;">市场风险指数</div>
-                                    <div id="riskIndex" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100% - 30px);">
+                                    <div id="riskIndex" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
                                         <div class="loading">加载中...</div>
                                     </div>
                                 </div>
                             </div>
                             <div style="width: 220px; min-width: 220px; display: flex; flex-direction: column;">
-                                <div class="index-card" style="height: 100%; padding: 18px;">
+                                <div class="index-card" style="height: 100%; padding: 18px; display: flex; flex-direction: column;">
                                     <div class="chart-title" style="margin-bottom: 12px;">市场恐慌指数</div>
-                                    <div id="fearIndex" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100% - 30px);">
+                                    <div id="fearIndex" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
                                         <div class="loading">加载中...</div>
                                     </div>
                                 </div>
@@ -465,13 +477,15 @@
                             }
                             // 恐慌指数卡片
                             const fMetrics = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
-                                '<div>主要指数平均涨跌: <span style="color:#ccc;">' + (d.avg_index_change != null ? (d.avg_index_change >= 0 ? '+' : '') + d.avg_index_change.toFixed(2) + '%' : '--') + '</span></div>' +
+                                '<div>沪深指数平均涨跌: <span style="color:#ccc;">' + (d.avg_index_change != null ? (d.avg_index_change >= 0 ? '+' : '') + d.avg_index_change.toFixed(2) + '%' : '--') + '</span></div>' +
                                 '<div>30分钟最大跌速: <span style="color:#ccc;">' + (d.max_30m_drop != null ? d.max_30m_drop.toFixed(2) + '%' : '--') + '</span></div>' +
                                 '<div>日内最大回撤: <span style="color:#ccc;">' + (d.max_drawdown != null ? d.max_drawdown.toFixed(2) + '%' : '--') + '</span></div>' +
                                 '<div>上证振幅: <span style="color:#ccc;">' + (d.amplitude != null ? d.amplitude.toFixed(2) + '%' : '--') + '</span></div>' +
                                 '<div>全A红盘率: <span style="color:#ccc;">' + (d.red_ratio != null ? d.red_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
+                                '<div>下跌家数占比: <span style="color:#ccc;">' + (d.down_ratio != null ? d.down_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
                                 '<div>主力资金净流入: <span style="color:#ccc;">' + (d.main_net != null ? (d.main_net >= 0 ? '+' : '') + d.main_net.toFixed(2) + '亿' : '--') + '</span></div>' +
-                                '</div>';
+                                '<div>从低点反弹: <span style="color:#ccc;">' + (d.rebound != null ? (d.rebound >= 0 ? '+' : '') + d.rebound.toFixed(2) + '%' : '--') + '</span></div>' +
+                                '</div>' + fearExplain;
                             fearDiv.innerHTML = `
                                 <div style="font-size:28px; font-weight:bold; color:${d.color}; margin-bottom:5px;">${d.score}</div>
                                 <div style="font-size:14px; color:${d.color}; margin-bottom:8px;">${d.level}</div>
@@ -479,7 +493,7 @@
                                     <div style="width:100%; height:12px; border-radius:6px; background: linear-gradient(to right, #4ade80 0%, #86efac 30%, #fbbf24 50%, #f97316 70%, #e94560 100%);"></div>
                                     <div style="position:absolute; top:-3px; left:${d.score}%; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 6px rgba(255,255,255,0.5);"></div>
                                 </div>
-                                <div style="display:flex; justify-content:space-between; font-size:10px; color:#666; margin-bottom:10px;">
+                                <div style="display:flex; justify-content:space-between; width:100%; font-size:10px; color:#666; margin-bottom:10px;">
                                     <span>恐慌</span><span>中性</span><span>贪婪</span>
                                 </div>
                                 <div id="fearConclusion" style="font-size:12px; color:#aaa; margin-bottom:0; line-height:1.5;">${getFearSummary(d.score)}</div>
@@ -501,11 +515,13 @@
                                 '<div>融资余额5日变化: <span style="color:#ccc;">' + (d.fin_bal_5d != null ? (d.fin_bal_5d >= 0 ? '+' : '') + d.fin_bal_5d.toFixed(2) + '%' : '--') + '</span></div>' +
                                 '<div>两融余额10日变化: <span style="color:#ccc;">' + (d.fin_bal_10d != null ? (d.fin_bal_10d >= 0 ? '+' : '') + d.fin_bal_10d.toFixed(2) + '%' : '--') + '</span></div>' +
                                 '<div>融资买入活跃度: <span style="color:#ccc;">' + (d.fin_buy_heat != null ? (d.fin_buy_heat >= 0 ? '+' : '') + d.fin_buy_heat.toFixed(2) + '%' : '--') + '</span></div>' +
-                                '<div>上证5日涨跌: <span style="color:#ccc;">' + (d.idx_5d != null ? (d.idx_5d >= 0 ? '+' : '') + d.idx_5d.toFixed(2) + '%' : '--') + '</span></div>' +
-                                '<div>上证10日涨跌: <span style="color:#ccc;">' + (d.idx_10d != null ? (d.idx_10d >= 0 ? '+' : '') + d.idx_10d.toFixed(2) + '%' : '--') + '</span></div>' +
+                                '<div>沪深5日涨跌: <span style="color:#ccc;">' + (d.idx_5d != null ? (d.idx_5d >= 0 ? '+' : '') + d.idx_5d.toFixed(2) + '%' : '--') + '</span></div>' +
+                                '<div>沪深10日涨跌: <span style="color:#ccc;">' + (d.idx_10d != null ? (d.idx_10d >= 0 ? '+' : '') + d.idx_10d.toFixed(2) + '%' : '--') + '</span></div>' +
                                 '<div>20日最大回撤: <span style="color:#ccc;">' + (d.idx_20d_dd != null ? d.idx_20d_dd.toFixed(2) + '%' : '--') + '</span></div>' +
                                 '<div>10日波动率: <span style="color:#ccc;">' + (d.volatility != null ? d.volatility.toFixed(2) + '%' : '--') + '</span></div>' +
-                                '</div>';
+                                '<div>情绪面因子: <span style="color:#ccc;">' + (d.panic_score_in != null ? d.panic_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
+                                '<div>涨跌结构因子: <span style="color:#ccc;">' + (d.limit_score_in != null ? d.limit_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
+                                '</div>' + riskExplain;
                             riskDiv.innerHTML = `
                                 <div style="font-size:28px; font-weight:bold; color:${d.color}; margin-bottom:5px;">${d.score}</div>
                                 <div style="font-size:14px; color:${d.color}; margin-bottom:8px;">${d.level}</div>
@@ -513,7 +529,7 @@
                                     <div style="width:100%; height:12px; border-radius:6px; background: linear-gradient(to right, #4ade80 0%, #86efac 30%, #fbbf24 50%, #f97316 70%, #e94560 100%);"></div>
                                     <div style="position:absolute; top:-3px; left:${d.score}%; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 6px rgba(255,255,255,0.5);"></div>
                                 </div>
-                                <div style="display:flex; justify-content:space-between; font-size:10px; color:#666; margin-bottom:10px;">
+                                <div style="display:flex; justify-content:space-between; width:100%; font-size:10px; color:#666; margin-bottom:10px;">
                                     <span>低风险</span><span>中风险</span><span>高风险</span>
                                 </div>
                                 <div id="riskConclusion" style="font-size:12px; color:#aaa; margin-bottom:0; line-height:1.5;">${getRiskSummary(d.score)}</div>
@@ -880,13 +896,15 @@
                         if (fConc) fConc.textContent = getFearSummary(fd.score);
                         const fMet = document.getElementById('fearMetrics');
                         if (fMet) fMet.innerHTML = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
-                            '<div>主要指数平均涨跌: <span style="color:#ccc;">' + (fd.avg_index_change != null ? (fd.avg_index_change >= 0 ? '+' : '') + fd.avg_index_change.toFixed(2) + '%' : '--') + '</span></div>' +
+                            '<div>沪深指数平均涨跌: <span style="color:#ccc;">' + (fd.avg_index_change != null ? (fd.avg_index_change >= 0 ? '+' : '') + fd.avg_index_change.toFixed(2) + '%' : '--') + '</span></div>' +
                             '<div>30分钟最大跌速: <span style="color:#ccc;">' + (fd.max_30m_drop != null ? fd.max_30m_drop.toFixed(2) + '%' : '--') + '</span></div>' +
                             '<div>日内最大回撤: <span style="color:#ccc;">' + (fd.max_drawdown != null ? fd.max_drawdown.toFixed(2) + '%' : '--') + '</span></div>' +
                             '<div>上证振幅: <span style="color:#ccc;">' + (fd.amplitude != null ? fd.amplitude.toFixed(2) + '%' : '--') + '</span></div>' +
                             '<div>全A红盘率: <span style="color:#ccc;">' + (fd.red_ratio != null ? fd.red_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
+                            '<div>下跌家数占比: <span style="color:#ccc;">' + (fd.down_ratio != null ? fd.down_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
                             '<div>主力资金净流入: <span style="color:#ccc;">' + (fd.main_net != null ? (fd.main_net >= 0 ? '+' : '') + fd.main_net.toFixed(2) + '亿' : '--') + '</span></div>' +
-                            '</div>';
+                            '<div>从低点反弹: <span style="color:#ccc;">' + (fd.rebound != null ? (fd.rebound >= 0 ? '+' : '') + fd.rebound.toFixed(2) + '%' : '--') + '</span></div>' +
+                            '</div>' + fearExplain;
                     }
                     // 涨跌数据
                     const bDiv = document.getElementById('marketBreadth');
@@ -912,11 +930,13 @@
                             '<div>融资余额5日变化: <span style="color:#ccc;">' + (rd.fin_bal_5d != null ? (rd.fin_bal_5d >= 0 ? '+' : '') + rd.fin_bal_5d.toFixed(2) + '%' : '--') + '</span></div>' +
                             '<div>两融余额10日变化: <span style="color:#ccc;">' + (rd.fin_bal_10d != null ? (rd.fin_bal_10d >= 0 ? '+' : '') + rd.fin_bal_10d.toFixed(2) + '%' : '--') + '</span></div>' +
                             '<div>融资买入活跃度: <span style="color:#ccc;">' + (rd.fin_buy_heat != null ? (rd.fin_buy_heat >= 0 ? '+' : '') + rd.fin_buy_heat.toFixed(2) + '%' : '--') + '</span></div>' +
-                            '<div>上证5日涨跌: <span style="color:#ccc;">' + (rd.idx_5d != null ? (rd.idx_5d >= 0 ? '+' : '') + rd.idx_5d.toFixed(2) + '%' : '--') + '</span></div>' +
-                            '<div>上证10日涨跌: <span style="color:#ccc;">' + (rd.idx_10d != null ? (rd.idx_10d >= 0 ? '+' : '') + rd.idx_10d.toFixed(2) + '%' : '--') + '</span></div>' +
+                            '<div>沪深5日涨跌: <span style="color:#ccc;">' + (rd.idx_5d != null ? (rd.idx_5d >= 0 ? '+' : '') + rd.idx_5d.toFixed(2) + '%' : '--') + '</span></div>' +
+                            '<div>沪深10日涨跌: <span style="color:#ccc;">' + (rd.idx_10d != null ? (rd.idx_10d >= 0 ? '+' : '') + rd.idx_10d.toFixed(2) + '%' : '--') + '</span></div>' +
                             '<div>20日最大回撤: <span style="color:#ccc;">' + (rd.idx_20d_dd != null ? rd.idx_20d_dd.toFixed(2) + '%' : '--') + '</span></div>' +
                             '<div>10日波动率: <span style="color:#ccc;">' + (rd.volatility != null ? rd.volatility.toFixed(2) + '%' : '--') + '</span></div>' +
-                            '</div>';
+                            '<div>情绪面因子: <span style="color:#ccc;">' + (rd.panic_score_in != null ? rd.panic_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
+                            '<div>涨跌结构因子: <span style="color:#ccc;">' + (rd.limit_score_in != null ? rd.limit_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
+                            '</div>' + riskExplain;
                     }
                 }
             } catch(e) { console.log('Auto refresh error:', e); }

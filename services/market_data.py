@@ -268,20 +268,28 @@ def get_market_fund_flow():
 def get_fear_index():
     """市场恐慌指数：指数走势+日内分时+涨跌面+资金流 多因子加权 0-100"""
     try:
-        # 1. 主要指数平均涨跌
-        indices = get_major_indices()
+        # 1. 主要指数平均涨跌（沪深双市）
         idx_changes = []
-        if indices.get('success') and indices.get('data'):
-            for idx in indices['data']:
-                try:
-                    ch = str(idx.get('change', '0%')).replace('%', '').replace('+', '')
-                    idx_changes.append(float(ch))
-                except Exception:
-                    pass
+        try:
+            q_url = "https://hq.sinajs.cn/list=s_sh000001,s_sz399001"
+            q_headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
+            q_r = requests.get(q_url, headers=q_headers, timeout=10, proxies=REQUEST_PROXIES)
+            for line in q_r.text.split('\n'):
+                m = re.search(r'"([^"]+)"', line)
+                if m:
+                    parts = m.group(1).split(',')
+                    if len(parts) >= 4:
+                        try:
+                            idx_changes.append(float(parts[3]))
+                        except Exception:
+                            pass
+        except Exception:
+            pass
         avg_idx_change = sum(idx_changes) / len(idx_changes) if idx_changes else 0
 
         # 2. 上证日内分时数据
         minute = get_sh000001_minute_data()
+        intraday_pct_sh = 0.0
         intraday_pct = 0.0
         max_30m_drop = 0.0
         max_dd = 0.0
@@ -294,7 +302,7 @@ def get_fear_index():
             pre_close = md.get('preClose', 0)
             if prices and pre_close:
                 cur = prices[-1]
-                intraday_pct = round((cur - pre_close) / pre_close * 100, 2)
+                intraday_pct_sh = round((cur - pre_close) / pre_close * 100, 2)
 
                 # 振幅
                 hi = max(prices)
@@ -322,6 +330,25 @@ def get_fear_index():
                 # 从日内低点反弹
                 if lo:
                     rebound = round((cur - lo) / lo * 100, 2)
+
+        # 2b. 深证成指分时（合并日内涨跌幅）
+        sz_intraday = 0.0
+        try:
+            sz_url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get?secid=0.399001&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1"
+            sz_headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.eastmoney.com/'}
+            sz_r = requests.get(sz_url, headers=sz_headers, timeout=10, proxies=REQUEST_PROXIES)
+            sz_data = sz_r.json()
+            if sz_data.get('rc') == 0:
+                sz_sd = sz_data['data']
+                sz_prices = [float(t.split(',')[1]) for t in sz_sd.get('trends', []) if len(t.split(',')) >= 2 and t.split(',')[0].split(' ')[-1] >= '09:30']
+                sz_pre = sz_sd.get('preClose', 0)
+                if sz_prices and sz_pre:
+                    sz_intraday = round((sz_prices[-1] - sz_pre) / sz_pre * 100, 2)
+        except Exception:
+            pass
+
+        # 沪深平均日内涨跌
+        intraday_pct = round((intraday_pct_sh + sz_intraday) / 2, 2) if sz_intraday else intraday_pct_sh
 
         # 3. 涨跌家数
         rise = fall = 0
@@ -351,28 +378,28 @@ def get_fear_index():
             main_net = round(flows[-1], 2) if flows else 0
 
         # === 加权合成 ===
-        # 指数压力 (0-25)
-        index_pressure = min(max(abs(avg_idx_change) * 9, 0), 25)
+        # 指数压力 (0-22)
+        index_pressure = min(max(abs(avg_idx_change) * 8, 0), 22)
 
-        # 日内压力 (0-30)
+        # 日内压力 (0-28)
         intraday_pressure = 0.0
-        intraday_pressure += min(max(abs(intraday_pct) * 7, 0), 10)
-        intraday_pressure += min(max(abs(max_30m_drop) * 20, 0), 10)
-        intraday_pressure += min(max(abs(max_dd) * 10, 0), 7)
-        intraday_pressure += min(max(amplitude * 2, 0), 3)
-        intraday_pressure = round(min(intraday_pressure, 30), 1)
+        intraday_pressure += min(max(abs(intraday_pct) * 6, 0), 8)
+        intraday_pressure += min(max(abs(max_30m_drop) * 12, 0), 8)
+        intraday_pressure += min(max(abs(max_dd) * 8, 0), 6)
+        intraday_pressure += min(max(amplitude * 1.5, 0), 2)
+        intraday_pressure = round(min(intraday_pressure, 28), 1)
 
-        # 广度压力 (0-25)
+        # 广度压力 (0-22)
         breadth_pressure = 0.0
-        breadth_pressure += min(max((50 - red_ratio) * 0.45, 0), 15)
-        breadth_pressure += min(max((down_ratio - 50) * 0.3, 0), 10)
-        breadth_pressure = round(min(breadth_pressure, 25), 1)
+        breadth_pressure += min(max((50 - red_ratio) * 0.3, 0), 12)
+        breadth_pressure += min(max((down_ratio - 50) * 0.25, 0), 8)
+        breadth_pressure = round(min(breadth_pressure, 22), 1)
 
-        # 资金压力 (0-15)
-        fund_pressure = round(min(max(abs(main_net) / 100 * 1.2, 0), 15), 1) if main_net < 0 else 0
+        # 资金压力 (0-12)
+        fund_pressure = round(min(max(abs(main_net) / 100 * 0.7, 0), 12), 1) if main_net < 0 else 0
 
-        # 稳定分 (0-8)
-        stabilization = round(min(max(rebound * 3, 0), 8), 1)
+        # 稳定分 (0-6)
+        stabilization = round(min(max(rebound * 2.5, 0), 6), 1)
 
         base = 20
         score = round(base + index_pressure + intraday_pressure + breadth_pressure + fund_pressure - stabilization, 1)
@@ -400,7 +427,9 @@ def get_fear_index():
                 'max_drawdown': max_dd,
                 'amplitude': amplitude,
                 'red_ratio': red_ratio,
+                'down_ratio': down_ratio,
                 'main_net': main_net,
+                'rebound': round(rebound, 2),
             }
         }
     except Exception as e:
@@ -419,33 +448,52 @@ def get_risk_index():
             import akshare as ak
             end_date = datetime.date.today().strftime('%Y%m%d')
             start_date = (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y%m%d')
-            df = ak.stock_margin_sse(start_date=start_date, end_date=end_date)
-            if df is not None and not df.empty and len(df) >= 2:
-                df = df.sort_values('信用交易日期')
-                latest_rz = float(df.iloc[-1]['融资余额'])
-                latest_rq = float(df.iloc[-1]['融券余量金额'])
-                latest_total = latest_rz + latest_rq
-                latest_buy = float(df.iloc[-1]['融资买入额'])
 
-                # 5日变化
-                if len(df) >= 6:
-                    rz_5d_ago = float(df.iloc[-6]['融资余额'])
-                    rq_5d_ago = float(df.iloc[-6]['融券余量金额'])
-                    total_5d_ago = rz_5d_ago + rq_5d_ago
-                    fin_bal_5d = round((latest_total - total_5d_ago) / total_5d_ago * 100, 2)
+            # 合并沪深两市融资融券数据
+            def _get_combined_margin(market_func, *args, **kwargs):
+                try:
+                    return market_func(*args, **kwargs)
+                except Exception:
+                    return None
 
-                # 10日变化
-                if len(df) >= 11:
-                    rz_10d_ago = float(df.iloc[-11]['融资余额'])
-                    rq_10d_ago = float(df.iloc[-11]['融券余量金额'])
-                    total_10d_ago = rz_10d_ago + rq_10d_ago
-                    fin_bal_10d = round((latest_total - total_10d_ago) / total_10d_ago * 100, 2)
+            sse_df = _get_combined_margin(ak.stock_margin_sse, start_date=start_date, end_date=end_date)
+            szse_df = _get_combined_margin(ak.stock_margin_szse, start_date=start_date, end_date=end_date)
 
-                # 融资买入活跃度
-                if len(df) >= 21:
-                    recent_buys = [float(df.iloc[-(i+1)]['融资买入额']) for i in range(20)]
-                    avg_20d_buy = sum(recent_buys) / len(recent_buys)
-                    fin_buy_heat = round((latest_buy - avg_20d_buy) / avg_20d_buy * 100, 2) if avg_20d_buy else 0
+            combined = {}
+            for df in [sse_df, szse_df]:
+                if df is not None and not df.empty:
+                    for _, row in df.iterrows():
+                        d = str(row['信用交易日期'])
+                        rz_val = float(row.get('融资余额', 0) or 0)
+                        rq_val = float(row.get('融券余量金额', 0) or 0)
+                        buy_val = float(row.get('融资买入额', 0) or 0)
+                        if d not in combined:
+                            combined[d] = [rz_val, rq_val, buy_val]
+                        else:
+                            combined[d][0] += rz_val
+                            combined[d][1] += rq_val
+                            combined[d][2] += buy_val
+
+            dates = sorted(combined.keys())
+            if len(dates) >= 2:
+                latest = combined[dates[-1]]
+                latest_total = latest[0] + latest[1]
+                latest_buy = latest[2]
+
+                if len(dates) >= 6:
+                    t5 = combined[dates[-6]]
+                    total_5d = t5[0] + t5[1]
+                    fin_bal_5d = round((latest_total - total_5d) / total_5d * 100, 2) if total_5d else 0
+
+                if len(dates) >= 11:
+                    t10 = combined[dates[-11]]
+                    total_10d = t10[0] + t10[1]
+                    fin_bal_10d = round((latest_total - total_10d) / total_10d * 100, 2) if total_10d else 0
+
+                if len(dates) >= 21:
+                    recent_buys = [combined[d][2] for d in dates[-21:]]
+                    avg_20d = sum(recent_buys) / len(recent_buys) if recent_buys else 0
+                    fin_buy_heat = round((latest_buy - avg_20d) / avg_20d * 100, 2) if avg_20d else 0
         except Exception:
             pass
 
@@ -463,26 +511,30 @@ def get_risk_index():
         idx_10d = 0.0
         idx_20d_dd = 0.0
         try:
-            # 获取上证日K线
-            url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol=sh000001&scale=240&ma=no&datalen=30"
-            headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
-            r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-            json_match = re.search(r'data\((.+)\)', r.text, re.DOTALL)
-            klines = json.loads(json_match.group(1)) if json_match else []
+            def _get_daily_closes(symbol):
+                url = f"https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol={symbol}&scale=240&ma=no&datalen=30"
+                headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
+                r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+                m = re.search(r'data\((.+)\)', r.text, re.DOTALL)
+                klines = json.loads(m.group(1)) if m else []
+                return [float(k['close']) for k in klines] if klines else []
 
-            if klines and len(klines) >= 5:
-                closes = [float(k['close']) for k in klines]
-                cur_close = closes[-1]
+            sh_c = _get_daily_closes('sh000001')
+            sz_c = _get_daily_closes('sz399001')
 
-                # 5日/10日涨跌
-                if len(closes) >= 6:
-                    idx_5d = round((cur_close - closes[-6]) / closes[-6] * 100, 2)
-                if len(closes) >= 11:
-                    idx_10d = round((cur_close - closes[-11]) / closes[-11] * 100, 2)
+            # 取沪深平均值
+            n = min(len(sh_c), len(sz_c)) if sh_c and sz_c else len(sh_c or sz_c or [])
+            if n >= 5:
+                avg_closes = [(sh_c[i] + sz_c[i]) / 2 for i in range(n)] if sh_c and sz_c else (sh_c or sz_c)
+                cur_close = avg_closes[-1]
 
-                # 20日最大回撤
-                if len(closes) >= 21:
-                    recent = closes[-21:]
+                if len(avg_closes) >= 6:
+                    idx_5d = round((cur_close - avg_closes[-6]) / avg_closes[-6] * 100, 2)
+                if len(avg_closes) >= 11:
+                    idx_10d = round((cur_close - avg_closes[-11]) / avg_closes[-11] * 100, 2)
+
+                if len(avg_closes) >= 21:
+                    recent = avg_closes[-21:]
                     peak = recent[0]
                     max_dd_20d = 0.0
                     for c in recent:
@@ -493,9 +545,8 @@ def get_risk_index():
                             max_dd_20d = dd
                     idx_20d_dd = round(max_dd_20d, 2)
 
-                # 10日波动率
-                if len(closes) >= 11:
-                    recent10 = closes[-11:]
+                if len(avg_closes) >= 11:
+                    recent10 = avg_closes[-11:]
                     changes = [(recent10[i] - recent10[i-1]) / recent10[i-1] * 100 for i in range(1, len(recent10))]
                     avg_ch = sum(changes) / len(changes)
                     variance = sum((c - avg_ch) ** 2 for c in changes) / len(changes)
@@ -580,6 +631,8 @@ def get_risk_index():
                 'idx_5d': idx_5d,
                 'idx_10d': idx_10d,
                 'idx_20d_dd': idx_20d_dd,
+                'panic_score_in': round(sentiment_score, 1),
+                'limit_score_in': round(limit_score, 1),
             }
         }
     except Exception as e:
