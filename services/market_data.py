@@ -266,81 +266,322 @@ def get_market_fund_flow():
 
 
 def get_fear_index():
-    """市场恐慌指数：涨跌家数比 0-100"""
+    """市场恐慌指数：指数走势+日内分时+涨跌面+资金流 多因子加权 0-100"""
     try:
-        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-        params = {
-            'fltt': 2, 'invt': 2, 'fields': 'f104,f105,f106',
-            'secids': '1.000001,0.399001', 'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-        }
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
-        r = requests.get(url, params=params, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-        diff = (r.json().get('data') or {}).get('diff') or []
+        # 1. 主要指数平均涨跌
+        indices = get_major_indices()
+        idx_changes = []
+        if indices.get('success') and indices.get('data'):
+            for idx in indices['data']:
+                try:
+                    ch = str(idx.get('change', '0%')).replace('%', '').replace('+', '')
+                    idx_changes.append(float(ch))
+                except Exception:
+                    pass
+        avg_idx_change = sum(idx_changes) / len(idx_changes) if idx_changes else 0
 
-        rise = sum(int(row.get('f104', 0)) for row in diff)
-        fall = sum(int(row.get('f105', 0)) for row in diff)
-        flat = sum(int(row.get('f106', 0)) for row in diff)
+        # 2. 上证日内分时数据
+        minute = get_sh000001_minute_data()
+        intraday_pct = 0.0
+        max_30m_drop = 0.0
+        max_dd = 0.0
+        amplitude = 0.0
+        rebound = 0.0
+
+        if minute.get('success') and minute.get('data'):
+            md = minute['data']
+            prices = [p for p in md.get('prices', []) if p is not None]
+            pre_close = md.get('preClose', 0)
+            if prices and pre_close:
+                cur = prices[-1]
+                intraday_pct = round((cur - pre_close) / pre_close * 100, 2)
+
+                # 振幅
+                hi = max(prices)
+                lo = min(prices)
+                amplitude = round((hi - lo) / pre_close * 100, 2)
+
+                # 日内最大回撤
+                peak = prices[0]
+                for p in prices:
+                    if p > peak:
+                        peak = p
+                    dd = (p - peak) / peak * 100
+                    if dd < max_dd:
+                        max_dd = dd
+                max_dd = round(max_dd, 2)
+
+                # 30分钟最大跌速
+                for i in range(len(prices) - 30):
+                    if prices[i] > 0:
+                        drop = (prices[i + 30] - prices[i]) / prices[i] * 100
+                        if drop < max_30m_drop:
+                            max_30m_drop = drop
+                max_30m_drop = round(max_30m_drop, 2)
+
+                # 从日内低点反弹
+                if lo:
+                    rebound = round((cur - lo) / lo * 100, 2)
+
+        # 3. 涨跌家数
+        rise = fall = 0
+        try:
+            url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+            params = {
+                'fltt': 2, 'invt': 2, 'fields': 'f104,f105,f106',
+                'secids': '1.000001,0.399001', 'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+            }
+            headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
+            r = requests.get(url, params=params, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+            diff = (r.json().get('data') or {}).get('diff') or []
+            rise = sum(int(row.get('f104', 0)) for row in diff)
+            fall = sum(int(row.get('f105', 0)) for row in diff)
+        except Exception:
+            pass
+
         total_active = rise + fall
+        red_ratio = round(rise / total_active * 100, 1) if total_active > 0 else 50
+        down_ratio = round(fall / total_active * 100, 1) if total_active > 0 else 50
 
-        fear_score = round(rise / total_active * 100, 1) if total_active > 0 else 50
+        # 4. 主力资金净流入
+        fund = get_market_fund_flow()
+        main_net = 0.0
+        if fund.get('success') and fund.get('data'):
+            flows = fund['data'].get('flows', [])
+            main_net = round(flows[-1], 2) if flows else 0
 
-        if fear_score <= 30:
-            level, color = '极度恐慌', '#4ade80'
-        elif fear_score <= 45:
-            level, color = '恐慌', '#86efac'
-        elif fear_score <= 55:
-            level, color = '中性', '#fbbf24'
-        elif fear_score <= 70:
-            level, color = '乐观', '#f97316'
+        # === 加权合成 ===
+        # 指数压力 (0-25)
+        index_pressure = min(max(abs(avg_idx_change) * 9, 0), 25)
+
+        # 日内压力 (0-30)
+        intraday_pressure = 0.0
+        intraday_pressure += min(max(abs(intraday_pct) * 7, 0), 10)
+        intraday_pressure += min(max(abs(max_30m_drop) * 20, 0), 10)
+        intraday_pressure += min(max(abs(max_dd) * 10, 0), 7)
+        intraday_pressure += min(max(amplitude * 2, 0), 3)
+        intraday_pressure = round(min(intraday_pressure, 30), 1)
+
+        # 广度压力 (0-25)
+        breadth_pressure = 0.0
+        breadth_pressure += min(max((50 - red_ratio) * 0.45, 0), 15)
+        breadth_pressure += min(max((down_ratio - 50) * 0.3, 0), 10)
+        breadth_pressure = round(min(breadth_pressure, 25), 1)
+
+        # 资金压力 (0-15)
+        fund_pressure = round(min(max(abs(main_net) / 100 * 1.2, 0), 15), 1) if main_net < 0 else 0
+
+        # 稳定分 (0-8)
+        stabilization = round(min(max(rebound * 3, 0), 8), 1)
+
+        base = 20
+        score = round(base + index_pressure + intraday_pressure + breadth_pressure + fund_pressure - stabilization, 1)
+        score = max(0, min(100, score))
+
+        if score <= 30:
+            level, color = '平稳', '#4ade80'
+        elif score <= 50:
+            level, color = '轻度恐慌', '#86efac'
+        elif score <= 65:
+            level, color = '明显恐慌', '#fbbf24'
+        elif score <= 80:
+            level, color = '高度恐慌', '#f97316'
         else:
-            level, color = '极度贪婪', '#e94560'
+            level, color = '极度恐慌', '#e94560'
 
-        return {'success': True, 'data': {'score': fear_score, 'level': level, 'color': color, 'rise': rise, 'fall': fall, 'flat': flat}}
+        return {
+            'success': True,
+            'data': {
+                'score': score, 'level': level, 'color': color,
+                'rise': rise, 'fall': fall, 'flat': 0,
+                'avg_index_change': round(avg_idx_change, 2),
+                'intraday_pct': intraday_pct,
+                'max_30m_drop': max_30m_drop,
+                'max_drawdown': max_dd,
+                'amplitude': amplitude,
+                'red_ratio': red_ratio,
+                'main_net': main_net,
+            }
+        }
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
 
 def get_risk_index():
-    """市场风险指数：波动率+融资杠杆率"""
+    """市场风险指数：融资杠杆+指数趋势+情绪面+涨跌结构 多因子加权 0-100"""
     try:
-        url = "https://push2delay.eastmoney.com/api/qt/stock/get"
-        params = {'secid': '1.000001', 'fields': 'f43,f44,f45,f46,f60,f117', 'ut': 'fa5fd1943c7b386f172d6893dbfba10b'}
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
-        r = requests.get(url, params=params, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-        d = (r.json() or {}).get('data') or {}
-        pre_close = float(d.get('f60', 0)) / 100
-        high = float(d.get('f44', 0)) / 100
-        low = float(d.get('f45', 0)) / 100
-        total_cap = float(d.get('f117', 0))
-        vol = abs(high - low) / pre_close * 100 if pre_close else 0
-
-        # 融资杠杆率
+        # === 1. 融资因子 (0-35) ===
+        financing_score = 0.0
+        fin_bal_5d = 0.0
+        fin_bal_10d = 0.0
+        fin_buy_heat = 0.0
         try:
             import akshare as ak
             end_date = datetime.date.today().strftime('%Y%m%d')
-            start_date = (datetime.date.today() - datetime.timedelta(days=3)).strftime('%Y%m%d')
+            start_date = (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y%m%d')
             df = ak.stock_margin_sse(start_date=start_date, end_date=end_date)
-            margin_balance = float(df.iloc[0]['融资余额']) if df is not None and not df.empty else 0
-            leverage = margin_balance / total_cap * 100 if total_cap else 0
+            if df is not None and not df.empty and len(df) >= 2:
+                df = df.sort_values('信用交易日期')
+                latest_rz = float(df.iloc[-1]['融资余额'])
+                latest_rq = float(df.iloc[-1]['融券余量金额'])
+                latest_total = latest_rz + latest_rq
+                latest_buy = float(df.iloc[-1]['融资买入额'])
+
+                # 5日变化
+                if len(df) >= 6:
+                    rz_5d_ago = float(df.iloc[-6]['融资余额'])
+                    rq_5d_ago = float(df.iloc[-6]['融券余量金额'])
+                    total_5d_ago = rz_5d_ago + rq_5d_ago
+                    fin_bal_5d = round((latest_total - total_5d_ago) / total_5d_ago * 100, 2)
+
+                # 10日变化
+                if len(df) >= 11:
+                    rz_10d_ago = float(df.iloc[-11]['融资余额'])
+                    rq_10d_ago = float(df.iloc[-11]['融券余量金额'])
+                    total_10d_ago = rz_10d_ago + rq_10d_ago
+                    fin_bal_10d = round((latest_total - total_10d_ago) / total_10d_ago * 100, 2)
+
+                # 融资买入活跃度
+                if len(df) >= 21:
+                    recent_buys = [float(df.iloc[-(i+1)]['融资买入额']) for i in range(20)]
+                    avg_20d_buy = sum(recent_buys) / len(recent_buys)
+                    fin_buy_heat = round((latest_buy - avg_20d_buy) / avg_20d_buy * 100, 2) if avg_20d_buy else 0
         except Exception:
-            leverage = 0
+            pass
 
-        vol_score = min(vol * 16.7, 50)
-        lev_score = min(leverage * 10, 50)
-        risk_score = round(min(vol_score + lev_score, 100), 1)
+        # 融资因子评分
+        financing_score += min(max(fin_bal_10d * 3, 0), 18)   # 融资持续扩张=风险累积
+        financing_score += min(max(fin_bal_5d * 4, 0), 12)
+        if fin_buy_heat < 0:
+            financing_score += min(max(abs(fin_buy_heat) * 0.5, 0), 5)  # 买入降温
+        financing_score = round(min(financing_score, 35), 1)
 
-        if risk_score <= 20:
+        # === 2. 指数趋势因子 (0-30) ===
+        trend_score = 0.0
+        vol = 0.0
+        idx_5d = 0.0
+        idx_10d = 0.0
+        idx_20d_dd = 0.0
+        try:
+            # 获取上证日K线
+            url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol=sh000001&scale=240&ma=no&datalen=30"
+            headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
+            r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+            json_match = re.search(r'data\((.+)\)', r.text, re.DOTALL)
+            klines = json.loads(json_match.group(1)) if json_match else []
+
+            if klines and len(klines) >= 5:
+                closes = [float(k['close']) for k in klines]
+                cur_close = closes[-1]
+
+                # 5日/10日涨跌
+                if len(closes) >= 6:
+                    idx_5d = round((cur_close - closes[-6]) / closes[-6] * 100, 2)
+                if len(closes) >= 11:
+                    idx_10d = round((cur_close - closes[-11]) / closes[-11] * 100, 2)
+
+                # 20日最大回撤
+                if len(closes) >= 21:
+                    recent = closes[-21:]
+                    peak = recent[0]
+                    max_dd_20d = 0.0
+                    for c in recent:
+                        if c > peak:
+                            peak = c
+                        dd = (c - peak) / peak * 100
+                        if dd < max_dd_20d:
+                            max_dd_20d = dd
+                    idx_20d_dd = round(max_dd_20d, 2)
+
+                # 10日波动率
+                if len(closes) >= 11:
+                    recent10 = closes[-11:]
+                    changes = [(recent10[i] - recent10[i-1]) / recent10[i-1] * 100 for i in range(1, len(recent10))]
+                    avg_ch = sum(changes) / len(changes)
+                    variance = sum((c - avg_ch) ** 2 for c in changes) / len(changes)
+                    vol = round(variance ** 0.5, 2)
+        except Exception:
+            pass
+
+        trend_score += min(max(abs(idx_5d) * 3, 0), 10)
+        trend_score += min(max(abs(idx_10d) * 2, 0), 8)
+        trend_score += min(max(abs(idx_20d_dd) * 2, 0), 7)
+        trend_score += min(max(vol * 3, 0), 5)
+        trend_score = round(min(trend_score, 30), 1)
+
+        # === 3. 情绪面因子 (0-20) ===
+        sentiment_score = 0.0
+        try:
+            fear = get_fear_index()
+            if fear.get('success') and fear.get('data'):
+                fd = fear['data']
+                pan = fd.get('score', 50)
+                sentiment_score += min(max((pan - 30) * 0.3, 0), 12)
+                red = fd.get('red_ratio', 50)
+                sentiment_score += min(max((50 - red) * 0.15, 0), 8)
+        except Exception:
+            pass
+        sentiment_score = round(min(sentiment_score, 20), 1)
+
+        # === 4. 涨跌结构因子 (0-15) ===
+        limit_score = 0.0
+        try:
+            # 获取涨停跌停数据
+            l_url = "https://push2delay.eastmoney.com/api/qt/clist/get"
+            l_params = {
+                'pn': 1, 'pz': 1, 'po': 1, 'np': 1, 'fltt': 2, 'invt': 2,
+                'fid': 'f3', 'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
+                'fields': 'f2,f3,f12,f14',
+                'ut': 'b2884a393a59ad64002292a3e90d46a5',
+            }
+            l_headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
+            lr = requests.get(l_url, params=l_params, headers=l_headers, timeout=10, proxies=REQUEST_PROXIES)
+            # Use market breadth as rough proxy for limit structure
+            bb_url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+            bb_params = {
+                'fltt': 2, 'invt': 2, 'fields': 'f104,f105,f106',
+                'secids': '1.000001,0.399001', 'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+            }
+            br = requests.get(bb_url, params=bb_params, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}, timeout=10, proxies=REQUEST_PROXIES)
+            bd = (br.json().get('data') or {}).get('diff') or []
+            rise = sum(int(row.get('f104', 0)) for row in bd)
+            fall = sum(int(row.get('f105', 0)) for row in bd)
+            total = rise + fall
+            if total > 0:
+                limit_score += min(max(abs(rise - fall) / total * 10, 0), 8)
+                limit_score += min(max(fall / total * 15, 0), 7)
+        except Exception:
+            pass
+        limit_score = round(min(limit_score, 15), 1)
+
+        score = round(financing_score + trend_score + sentiment_score + limit_score, 1)
+        score = max(0, min(100, score))
+
+        if score <= 20:
             level, color = '低风险', '#4ade80'
-        elif risk_score <= 40:
+        elif score <= 40:
             level, color = '较低风险', '#86efac'
-        elif risk_score <= 60:
+        elif score <= 60:
             level, color = '中等风险', '#fbbf24'
-        elif risk_score <= 80:
+        elif score <= 80:
             level, color = '较高风险', '#f97316'
         else:
             level, color = '高风险', '#e94560'
 
-        return {'success': True, 'data': {'score': risk_score, 'level': level, 'color': color, 'volatility': round(vol, 2), 'leverage': round(leverage, 2)}}
+        return {
+            'success': True,
+            'data': {
+                'score': score, 'level': level, 'color': color,
+                'volatility': round(vol, 2),
+                'leverage': round(fin_bal_10d, 2),
+                'fin_bal_5d': fin_bal_5d,
+                'fin_bal_10d': fin_bal_10d,
+                'fin_buy_heat': fin_buy_heat,
+                'idx_5d': idx_5d,
+                'idx_10d': idx_10d,
+                'idx_20d_dd': idx_20d_dd,
+            }
+        }
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
