@@ -78,6 +78,57 @@
         let minuteChart = null;
         let turnoverChart = null;
         let marginChart = null;
+        let fullMinuteSlots = [];
+        let fullFlowSlots = [];
+
+        function generateMinuteSlots() {
+            const slots = [];
+            for (let h = 9, m = 30; h < 12; ) {
+                slots.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
+                m += 5;
+                if (m >= 60) { h++; m -= 60; }
+                if (h === 11 && m > 30) break;
+            }
+            for (let h = 13, m = 0; h < 15 || (h === 15 && m === 0); ) {
+                slots.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
+                m += 5;
+                if (m >= 60) { h++; m -= 60; }
+                if (h === 15 && m > 0) break;
+            }
+            return slots;
+        }
+
+        function generateFlowSlots() {
+            const slots = [];
+            for (let h = 9, m = 30; h < 12; ) {
+                slots.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
+                m++;
+                if (m >= 60) { h++; m -= 60; }
+                if (h === 11 && m > 30) break;
+            }
+            for (let h = 13, m = 0; h < 15 || (h === 15 && m === 0); ) {
+                slots.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
+                m++;
+                if (m >= 60) { h++; m -= 60; }
+                if (h === 15 && m > 0) break;
+            }
+            return slots;
+        }
+
+        function mapToSlots(fullSlots, dataTimes, dataValues) {
+            const result = new Array(fullSlots.length).fill(null);
+            const indexMap = {};
+            for (let i = 0; i < fullSlots.length; i++) {
+                indexMap[fullSlots[i]] = i;
+            }
+            for (let i = 0; i < dataTimes.length; i++) {
+                const idx = indexMap[dataTimes[i]];
+                if (idx !== undefined && idx >= 0) {
+                    result[idx] = dataValues[i];
+                }
+            }
+            return result;
+        }
 
         function formatTurnover(value) {
             if (value >= 10000) {
@@ -193,11 +244,12 @@
                         let totalFlow = 0;
 
                         if (flowResult.success && flowResult.data.times) {
-                            flowTimes = flowResult.data.times;
-                            flows = flowResult.data.flows;
-                            flowsMid = flowResult.data.flows_mid || [];
-                            flowsSmall = flowResult.data.flows_small || [];
-                            totalFlow = flows.length > 0 ? flows[flows.length - 1] : 0;
+                            fullFlowSlots = generateFlowSlots();
+                            flowTimes = fullFlowSlots;
+                            flows = mapToSlots(fullFlowSlots, flowResult.data.times, flowResult.data.flows);
+                            flowsMid = mapToSlots(fullFlowSlots, flowResult.data.times, flowResult.data.flows_mid || []);
+                            flowsSmall = mapToSlots(fullFlowSlots, flowResult.data.times, flowResult.data.flows_small || []);
+                            totalFlow = flowResult.data.flows.length > 0 ? flowResult.data.flows[flowResult.data.flows.length - 1] : 0;
                         }
 
                         // 更新 header 追加大盘资金净流入
@@ -274,7 +326,7 @@
                                     }
                                 },
                                 scales: {
-                                    x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, font: { size: 10 }, callback: function(value, index) { return index % 15 === 0 ? this.getLabelForValue(value) : ''; } } },
+                                    x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, font: { size: 10 }, callback: function(value, index) { const label = this.getLabelForValue(value); if (!label) return ''; if (label === '11:30') return ''; if (label === '09:30' || label === '13:00' || label === '15:00') return label; const parts = label.split(':'); const h = parseInt(parts[0]); const min = parseInt(parts[1]); if (h < 12) return ((min + 30) % 20 === 0) ? label : ''; else return (min % 20 === 0) ? label : ''; } } },
                                     y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(value) { return value.toFixed(2) + '亿'; } }, afterFit: function(scale) { scale.width = 65; } }
                                 },
                                 interaction: { mode: 'index', intersect: false }
@@ -444,13 +496,14 @@
                     .then(minuteResult => {
                         const minuteLoading = document.getElementById('minuteLoading');
                         if (minuteResult.success && minuteResult.data.times && minuteResult.data.prices && minuteResult.data.times.length > 0) {
-                            const times = minuteResult.data.times;
-                            const prices = minuteResult.data.prices;
+                            fullMinuteSlots = generateMinuteSlots();
+                            const times = fullMinuteSlots;
+                            const prices = mapToSlots(fullMinuteSlots, minuteResult.data.times, minuteResult.data.prices);
                             const preClose = minuteResult.data.preClose || 0;
 
                             // 以昨收为中线，计算上下范围
                             let maxDev = 0;
-                            prices.forEach(p => { const d = Math.abs(p - preClose); if (d > maxDev) maxDev = d; });
+                            minuteResult.data.prices.forEach(p => { const d = Math.abs(p - preClose); if (d > maxDev) maxDev = d; });
                             maxDev = Math.max(maxDev * 1.15, preClose * 0.005);
                             const yMin = preClose - maxDev;
                             const yMax = preClose + maxDev;
@@ -511,7 +564,7 @@
                                         }
                                     },
                                     scales: {
-                                        x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { return index % 3 === 0 ? this.getLabelForValue(value) : ''; } } },
+                                        x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { const label = this.getLabelForValue(value); if (!label) return ''; if (label === '11:30') return ''; if (label === '09:30' || label === '13:00' || label === '15:00') return label; const parts = label.split(':'); const h = parseInt(parts[0]); const min = parseInt(parts[1]); if (h < 12) return ((min + 30) % 20 === 0) ? label : ''; else return (min % 20 === 0) ? label : ''; } } },
                                         y: { min: yMin, max: yMax, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', callback: v => v.toFixed(0) }, afterFit: function(scale) { scale.width = 65; } }
                                     },
                                     interaction: { mode: 'nearest', axis: 'x', intersect: false }
@@ -696,8 +749,16 @@
 
         loadAllData();
 
-        // 自动刷新：每10秒更新实时数据
+        // 自动刷新：开盘期间每10秒更新实时数据
+        function isInTradingHours() {
+            const now = new Date();
+            const t = now.getHours() * 60 + now.getMinutes();
+            return (t >= 540 && t <= 700) || (t >= 770 && t <= 930);
+            // 09:00-11:40, 12:50-15:30
+        }
+
         async function refreshRealtimeData() {
+            if (!isInTradingHours()) return;
             try {
                 // 更新上证指数价格
                 const idxRes = await fetch('/api/major-indices');
@@ -715,10 +776,9 @@
                 // 更新分时走势
                 const minRes = await fetch('/api/sh000001-minute');
                 const minData = await minRes.json();
-                if (minuteChart && minData.success && minData.data.times) {
-                    minuteChart.data.labels = minData.data.times;
-                    minuteChart.data.datasets[0].data = minData.data.prices;
-                    minuteChart.data.datasets[1].data = Array(minData.data.times.length).fill(minData.data.preClose);
+                if (minuteChart && minData.success && minData.data.times && fullMinuteSlots.length > 0) {
+                    minuteChart.data.datasets[0].data = mapToSlots(fullMinuteSlots, minData.data.times, minData.data.prices);
+                    minuteChart.data.datasets[1].data = Array(fullMinuteSlots.length).fill(minData.data.preClose);
                     const mPreClose = minData.data.preClose || 0;
                     let mMaxDev = 0;
                     minData.data.prices.forEach(p => { const d = Math.abs(p - mPreClose); if (d > mMaxDev) mMaxDev = d; });
@@ -735,12 +795,11 @@
                 // 更新资金流
                 const flowRes = await fetch('/api/market-fund-flow');
                 const flowData = await flowRes.json();
-                if (turnoverChart && flowData.success && flowData.data.times) {
-                    turnoverChart.data.labels = flowData.data.times;
-                    turnoverChart.data.datasets[0].data = flowData.data.flows;
-                    turnoverChart.data.datasets[1].data = flowData.data.flows_mid || [];
-                    turnoverChart.data.datasets[2].data = flowData.data.flows_small || [];
-                    turnoverChart.data.datasets[3].data = Array(flowData.data.times.length).fill(0);
+                if (turnoverChart && flowData.success && flowData.data.times && fullFlowSlots.length > 0) {
+                    turnoverChart.data.datasets[0].data = mapToSlots(fullFlowSlots, flowData.data.times, flowData.data.flows);
+                    turnoverChart.data.datasets[1].data = mapToSlots(fullFlowSlots, flowData.data.times, flowData.data.flows_mid || []);
+                    turnoverChart.data.datasets[2].data = mapToSlots(fullFlowSlots, flowData.data.times, flowData.data.flows_small || []);
+                    turnoverChart.data.datasets[3].data = Array(fullFlowSlots.length).fill(0);
                     turnoverChart.update('none');
                     // 更新 header 大盘资金净流入
                     const flows = flowData.data.flows;
