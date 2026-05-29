@@ -22,6 +22,10 @@
                     <span class="nav-icon">🔍</span>
                     <span>选股</span>
                 </div>
+                <div class="nav-item" data-page="watchlist">
+                    <span class="nav-icon">⭐</span>
+                    <span>自选股</span>
+                </div>
             </div>
         </div>
         <div class="main-content">
@@ -53,21 +57,31 @@
                 </div>
             </div>
 
+            <!-- 自选股页面 -->
+            <div id="page-watchlist" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">⭐ 自选股</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div style="text-align:center; color:#666; padding:40px;">功能开发中...</div>
+                </div>
+            </div>
+
             <!-- 选股页面 -->
             <div id="page-stock-pick" style="display:none;">
                 <div class="page-header">
                     <h1 class="page-title">🔍 选股</h1>
                 </div>
                 <div class="index-card" style="padding:30px;">
-                    <div style="max-width:600px; margin:0 auto;">
-                        <div style="display:flex; gap:10px; margin-bottom:20px;">
-                            <input id="searchInput" type="text" placeholder="输入股票名称或代码..." style="flex:1; padding:12px 16px; border:1px solid #0f3460; border-radius:8px; background:#1a1a2e; color:#fff; font-size:15px; outline:none;" onkeyup="if(event.key==='Enter')searchStock()">
-                            <button onclick="searchStock()" style="padding:12px 24px; background:#e94560; color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:15px;">搜索</button>
+                    <div style="max-width:600px; margin:0 auto; position:relative;">
+                        <div style="display:flex; gap:10px; margin-bottom:8px;">
+                            <input id="searchInput" type="text" autocomplete="off" placeholder="输入股票名称或代码..." style="flex:1; padding:12px 16px; border:1px solid #0f3460; border-radius:8px; background:#1a1a2e; color:#fff; font-size:15px; outline:none;" oninput="debounceSearch()" onkeydown="handleSearchKey(event)" onfocus="debounceSearch()" onblur="setTimeout(()=>{if(!document.querySelector('#searchResults:hover')){document.getElementById('searchResults').innerHTML='';searchResultsData=[];selectedSearchIdx=-1;}},200)">
                         </div>
-                        <div id="searchResults" style="min-height:200px;">
-                            <div style="text-align:center; color:#666; padding:40px;">输入股票名称或代码开始搜索</div>
+                        <div id="searchResults" style="position:absolute; left:0; right:0; top:56px; z-index:10; background:#16213e; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);">
+                            <div style="text-align:center; color:#666; padding:12px 0;">输入股票名称或代码开始搜索</div>
                         </div>
                     </div>
+                    <div id="pickedStocks" style="margin-top:8px;"></div>
                 </div>
             </div>
         </div>
@@ -757,35 +771,206 @@
                 const page = this.getAttribute('data-page');
                 document.getElementById('page-money-flow').style.display = page === 'money-flow' ? 'block' : 'none';
                 document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
+                document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
             });
         });
 
-        // 股票搜索
+        // 股票类型判断
+        function getStockType(code, market) {
+            const c = (code || '').toString();
+            const m = (market || '').toString();
+            // 沪市
+            if (m === '1' || m === '2') {
+                if (/^68/.test(c)) return '科创';
+                if (/^60|^900/.test(c)) return '沪A';
+                if (/^51[0-9]/.test(c)) return '沪ETF';
+                if (/^5[0-9]/.test(c)) return '沪基';
+                if (/^11/.test(c)) return '沪债';
+                return '沪市';
+            }
+            // 深市
+            if (m === '0') {
+                if (/^30[04]/.test(c)) return '创业';
+                if (/^00[024]|^002|^003/.test(c)) return '深A';
+                if (/^15[0-9]/.test(c)) return '深ETF';
+                if (/^1[0-9]/.test(c)) return '深基';
+                if (/^12/.test(c)) return '深债';
+                return '深市';
+            }
+            // 北交所
+            if (m === '90') return '北交所';
+            if (m === '116') return '港股';
+            if (m === '106') return '美股';
+            if (/^1[0-5]/.test(m) && parseInt(m) >= 105) return '境外';
+            return '';
+        }
+
+        // 股票搜索（防抖）
+        let searchTimer = null;
+        let searchResultsData = [];
+        let selectedSearchIdx = -1;
+
+        function debounceSearch() {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(searchStock, 300);
+        }
+
+        function handleSearchKey(e) {
+            const items = document.querySelectorAll('#searchResults .stock-item');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                selectedSearchIdx = Math.min(selectedSearchIdx + 1, items.length - 1);
+                updateSearchHighlight(items);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                selectedSearchIdx = Math.max(selectedSearchIdx - 1, 0);
+                updateSearchHighlight(items);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (selectedSearchIdx >= 0 && selectedSearchIdx < items.length) {
+                    items[selectedSearchIdx].click();
+                }
+            }
+        }
+
+        function updateSearchHighlight(items) {
+            items.forEach((item, i) => {
+                item.style.background = i === selectedSearchIdx ? '#0f3460' : '#1a1a2e';
+                item.style.borderColor = i === selectedSearchIdx ? '#e94560' : '#0f3460';
+            });
+        }
+
         async function searchStock() {
             const keyword = document.getElementById('searchInput').value.trim();
             const resultsDiv = document.getElementById('searchResults');
-            if (!keyword) { resultsDiv.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">请输入股票名称或代码</div>'; return; }
-            resultsDiv.innerHTML = '<div class="loading">搜索中...</div>';
+            if (!keyword) {
+                resultsDiv.innerHTML = '<div style="text-align:center;color:#666;padding:12px 15px;">输入股票名称或代码开始搜索</div>';
+                searchResultsData = []; selectedSearchIdx = -1;
+                return;
+            }
+            if (keyword.length < 2) return;
+            resultsDiv.innerHTML = '<div style="text-align:center;color:#888;padding:12px 15px;">搜索中...</div>';
             try {
                 const res = await fetch('/api/search-stock?q=' + encodeURIComponent(keyword));
                 const data = await res.json();
                 if (data.success && data.data.length > 0) {
-                    let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
-                    data.data.forEach(s => {
-                        html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 15px;background:#1a1a2e;border-radius:6px;border:1px solid #0f3460;">
-                            <div><span style="color:#fff;font-weight:bold;">${s.name}</span> <span style="color:#888;font-size:12px;">${s.code}</span></div>
-                            <div><span style="color:#888;font-size:12px;">${s.market === '1' ? '沪' : s.market === '0' ? '深' : ''}</span></div>
+                    searchResultsData = data.data;
+                    selectedSearchIdx = -1;
+                    let html = '<div style="display:flex;flex-direction:column;gap:4px;">';
+                    data.data.forEach((s, i) => {
+                        const type = getStockType(s.code, s.market);
+                        html += `<div class="stock-item" style="display:flex;align-items:center;gap:12px;padding:10px 15px;background:#1a1a2e;border-radius:6px;border:1px solid #0f3460;cursor:pointer;transition:background 0.15s;" onclick="pickStock('${s.code}','${s.name}','${s.market}')">
+                            <span style="color:#fff;font-weight:bold;">${s.name}</span>
+                            <span style="color:#888;font-size:12px;">${s.code}</span>
+                            <span style="color:#555;font-size:12px;">${type}</span>
                         </div>`;
                     });
                     html += '</div>';
                     resultsDiv.innerHTML = html;
                 } else {
-                    resultsDiv.innerHTML = '<div style="text-align:center;color:#666;padding:40px;">未找到相关股票</div>';
+                    resultsDiv.innerHTML = '<div style="text-align:center;color:#666;padding:12px 15px;">未找到相关股票</div>';
+                    searchResultsData = [];
                 }
             } catch(e) {
-                resultsDiv.innerHTML = '<div class="error">搜索失败</div>';
+                resultsDiv.innerHTML = '<div style="text-align:center;color:#e94560;padding:12px 15px;">搜索失败</div>';
             }
+        }
+
+        // 已选股票
+        let pickedStocks = [];
+        async function pickStock(code, name, market) {
+            if (pickedStocks.find(s => s.code === code)) return;
+            pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: '-' });
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchResults').innerHTML = '';
+            searchResultsData = []; selectedSearchIdx = -1;
+            renderPicked();
+            refreshPickedQuotes();
+            refreshGoodwill();
+        }
+        function removePicked(code) {
+            pickedStocks = pickedStocks.filter(s => s.code !== code);
+            renderPicked();
+        }
+        async function refreshPickedQuotes() {
+            if (pickedStocks.length === 0) return;
+            const secids = pickedStocks.map(s => s.market + '.' + s.code).join(',');
+            try {
+                const res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(secids));
+                const data = await res.json();
+                if (data.success) {
+                    for (const s of pickedStocks) {
+                        const q = data.data[s.market + '.' + s.code];
+                        if (q) {
+                            s.price = q.price || '-';
+                            s.pct = q.pct || '-';
+                            s.change = q.change || '-';
+                            s.pe = q.pe || '-';
+                            s.pb = q.pb || '-';
+                            s.turnover = q.turnover || '-';
+                            s.volume = q.volume || '-';
+                            s.amount = q.amount || '-';
+                            s.total_cap = q.total_cap || '-';
+                            s.float_cap = q.float_cap || '-';
+                        }
+                    }
+                    renderPicked();
+                }
+            } catch(e) { console.log('报价刷新失败:', e); }
+        }
+        async function refreshGoodwill() {
+            const codes = pickedStocks.filter(s => s.goodwill === '-').map(s => s.code).join(',');
+            if (!codes) return;
+            try {
+                const res = await fetch('/api/goodwill?codes=' + encodeURIComponent(codes));
+                const data = await res.json();
+                if (data.success) {
+                    for (const s of pickedStocks) {
+                        if (data.data[s.code] !== undefined) {
+                            s.goodwill = _fmtCap(data.data[s.code]);
+                        }
+                    }
+                    renderPicked();
+                }
+            } catch(e) { console.log('商誉加载失败:', e); }
+        }
+
+        function _fmtCap(v) {
+            if (!v || v === '-') return '-';
+            if (v >= 1e12) return (v/1e12).toFixed(2) + '万亿';
+            if (v >= 1e8) return (v/1e8).toFixed(2) + '亿';
+            return (v/1e4).toFixed(2) + '万';
+        }
+
+        function renderPicked() {
+            const div = document.getElementById('pickedStocks');
+            if (pickedStocks.length === 0) { div.innerHTML = ''; return; }
+            let html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>换手</th><th>成交额/量</th><th>流通市值/总市值</th><th>市盈PE/市净PB</th><th>商誉</th><th></th></tr></thead><tbody>';
+            pickedStocks.forEach(s => {
+                const type = getStockType(s.code, s.market);
+                const chg = s.change || '-';
+                const pct = s.pct || '-';
+                const isUp = chg.startsWith('+') || parseFloat(chg) > 0;
+                const isDown = chg.startsWith('-') || parseFloat(chg) < 0;
+                const color = isUp ? '#e94560' : isDown ? '#4ade80' : '#888';
+                const chgText = (chg !== '-' && pct !== '-') ? `${chg} (${pct})` : chg;
+                html += `<tr>
+                    <td><span style="color:#888;">${s.code}</span></td>
+                    <td><span style="color:#fff;">${s.name}</span></td>
+                    <td><span style="color:#555;">${type}</span></td>
+                    <td><span style="color:${color};font-weight:bold;">${s.price}</span></td>
+                    <td><span style="color:${color};">${chgText}</span></td>
+                    <td><span style="color:#ddd;">${s.turnover}</span></td>
+                    <td><span style="color:#ddd;">${s.amount !== '-' && s.volume !== '-' ? s.amount + '/' + s.volume : s.amount}</span></td>
+                    <td><span style="color:#ddd;">${s.float_cap !== '-' && s.total_cap !== '-' ? s.float_cap + '/' + s.total_cap : s.float_cap}</span></td>
+                    <td><span style="color:#ddd;">${s.pe !== '-' && s.pb !== '-' ? s.pe + '/' + s.pb : s.pe}</span></td>
+                    <td><span style="color:#ddd;">${s.goodwill}</span></td>
+                    <td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="removePicked('${s.code}')">&times;</span></td>
+                </tr>`;
+            });
+            html += '</tbody></table></div>';
+            div.innerHTML = html;
         }
 
         document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -942,6 +1127,7 @@
                     }
                 }
             } catch(e) { console.log('Auto refresh error:', e); }
+            refreshPickedQuotes();
         }
 
         setInterval(refreshRealtimeData, 10000);
