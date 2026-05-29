@@ -247,11 +247,12 @@
                             const todayTurnover = turnoverHeader.turnover / 100000000;
                             const yesterdayTurnover = turnoverHeader.turnover_pre / 100000000;
                             const change = turnoverHeader.turnover_change / 100000000;
+                            const changePct = yesterdayTurnover ? (change / yesterdayTurnover * 100) : 0;
                             headerInfo = `
                                 <div style="display: flex; gap: 30px; font-size: 13px; color: #888;">
                                     <span>当日成交额: <span id="todayTurnover" style="color: #fff;">${todayTurnover.toFixed(2)}亿</span></span>
                                     <span>昨日成交额: <span id="yesterdayTurnover" style="color: #fff;">${yesterdayTurnover.toFixed(2)}亿</span></span>
-                                    <span>较昨日变动: <span id="turnoverChange" style="color: ${change >= 0 ? '#e94560' : '#4ade80'};">${change >= 0 ? '+' : ''}${change.toFixed(2)}亿</span></span>
+                                    <span>较昨日变动: <span id="turnoverChange" style="color: ${change >= 0 ? '#e94560' : '#4ade80'};">${change >= 0 ? '+' : ''}${change.toFixed(2)}亿 (${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%)</span></span>
                                 </div>
                             `;
                         }
@@ -854,7 +855,8 @@
                     if (elToday) elToday.textContent = (th.turnover / 100000000).toFixed(2) + '亿';
                     if (elYesterday) elYesterday.textContent = (th.turnover_pre / 100000000).toFixed(2) + '亿';
                     if (elChange) {
-                        elChange.textContent = (tChange >= 0 ? '+' : '') + tChange.toFixed(2) + '亿';
+                        const tPct = th.turnover_pre ? (tChange / (th.turnover_pre / 100000000) * 100) : 0;
+                        elChange.textContent = (tChange >= 0 ? '+' : '') + tChange.toFixed(2) + '亿 (' + (tPct >= 0 ? '+' : '') + tPct.toFixed(1) + '%)';
                         elChange.style.color = tChange >= 0 ? '#e94560' : '#4ade80';
                     }
                 }
