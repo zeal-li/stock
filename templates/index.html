@@ -983,15 +983,20 @@
             });
         });
 
-        loadAllData();
-
         // 自动刷新：开盘期间每10秒更新实时数据
         function isInTradingHours() {
             const now = new Date();
+            const day = now.getDay(); // 0=周日, 6=周六
+            // 周六日不开市
+            if (day === 0 || day === 6) return false;
             const t = now.getHours() * 60 + now.getMinutes();
             return (t >= 540 && t <= 700) || (t >= 770 && t <= 930);
             // 09:00-11:40, 12:50-15:30
         }
+
+        loadAllData();
+
+        setInterval(refreshRealtimeData, 10000);
 
         async function refreshRealtimeData() {
             if (!isInTradingHours()) return;
@@ -1129,8 +1134,6 @@
             } catch(e) { console.log('Auto refresh error:', e); }
             refreshPickedQuotes();
         }
-
-        setInterval(refreshRealtimeData, 10000);
     </script>
 </body>
 </html>
