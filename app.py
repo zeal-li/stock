@@ -103,12 +103,17 @@ def _fmt_pct(v):
     try: return f"{float(v):.2f}%"
     except: return str(v)
 
-def _fmt_volume(v):
+def _fmt_volume(v, market=None):
     if v is None or v == '-' or v == '': return '-'
     try:
         v = float(v)
-        if v >= 1e5: return f"{v/1e4:.2f}万手"
-        return f"{v:.0f}手"
+        market = str(market) if market is not None else ''
+        # A股(沪0/1,深0,北90)成交量单位是手，1手=100股；港股美股等已是股
+        if market in ('0', '1', '2', '90'):
+            v *= 100
+        if v >= 1e8: return f"{v/1e8:.2f}亿股"
+        if v >= 1e4: return f"{v/1e4:.2f}万股"
+        return f"{v:.0f}股"
     except: return str(v)
 
 def _fmt_amount(v):
@@ -140,7 +145,7 @@ def stock_quotes():
         url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
         params = {
             'fltt': 2, 'invt': 2,
-            'fields': 'f2,f3,f4,f5,f6,f8,f9,f12,f13,f20,f21,f23',
+            'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f12,f13,f14,f20,f21,f23',
             'secids': secids,
             'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
         }
@@ -155,11 +160,13 @@ def stock_quotes():
             key = f"{row.get('f13', '')}.{row.get('f12', '')}"
             if row.get('f12'):
                 result[key] = {
+                    'name': row.get('f14', ''),
                     'price': _fmt(row.get('f2')),
                     'pct': _fmt_pct(row.get('f3')),
                     'change': _fmt(row.get('f4')),
-                    'volume': _fmt_volume(row.get('f5')),
+                    'volume': _fmt_volume(row.get('f5'), row.get('f13')),
                     'amount': _fmt_amount(row.get('f6')),
+                    'amplitude': _fmt_pct(row.get('f7')),
                     'turnover': _fmt_pct(row.get('f8')),
                     'pe': _fmt(row.get('f9')),
                     'pb': _fmt(row.get('f23')),

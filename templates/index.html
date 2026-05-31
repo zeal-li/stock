@@ -77,9 +77,7 @@
                         <div style="display:flex; gap:10px; margin-bottom:8px;">
                             <input id="searchInput" type="text" autocomplete="off" placeholder="输入股票名称或代码..." style="flex:1; padding:12px 16px; border:1px solid #0f3460; border-radius:8px; background:#1a1a2e; color:#fff; font-size:15px; outline:none;" oninput="debounceSearch()" onkeydown="handleSearchKey(event)" onfocus="debounceSearch()" onblur="setTimeout(()=>{if(!document.querySelector('#searchResults:hover')){document.getElementById('searchResults').innerHTML='';searchResultsData=[];selectedSearchIdx=-1;}},200)">
                         </div>
-                        <div id="searchResults" style="position:absolute; left:0; right:0; top:56px; z-index:10; background:#16213e; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);">
-                            <div style="text-align:center; color:#666; padding:12px 0;">输入股票名称或代码开始搜索</div>
-                        </div>
+                        <div id="searchResults" style="position:absolute; left:0; right:0; top:56px; z-index:10; background:#16213e; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);"></div>
                     </div>
                     <div id="pickedStocks" style="margin-top:8px;"></div>
                 </div>
@@ -879,9 +877,28 @@
 
         // 已选股票
         let pickedStocks = [];
+
+        function savePickedStocks() {
+            const toSave = pickedStocks.map(s => ({ code: s.code, market: s.market }));
+            localStorage.setItem('pickedStocks', JSON.stringify(toSave));
+        }
+
+        function loadPickedStocks() {
+            try {
+                const saved = JSON.parse(localStorage.getItem('pickedStocks') || '[]');
+                pickedStocks = saved.map(s => ({ code: s.code, name: s.code, market: s.market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: '-' }));
+                if (pickedStocks.length > 0) {
+                    renderPicked();
+                    refreshPickedQuotes();
+                    refreshGoodwill();
+                }
+            } catch(e) { console.log('恢复自选股失败:', e); }
+        }
+
         async function pickStock(code, name, market) {
             if (pickedStocks.find(s => s.code === code)) return;
-            pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: '-' });
+            pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: '-' });
+            savePickedStocks();
             document.getElementById('searchInput').value = '';
             document.getElementById('searchResults').innerHTML = '';
             searchResultsData = []; selectedSearchIdx = -1;
@@ -891,6 +908,7 @@
         }
         function removePicked(code) {
             pickedStocks = pickedStocks.filter(s => s.code !== code);
+            savePickedStocks();
             renderPicked();
         }
         async function refreshPickedQuotes() {
@@ -903,11 +921,13 @@
                     for (const s of pickedStocks) {
                         const q = data.data[s.market + '.' + s.code];
                         if (q) {
+                            if (q.name) s.name = q.name;
                             s.price = q.price || '-';
                             s.pct = q.pct || '-';
                             s.change = q.change || '-';
                             s.pe = q.pe || '-';
                             s.pb = q.pb || '-';
+                            s.amplitude = q.amplitude || '-';
                             s.turnover = q.turnover || '-';
                             s.volume = q.volume || '-';
                             s.amount = q.amount || '-';
@@ -946,7 +966,7 @@
         function renderPicked() {
             const div = document.getElementById('pickedStocks');
             if (pickedStocks.length === 0) { div.innerHTML = ''; return; }
-            let html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>换手</th><th>成交额/量</th><th>流通市值/总市值</th><th>市盈PE/市净PB</th><th>商誉</th><th></th></tr></thead><tbody>';
+            let html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>市盈PE/市净PB</th><th>商誉</th><th></th></tr></thead><tbody>';
             pickedStocks.forEach(s => {
                 const type = getStockType(s.code, s.market);
                 const chg = s.change || '-';
@@ -961,9 +981,9 @@
                     <td><span style="color:#555;">${type}</span></td>
                     <td><span style="color:${color};font-weight:bold;">${s.price}</span></td>
                     <td><span style="color:${color};">${chgText}</span></td>
-                    <td><span style="color:#ddd;">${s.turnover}</span></td>
-                    <td><span style="color:#ddd;">${s.amount !== '-' && s.volume !== '-' ? s.amount + '/' + s.volume : s.amount}</span></td>
-                    <td><span style="color:#ddd;">${s.float_cap !== '-' && s.total_cap !== '-' ? s.float_cap + '/' + s.total_cap : s.float_cap}</span></td>
+                    <td><span style="color:#ddd;">${s.volume !== '-' && s.amount !== '-' ? s.volume + '/' + s.amount : s.volume}</span></td>
+                    <td><span style="color:#ddd;">${s.total_cap !== '-' && s.float_cap !== '-' ? s.total_cap + '/' + s.float_cap : s.total_cap}</span></td>
+                    <td><span style="color:#ddd;">${s.turnover !== '-' && s.amplitude !== '-' ? s.turnover + '/' + s.amplitude : s.turnover}</span></td>
                     <td><span style="color:#ddd;">${s.pe !== '-' && s.pb !== '-' ? s.pe + '/' + s.pb : s.pe}</span></td>
                     <td><span style="color:#ddd;">${s.goodwill}</span></td>
                     <td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="removePicked('${s.code}')">&times;</span></td>
@@ -995,6 +1015,7 @@
         }
 
         loadAllData();
+        loadPickedStocks();
 
         setInterval(refreshRealtimeData, 10000);
 
