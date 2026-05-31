@@ -145,7 +145,8 @@ def stock_quotes():
         url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
         params = {
             'fltt': 2, 'invt': 2,
-            'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f12,f13,f14,f20,f21,f23',
+            # f9=动态市盈率(原PE), f115=市盈率TTM(滚动市盈率,同花顺默认), f162=静态市盈率
+            'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f12,f13,f14,f20,f21,f23,f115,f162',
             'secids': secids,
             'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
         }
@@ -159,6 +160,10 @@ def stock_quotes():
         for row in diff:
             key = f"{row.get('f13', '')}.{row.get('f12', '')}"
             if row.get('f12'):
+                # PE TTM(滚动市盈率)优先,更稳定,与同花顺一致;若没有则用动态市盈率(f9)
+                pe_ttm = row.get('f115')
+                pe_dynamic = row.get('f9')
+                pe = pe_ttm if pe_ttm is not None and pe_ttm != '-' else pe_dynamic
                 result[key] = {
                     'name': row.get('f14', ''),
                     'price': _fmt(row.get('f2')),
@@ -168,7 +173,7 @@ def stock_quotes():
                     'amount': _fmt_amount(row.get('f6')),
                     'amplitude': _fmt_pct(row.get('f7')),
                     'turnover': _fmt_pct(row.get('f8')),
-                    'pe': _fmt(row.get('f9')),
+                    'pe': _fmt(pe),
                     'pb': _fmt(row.get('f23')),
                     'total_cap': _fmt_cap(row.get('f20')),
                     'float_cap': _fmt_cap(row.get('f21')),

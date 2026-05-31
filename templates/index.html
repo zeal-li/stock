@@ -886,7 +886,7 @@
         function loadPickedStocks() {
             try {
                 const saved = JSON.parse(localStorage.getItem('pickedStocks') || '[]');
-                pickedStocks = saved.map(s => ({ code: s.code, name: s.code, market: s.market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: '-' }));
+                pickedStocks = saved.map(s => ({ code: s.code, name: s.code, market: s.market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null }));
                 if (pickedStocks.length > 0) {
                     renderPicked();
                     refreshPickedQuotes();
@@ -897,7 +897,7 @@
 
         async function pickStock(code, name, market) {
             if (pickedStocks.find(s => s.code === code)) return;
-            pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: '-' });
+            pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null });
             savePickedStocks();
             document.getElementById('searchInput').value = '';
             document.getElementById('searchResults').innerHTML = '';
@@ -940,15 +940,15 @@
             } catch(e) { console.log('报价刷新失败:', e); }
         }
         async function refreshGoodwill() {
-            const codes = pickedStocks.filter(s => s.goodwill === '-').map(s => s.code).join(',');
+            const codes = pickedStocks.filter(s => !s.goodwill).map(s => s.code).join(',');
             if (!codes) return;
             try {
                 const res = await fetch('/api/goodwill?codes=' + encodeURIComponent(codes));
                 const data = await res.json();
                 if (data.success) {
                     for (const s of pickedStocks) {
-                        if (data.data[s.code] !== undefined) {
-                            s.goodwill = _fmtCap(data.data[s.code]);
+                        if (data.data[s.code]) {
+                            s.goodwill = data.data[s.code];
                         }
                     }
                     renderPicked();
@@ -962,11 +962,17 @@
             if (v >= 1e8) return (v/1e8).toFixed(2) + '亿';
             return (v/1e4).toFixed(2) + '万';
         }
+        function _fmtRate(v) {
+            if (v == null || v === '' || v === '-') return '-';
+            const n = parseFloat(v);
+            if (isNaN(n)) return '-';
+            return n.toFixed(2) + '%';
+        }
 
         function renderPicked() {
             const div = document.getElementById('pickedStocks');
             if (pickedStocks.length === 0) { div.innerHTML = ''; return; }
-            let html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>市盈PE/市净PB</th><th>商誉</th><th></th></tr></thead><tbody>';
+            let html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>PE(TTM)/PB</th><th>商誉率/质押率</th><th></th></tr></thead><tbody>';
             pickedStocks.forEach(s => {
                 const type = getStockType(s.code, s.market);
                 const chg = s.change || '-';
@@ -985,7 +991,7 @@
                     <td><span style="color:#ddd;">${s.total_cap !== '-' && s.float_cap !== '-' ? s.total_cap + '/' + s.float_cap : s.total_cap}</span></td>
                     <td><span style="color:#ddd;">${s.turnover !== '-' && s.amplitude !== '-' ? s.turnover + '/' + s.amplitude : s.turnover}</span></td>
                     <td><span style="color:#ddd;">${s.pe !== '-' && s.pb !== '-' ? s.pe + '/' + s.pb : s.pe}</span></td>
-                    <td><span style="color:#ddd;">${s.goodwill}</span></td>
+                    <td><span style="color:#ddd;">${s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-'}</span></td>
                     <td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="removePicked('${s.code}')">&times;</span></td>
                 </tr>`;
             });
