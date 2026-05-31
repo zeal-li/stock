@@ -878,15 +878,49 @@
         // 已选股票
         let pickedStocks = [];
 
-        function savePickedStocks() {
-            const toSave = pickedStocks.map(s => ({ code: s.code, market: s.market }));
-            localStorage.setItem('pickedStocks', JSON.stringify(toSave));
+        // ========== 统一缓存（代码+商誉率+质押率，localStorage 单个 key） ==========
+        function getToday() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+
+        function saveCache() {
+            const stocks = pickedStocks.map(s => ({
+                code: s.code, market: s.market,
+                gw: s.goodwill ? s.goodwill.gw : undefined,
+                pld: s.goodwill ? s.goodwill.pld : undefined,
+            }));
+            localStorage.setItem('stockCache', JSON.stringify({ date: getToday(), stocks }));
+        }
+
+        function loadCache() {
+            try {
+                const raw = JSON.parse(localStorage.getItem('stockCache') || '{}');
+                if (raw.date !== getToday()) return null; // 跨天失效
+                return raw;
+            } catch(e) { return null; }
         }
 
         function loadPickedStocks() {
             try {
-                const saved = JSON.parse(localStorage.getItem('pickedStocks') || '[]');
-                pickedStocks = saved.map(s => ({ code: s.code, name: s.code, market: s.market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null }));
+                // 优先读取新版统一缓存
+                let stocks = null;
+                const raw = JSON.parse(localStorage.getItem('stockCache') || 'null');
+                if (raw && raw.stocks) {
+                    const expired = raw.date !== getToday(); // 跨天→财务数据失效，但股票列表保留
+                    stocks = raw.stocks.map(s => ({
+                        code: s.code, name: s.code, market: s.market,
+                        price: '-', pct: '-', change: '-', pe: '-', pb: '-',
+                        turnover: '-', amplitude: '-', volume: '-', amount: '-',
+                        total_cap: '-', float_cap: '-',
+                        goodwill: (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null,
+                    }));
+                }
+                // 兼容旧格式
+                if (!stocks) {
+                    const saved = JSON.parse(localStorage.getItem('pickedStocks') || '[]');
+                    stocks = saved.map(s => ({ code: s.code, name: s.code, market: s.market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null }));
+                    localStorage.removeItem('pickedStocks');
+                    localStorage.removeItem('financeCache');
+                }
+                pickedStocks = stocks;
                 if (pickedStocks.length > 0) {
                     renderPicked();
                     refreshPickedQuotes();
@@ -898,7 +932,7 @@
         async function pickStock(code, name, market) {
             if (pickedStocks.find(s => s.code === code)) return;
             pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null });
-            savePickedStocks();
+            saveCache();
             document.getElementById('searchInput').value = '';
             document.getElementById('searchResults').innerHTML = '';
             searchResultsData = []; selectedSearchIdx = -1;
@@ -908,7 +942,7 @@
         }
         function removePicked(code) {
             pickedStocks = pickedStocks.filter(s => s.code !== code);
-            savePickedStocks();
+            saveCache();
             renderPicked();
         }
         async function refreshPickedQuotes() {
@@ -940,10 +974,26 @@
             } catch(e) { console.log('报价刷新失败:', e); }
         }
         async function refreshGoodwill() {
-            const codes = pickedStocks.filter(s => !s.goodwill).map(s => s.code).join(',');
-            if (!codes) return;
+            const cache = loadCache();
+            // 有缓存直接合并
+            if (cache && cache.stocks) {
+                const gwMap = {};
+                cache.stocks.forEach(s => { gwMap[s.code] = {gw: s.gw, pld: s.pld}; });
+                let hitCount = 0;
+                for (const s of pickedStocks) {
+                    if (gwMap[s.code] && gwMap[s.code].gw !== undefined) {
+                        s.goodwill = gwMap[s.code]; hitCount++;
+                    }
+                }
+                if (hitCount > 0) renderPicked();
+            }
+
+            // 只请求未缓存的
+            const needCodes = pickedStocks.filter(s => !s.goodwill).map(s => s.code);
+            if (needCodes.length === 0) return;
+
             try {
-                const res = await fetch('/api/goodwill?codes=' + encodeURIComponent(codes));
+                const res = await fetch('/api/goodwill?codes=' + encodeURIComponent(needCodes.join(',')));
                 const data = await res.json();
                 if (data.success) {
                     for (const s of pickedStocks) {
@@ -951,9 +1001,10 @@
                             s.goodwill = data.data[s.code];
                         }
                     }
+                    saveCache();
                     renderPicked();
                 }
-            } catch(e) { console.log('商誉加载失败:', e); }
+            } catch(e) { console.log('商誉/质押加载失败:', e); }
         }
 
         function _fmtCap(v) {
