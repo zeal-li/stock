@@ -88,6 +88,7 @@
     <!-- JS：共享状态 + 导航/Tab 绑定 + 启动 -->
     <script>
         var currentPage = 'concept';
+        var currentNavPage = 'money-flow';
         var minuteChart = null;
         var turnoverChart = null;
         var marginChart = null;
@@ -112,6 +113,7 @@
                 document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
                 this.classList.add('active');
                 const page = this.getAttribute('data-page');
+                currentNavPage = page;
                 document.getElementById('page-money-flow').style.display = page === 'money-flow' ? 'block' : 'none';
                 document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
                 document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
