@@ -258,7 +258,7 @@ function renderPicked() {
         const chgText = (chg !== '-' && pct !== '-') ? `${chg} (${pct})` : chg;
         html += `<tr>
             <td><span style="color:#888;">${s.code}</span></td>
-            <td><span style="color:#fff;">${s.name}</span></td>
+            <td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open('${s.code}','${s.market}','${s.name}',{price:'${s.price}',pct:'${s.pct}',change:'${s.change}',pe:'${s.pe}',pb:'${s.pb}'})">${s.name}</span></td>
             <td><span style="color:#555;">${type}</span></td>
             <td><span style="color:${color};font-weight:bold;">${s.price}</span></td>
             <td><span style="color:${color};">${chgText}</span></td>

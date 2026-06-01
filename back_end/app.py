@@ -195,6 +195,36 @@ def stock_quotes():
         return jsonify({'success': False, 'error': str(e), 'data': {}})
 
 
+# ==================== K线 ====================
+
+@app.route('/api/stock-kline')
+def stock_kline():
+    """股票日K线（新浪）"""
+    import re, json
+    code = request.args.get('code', '')
+    market = request.args.get('market', '')
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    try:
+        prefix = 'sh' if market in ('1', '2') else 'sz'
+        url = f"https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol={prefix}{code}&scale=240&ma=no&datalen=120"
+        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}, timeout=10, proxies=REQUEST_PROXIES)
+        m = re.search(r'data\((.+)\)', r.text, re.DOTALL)
+        klines = json.loads(m.group(1)) if m else []
+        rows = []
+        for k in klines:
+            rows.append({
+                'time': k['day'],
+                'open': float(k['open']),
+                'close': float(k['close']),
+                'high': float(k['high']),
+                'low': float(k['low']),
+                'volume': int(k['volume']),
+            })
+        return jsonify({'success': True, 'data': {'name': code, 'code': code, 'market': market, 'klines': rows}})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 # ==================== 启动 ====================
 
 if __name__ == '__main__':
