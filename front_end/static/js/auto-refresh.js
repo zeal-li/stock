@@ -87,28 +87,22 @@ async function refreshRealtimeData() {
             const fearData = await fearRes.json();
             if (fearData.success && fearData.data) {
                 const fd = fearData.data;
-                const fDiv = document.getElementById('fearIndex');
-                if (fDiv) {
-                    fDiv.querySelector('div:nth-child(1)').textContent = fd.score;
-                    fDiv.querySelector('div:nth-child(1)').style.color = fd.color;
-                    fDiv.querySelector('div:nth-child(2)').textContent = fd.level;
-                    fDiv.querySelector('div:nth-child(2)').style.color = fd.color;
-                    const ptr = fDiv.querySelector('div[style*="position:absolute"]');
-                    if (ptr) ptr.style.left = fd.score + '%';
-                    const fConc = document.getElementById('fearConclusion');
-                    if (fConc) fConc.textContent = getFearSummary(fd.score);
-                    const fMet = document.getElementById('fearMetrics');
-                    if (fMet) fMet.innerHTML = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
-                        '<div>沪深指数平均涨跌: <span style="color:#ccc;">' + (fd.avg_index_change != null ? (fd.avg_index_change >= 0 ? '+' : '') + fd.avg_index_change.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>30分钟最大跌速: <span style="color:#ccc;">' + (fd.max_30m_drop != null ? fd.max_30m_drop.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>日内最大回撤: <span style="color:#ccc;">' + (fd.max_drawdown != null ? fd.max_drawdown.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>上证振幅: <span style="color:#ccc;">' + (fd.amplitude != null ? fd.amplitude.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>全A红盘率: <span style="color:#ccc;">' + (fd.red_ratio != null ? fd.red_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
-                        '<div>下跌家数占比: <span style="color:#ccc;">' + (fd.down_ratio != null ? fd.down_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
-                        '<div>主力资金净流入: <span style="color:#ccc;">' + (fd.main_net != null ? (fd.main_net >= 0 ? '+' : '') + fd.main_net.toFixed(2) + '亿' : '--') + '</span></div>' +
-                        '<div>从低点反弹: <span style="color:#ccc;">' + (fd.rebound != null ? (fd.rebound >= 0 ? '+' : '') + fd.rebound.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '</div>' + fearExplain;
-                }
+                var el = document.getElementById('fearScore');
+                if (el) { el.textContent = fd.score; el.style.color = fd.color; }
+                el = document.getElementById('fearLevel');
+                if (el) { el.textContent = fd.level; el.style.color = fd.color; }
+                el = document.getElementById('fearPointer');
+                if (el) el.style.left = fd.score + '%';
+                el = document.getElementById('fearConclusion');
+                if (el) el.textContent = getFearSummary(fd.score);
+                _setText('fear-avg-change', fd.avg_index_change, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+                _setText('fear-max-drop', fd.max_30m_drop, v => v.toFixed(2) + '%');
+                _setText('fear-max-dd', fd.max_drawdown, v => v.toFixed(2) + '%');
+                _setText('fear-amplitude', fd.amplitude, v => v.toFixed(2) + '%');
+                _setText('fear-red-ratio', fd.red_ratio, v => v.toFixed(1) + '%');
+                _setText('fear-down-ratio', fd.down_ratio, v => v.toFixed(1) + '%');
+                _setText('fear-main-net', fd.main_net, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '亿');
+                _setText('fear-rebound', fd.rebound, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
                 const bDiv = document.getElementById('marketBreadth');
                 if (bDiv) bDiv.innerHTML = `涨<span style="color:#e94560;">${fd.rise}</span> 跌<span style="color:#4ade80;">${fd.fall}</span> 平<span style="color:#888;">${fd.flat}</span>`;
             }
@@ -117,32 +111,33 @@ async function refreshRealtimeData() {
             const riskData = await riskRes.json();
             if (riskData.success && riskData.data) {
                 const rd = riskData.data;
-                const rDiv = document.getElementById('riskIndex');
-                if (rDiv && rDiv.children[0]) {
-                    rDiv.children[0].textContent = rd.score;
-                    rDiv.children[0].style.color = rd.color;
-                    if (rDiv.children[1]) { rDiv.children[1].textContent = rd.level; rDiv.children[1].style.color = rd.color; }
-                    const ptr = rDiv.querySelector('div[style*="position:absolute"]');
-                    if (ptr) ptr.style.left = rd.score + '%';
-                    const rConc = document.getElementById('riskConclusion');
-                    if (rConc) rConc.textContent = getRiskSummary(rd.score);
-                    const rMet = document.getElementById('riskMetrics');
-                    if (rMet) rMet.innerHTML = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
-                        '<div>融资余额5日变化: <span style="color:#ccc;">' + (rd.fin_bal_5d != null ? (rd.fin_bal_5d >= 0 ? '+' : '') + rd.fin_bal_5d.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>两融余额10日变化: <span style="color:#ccc;">' + (rd.fin_bal_10d != null ? (rd.fin_bal_10d >= 0 ? '+' : '') + rd.fin_bal_10d.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>融资买入活跃度: <span style="color:#ccc;">' + (rd.fin_buy_heat != null ? (rd.fin_buy_heat >= 0 ? '+' : '') + rd.fin_buy_heat.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>沪深5日涨跌: <span style="color:#ccc;">' + (rd.idx_5d != null ? (rd.idx_5d >= 0 ? '+' : '') + rd.idx_5d.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>沪深10日涨跌: <span style="color:#ccc;">' + (rd.idx_10d != null ? (rd.idx_10d >= 0 ? '+' : '') + rd.idx_10d.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>20日最大回撤: <span style="color:#ccc;">' + (rd.idx_20d_dd != null ? rd.idx_20d_dd.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>10日波动率: <span style="color:#ccc;">' + (rd.volatility != null ? rd.volatility.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>情绪面因子: <span style="color:#ccc;">' + (rd.panic_score_in != null ? rd.panic_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
-                        '<div>涨跌结构因子: <span style="color:#ccc;">' + (rd.limit_score_in != null ? rd.limit_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
-                        '</div>' + riskExplain;
-                }
+                var el = document.getElementById('riskScore');
+                if (el) { el.textContent = rd.score; el.style.color = rd.color; }
+                el = document.getElementById('riskLevel');
+                if (el) { el.textContent = rd.level; el.style.color = rd.color; }
+                el = document.getElementById('riskPointer');
+                if (el) el.style.left = rd.score + '%';
+                el = document.getElementById('riskConclusion');
+                if (el) el.textContent = getRiskSummary(rd.score);
+                _setText('risk-fin-bal-5d', rd.fin_bal_5d, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+                _setText('risk-fin-bal-10d', rd.fin_bal_10d, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+                _setText('risk-fin-buy-heat', rd.fin_buy_heat, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+                _setText('risk-idx-5d', rd.idx_5d, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+                _setText('risk-idx-10d', rd.idx_10d, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
+                _setText('risk-idx-20d-dd', rd.idx_20d_dd, v => v.toFixed(2) + '%');
+                _setText('risk-volatility', rd.volatility, v => v.toFixed(2) + '%');
+                _setText('risk-panic-score', rd.panic_score, v => v.toFixed(1) + '分');
+                _setText('risk-limit-score', rd.limit_score, v => v.toFixed(1) + '分');
             }
         }
     } catch(e) { console.log('Auto refresh error:', e); }
 
     // ---- 始终刷新：选股列表行情 ----
     refreshPickedQuotes();
+}
+
+// 工具：按 id 更新文本，值为 null 时显示 '--'
+function _setText(id, value, fmt) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = (value != null) ? fmt(value) : '--';
 }
