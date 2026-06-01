@@ -5,6 +5,7 @@
 var KlinePopup = (function() {
     var _chart = null, _overlay = null, _series = null, _volSeries = null;
     var _observer = null;
+    var _klinesData = null;  // 原始 K线数据，供十字线 tooltip 查询
 
     // ---- 创建弹窗 DOM ----
     function _ensureDOM() {
@@ -26,20 +27,52 @@ var KlinePopup = (function() {
                     '<span style="color:#666;font-size:20px;cursor:pointer;padding:0 6px;line-height:1;" onclick="KlinePopup.close()">✕</span>' +
                 '</div>' +
                 '<div id="klParams" style="padding:6px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:11px;color:#8b8b9e;">加载中...</div>' +
-                '<div id="klChart" style="flex:1;min-height:0;position:relative;overflow:hidden;"></div>' +
+                '<div id="klChart" style="flex:1;min-height:0;position:relative;overflow:hidden;">' +
+                    '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
+                '</div>' +
             '</div>';
         document.body.appendChild(_overlay);
+    }
+
+    // ---- 格式化十字线提示 ----
+    function _tooltipText(k) {
+        var chg = k.close - k.open;
+        var chgPct = k.open ? (chg / k.open * 100) : 0;
+        var sign = chg >= 0 ? '+' : '';
+        var color = chg >= 0 ? '#ef5350' : '#26a69a';
+        var volStr = k.volume >= 1e8 ? (k.volume / 1e8).toFixed(2) + '亿' :
+                     k.volume >= 1e4 ? (k.volume / 1e4).toFixed(2) + '万' : String(k.volume);
+        var n = function(v) { return '<span style="color:#ddd;">' + v.toFixed(2) + '</span>'; };
+        var row = function(l, v, r, rv) {
+            return '<tr><td style="color:#888;padding-right:4px;">' + l + '</td><td>' + v + '</td>' +
+                   '<td style="color:#888;padding:0 4px;">' + r + '</td><td>' + rv + '</td></tr>';
+        };
+        return (
+            '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + k.time + '</div>' +
+            '<table style="border-spacing:0;">' +
+                row('高', '<span style="color:#ef5350;">' + k.high.toFixed(2) + '</span>',
+                    '低', '<span style="color:#26a69a;">' + k.low.toFixed(2) + '</span>') +
+                row('开', n(k.open), '收', '<span style="color:' + color + ';">' + k.close.toFixed(2) + '</span>') +
+                row('涨跌额', '<span style="color:' + color + ';">' + sign + chg.toFixed(2) + '</span>',
+                    '涨跌幅', '<span style="color:' + color + ';">' + sign + chgPct.toFixed(2) + '%</span>') +
+                row('成交量', '<span style="color:#ddd;">' + volStr + '</span>',
+                    '成交额', '<span style="color:#888;">--</span>') +
+                row('换手', '<span style="color:#888;">--</span>', '', '') +
+            '</table>'
+        );
     }
 
     // ---- 渲染图表 ----
     function _renderChart(data) {
         var el = document.getElementById('klChart');
-        el.innerHTML = '';
+        el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
+
+        _klinesData = data.klines;
 
         _chart = LightweightCharts.createChart(el, {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
-            crosshair: { mode: 0 },
+            crosshair: { mode: 1 },
             rightPriceScale: { borderColor: '#2a2a4e', scaleMargins: { top: 0.08, bottom: 0.28 } },
             timeScale: {
                 borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
@@ -77,6 +110,34 @@ var KlinePopup = (function() {
         _volSeries.setData(data.klines.map(function(k) {
             return { time: k.time, value: k.volume, color: k.close >= k.open ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' };
         }));
+
+        // ---- 十字线 tooltip ----
+        var tooltip = document.getElementById('klTooltip');
+        _chart.subscribeCrosshairMove(function(param) {
+            if (!param.time || !param.point || !_klinesData) {
+                tooltip.style.display = 'none';
+                return;
+            }
+            var k = null;
+            // 查原始数据的时间类型可能是字符串或 BusinessDay
+            var tKey = typeof param.time === 'string' ? param.time :
+                       param.time.year ? param.time.year + '-' + String(param.time.month).padStart(2,'0') + '-' + String(param.time.day).padStart(2,'0') : '';
+            for (var i = 0; i < _klinesData.length; i++) {
+                if (_klinesData[i].time === tKey) { k = _klinesData[i]; break; }
+            }
+            if (!k) { tooltip.style.display = 'none'; return; }
+
+            tooltip.innerHTML = _tooltipText(k);
+            tooltip.style.display = 'block';
+            var rect = el.getBoundingClientRect();
+            var left = param.point.x + 16;
+            var top = param.point.y - 10;
+            if (left + 160 > rect.width) left = param.point.x - 170;
+            if (top + 180 > rect.height) top = rect.height - 190;
+            if (top < 0) top = 0;
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        });
 
         _chart.timeScale().fitContent();
 
@@ -164,6 +225,7 @@ var KlinePopup = (function() {
         if (_observer) { _observer.disconnect(); _observer = null; }
         if (_chart) { _chart.remove(); _chart = null; _series = null; _volSeries = null; }
         if (_overlay) _overlay.style.display = 'none';
+        _klinesData = null;
     }
 
     return { open: open, close: close };
