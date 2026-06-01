@@ -12,7 +12,7 @@ from services.market_data import (
 from services.search import search_stock as do_search
 from services.finance import get_goodwill
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='../front_end/templates', static_folder='../front_end/static')
 CORS(app)
 
 

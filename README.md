@@ -6,21 +6,29 @@ A股实时行情监控面板，支持指数分时走势、大盘资金流向、�
 
 ```
 stock/
-├── app.py                     # Flask 入口：路由注册 + 启动
-├── services/                  # 业务逻辑层
-│   ├── __init__.py            # 共享配置（代理、常量）
-│   ├── market_data.py         # 指数行情、分时走势、资金流、恐慌/风险指数、融资融券
-│   ├── money_flow.py          # 概念/行业/指数板块资金流向 + 市场成交额
-│   └── search.py              # 股票搜索
-├── static/
-│   └── style.css              # 全局样式
-├── templates/
-│   └── index.html             # 前端页面（单页应用：仪表盘 + 选股）
-├── requirements.txt           # Python 依赖
-├── start.bat                  # 启动服务
-├── stop.bat                   # 停止服务（精确杀端口 5000）
-├── restart.bat                # 重启服务
-└── gitpush.bat                # 一键 git add/commit/push
+├── back_end/                  # 🔧 后端
+│   ├── app.py                 # Flask 入口：路由注册 + 启动
+│   ├── services/              # 业务逻辑层
+│   │   ├── __init__.py        # 共享配置（代理、常量）
+│   │   ├── market_data.py     # 指数行情、分时走势、资金流、恐慌/风险指数、融资融券
+│   │   ├── money_flow.py      # 概念/行业/指数板块资金流向 + 市场成交额
+│   │   ├── finance.py         # 财务数据（商誉率/质押率等）
+│   │   └── search.py          # 股票搜索
+│   ├── requirements.txt       # Python 依赖
+│   ├── start.bat              # 启动服务
+│   ├── stop.bat               # 停止服务（精确杀端口 5000）
+│   └── restart.bat            # 重启服务
+├── front_end/                 # 🎨 前端
+│   ├── templates/
+│   │   └── index.html         # 页面骨架 + 导航/Tab 绑定 + 初始化
+│   └── static/
+│       ├── style.css          # 全局样式
+│       └── js/
+│           ├── charts.js      # 图表渲染：分时走势、资金流、融资融券
+│           ├── stock-pick.js  # 选股：搜索、缓存、列表渲染
+│           └── auto-refresh.js# 自动刷新：实时指数/图表/恐慌风险更新
+├── gitpush.bat                # 一键 git add/commit/push
+└── README.md
 ```
 
 ## 功能模块
@@ -50,28 +58,29 @@ stock/
 ## 快速开始
 
 ```powershell
-# 1. 创建虚拟环境
+# 1. 创建虚拟环境（项目根目录下）
 python -m venv venv
 .\venv\Scripts\activate
 
 # 2. 安装依赖
-pip install -r requirements.txt
+pip install -r back_end\requirements.txt
 
 # 3. 启动服务
+cd back_end
 python app.py
 
 # 4. 浏览器访问
 # http://localhost:5000
 ```
 
-或直接双击 `start.bat`。
+或直接双击 `back_end\start.bat`。
 
 ## 开发指南
 
 ### 加新数据接口
 
-1. 在 `services/` 下新建模块（如 `services/new_feature.py`）
-2. 在 `app.py` 中 import 并注册路由：
+1. 在 `back_end/services/` 下新建模块（如 `back_end/services/new_feature.py`）
+2. 在 `back_end/app.py` 中 import 并注册路由：
 
 ```python
 from services.new_feature import get_new_data
@@ -83,6 +92,10 @@ def new_endpoint():
 
 ### 加新页面
 
-1. 在 `templates/index.html` 中加 `<div id="page-xxx">` 容器
+1. 在 `front_end/templates/index.html` 中加 `<div id="page-xxx">` 容器
 2. 在左侧导航 `.nav-item` 中加入口
-3. 样式统一写 `static/style.css`
+3. 新增 JS 逻辑放入 `front_end/static/js/` 对应文件：
+   - 图表/资金流 → `charts.js`
+   - 选股/搜索 → `stock-pick.js`
+   - 实时推送 → `auto-refresh.js`
+4. 样式统一写 `front_end/static/style.css`

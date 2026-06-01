@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鑫多多</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="logo">
+                <h1>鑫多多</h1>
+            </div>
+            <div class="nav-section">
+                <div class="nav-item active" data-page="money-flow">
+                    <span class="nav-icon">💰</span>
+                    <span>资金流向</span>
+                </div>
+                <div class="nav-item" data-page="stock-pick">
+                    <span class="nav-icon">🔍</span>
+                    <span>选股</span>
+                </div>
+                <div class="nav-item" data-page="watchlist">
+                    <span class="nav-icon">⭐</span>
+                    <span>自选股</span>
+                </div>
+            </div>
+        </div>
+        <div class="main-content">
+            <!-- 资金流向页面 -->
+            <div id="page-money-flow">
+                <div class="page-header">
+                    <h1 class="page-title">💰 资金流向</h1>
+                    <button class="refresh-btn" onclick="loadAllData()">🔄 刷新数据</button>
+                </div>
+
+                <div class="index-card" id="index-card">
+                    <div class="loading">正在加载上证指数...</div>
+                </div>
+
+                <div class="tabs">
+                    <button class="tab-btn active" data-page="concept">
+                        💡 概念板块
+                    </button>
+                    <button class="tab-btn" data-page="industry">
+                        🏭 行业板块
+                    </button>
+                    <button class="tab-btn" data-page="index">
+                        📊 指数板块
+                    </button>
+                </div>
+
+                <div id="content-area">
+                    <div class="loading">正在加载数据...</div>
+                </div>
+            </div>
+
+            <!-- 自选股页面 -->
+            <div id="page-watchlist" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">⭐ 自选股</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div style="text-align:center; color:#666; padding:40px;">功能开发中...</div>
+                </div>
+            </div>
+
+            <!-- 选股页面 -->
+            <div id="page-stock-pick" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">🔍 选股</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div style="max-width:600px; margin:0 auto; position:relative;">
+                        <div style="display:flex; gap:10px; margin-bottom:8px;">
+                            <input id="searchInput" type="text" autocomplete="off" placeholder="输入股票名称或代码..." style="flex:1; padding:12px 16px; border:1px solid #0f3460; border-radius:8px; background:#1a1a2e; color:#fff; font-size:15px; outline:none;" oninput="debounceSearch()" onkeydown="handleSearchKey(event)" onfocus="debounceSearch()" onblur="setTimeout(()=>{if(!document.querySelector('#searchResults:hover')){document.getElementById('searchResults').innerHTML='';searchResultsData=[];selectedSearchIdx=-1;}},200)">
+                        </div>
+                        <div id="searchResults" style="position:absolute; left:0; right:0; top:56px; z-index:10; background:#16213e; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);"></div>
+                    </div>
+                    <div id="pickedStocks" style="margin-top:8px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JS：共享状态 + 导航/Tab 绑定 + 启动 -->
+    <script>
+        var currentPage = 'concept';
+        var minuteChart = null;
+        var turnoverChart = null;
+        var marginChart = null;
+        var fullMinuteSlots = [];
+        var fullFlowSlots = [];
+
+        var fearExplain = '<div style="margin-top:8px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.05); font-size:10px; color:#555; line-height:1.5;">' +
+            '沪深指数平均涨跌=上证+深证涨幅均值 | 30分钟跌速=日内最大30分跌幅 | ' +
+            '日内回撤=最高到最低跌幅 | 振幅=(高-低)/昨收 | ' +
+            '红盘率=上涨家数占比 | 主力净流入=沪深主力累计' +
+            '</div>';
+        var riskExplain = '<div style="margin-top:8px; padding-top:6px; border-top:1px solid rgba(255,255,255,0.05); font-size:10px; color:#555; line-height:1.5;">' +
+            '融资余额5日=两市融资近5日变动 | 两融余额10日=融资+融券近10日变动 | ' +
+            '融资活跃度=当日买入vs20日均值 | 5/10日涨跌=沪深均值 | ' +
+            '回撤=20日最大跌幅 | 波动率=10日日收益率标准差 | ' +
+            '情绪面=恐慌指数+红盘率得分 | 涨跌结构=涨跌家数差得分' +
+            '</div>';
+
+        // 左侧导航
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+                this.classList.add('active');
+                const page = this.getAttribute('data-page');
+                document.getElementById('page-money-flow').style.display = page === 'money-flow' ? 'block' : 'none';
+                document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
+                document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
+                if (page === 'money-flow') loadAllData();
+            });
+        });
+
+        // 资金流向 Tab
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentPage = this.getAttribute('data-page');
+                loadMoneyFlowData();
+            });
+        });
+    </script>
+
+    <!-- JS 模块（按功能拆分） -->
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/stock-pick.js"></script>
+    <script src="/static/js/auto-refresh.js"></script>
+
+    <!-- 启动（所有 JS 加载完毕后执行） -->
+    <script>
+        loadAllData();
+        loadPickedStocks();
+        setInterval(refreshRealtimeData, 10000);
+    </script>
+</body>
+</html>
