@@ -1,11 +1,8 @@
 """市场数据：指数行情、分时走势、资金流、恐慌/风险指数、融资融券"""
 import datetime
-import json
-import re
 import time
 import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor
 from . import REQUEST_PROXIES
 
 # ===== 共享 =====
@@ -31,12 +28,11 @@ def _cache_set(key, val):
 
 
 def get_major_indices():
-    """上证指数实时行情（东财→新浪兜底）"""
+    """上证指数实时行情"""
     cache_key = 'major_indices'
     cached = _cached(cache_key, ttl=3)
     if cached is not None:
         return cached
-    # 主源：东财
     try:
         url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
         params = {
@@ -68,168 +64,52 @@ def get_major_indices():
                 return result
     except Exception:
         pass
-
-    # 兜底：新浪
-    try:
-        quote_url = "https://hq.sinajs.cn/list=s_sh000001"
-        quote_headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
-        quote_response = requests.get(quote_url, headers=quote_headers, timeout=10, proxies=REQUEST_PROXIES)
-        quote_match = re.search(r'"([^"]+)"', quote_response.text)
-        if quote_match:
-            parts = quote_match.group(1).split(',')
-            if len(parts) >= 4:
-                return {
-                    'success': True,
-                    'data': [{
-                        'code': 'sh000001', 'name': parts[0],
-                        'price': f"{float(parts[1]):.2f}",
-                        'change': f"{'+' if float(parts[3]) >= 0 else ''}{float(parts[3]):.2f}%",
-                        'change_value': f"{'+' if float(parts[2]) >= 0 else ''}{float(parts[2]):.2f}"
-                    }]
-                }
-    except Exception:
-        pass
-
     return {'success': True, 'data': [{'code': 'sh000001', 'name': '上证指数', 'price': '-', 'change': '0.00%', 'change_value': '+0.00'}]}
 
 
 def get_sh000001_minute_data():
-    """上证指数分时走势（东方财富1分钟→新浪5分钟兜底）"""
+    """上证指数分时走势"""
     cache_key = 'sh_minute'
     cached = _cached(cache_key, ttl=5)
     if cached is not None:
         return cached
-    # 获取实时行情（新浪报价）
-    quote_info = None
-    try:
-        quote_url = "https://hq.sinajs.cn/list=s_sh000001"
-        quote_headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
-        quote_response = requests.get(quote_url, headers=quote_headers, timeout=5, proxies=REQUEST_PROXIES)
-        quote_match = re.search(r'"([^"]+)"', quote_response.text)
-        if quote_match:
-            parts = quote_match.group(1).split(',')
-            if len(parts) >= 4:
-                current_price = float(parts[1])
-                change_value = float(parts[2])
-                change_percent = float(parts[3])
-                quote_info = {
-                    'name': parts[0],
-                    'preClose': round(current_price - change_value, 2),
-                    'currentPrice': round(current_price, 2),
-                    'change': f"{'+' if change_percent >= 0 else ''}{change_percent:.2f}%",
-                    'changeValue': f"{'+' if change_value >= 0 else ''}{change_value:.2f}",
-                }
-    except Exception:
-        pass
-
-    # 东方财富1分钟分时数据（主要数据源）
     try:
         url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get?secid=1.000001&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': '*/*', 'Referer': 'https://www.eastmoney.com/',
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': '*/*', 'Referer': 'https://www.eastmoney.com/'}
         response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
         data = response.json()
         if data.get('rc') == 0 and data.get('data'):
             sd = data['data']
             trends = sd.get('trends', [])
             pre_close = sd.get('preClose', 0)
-            times = []
-            prices = []
+            times, prices = [], []
             for trend in trends:
                 parts = trend.split(',')
                 if len(parts) >= 2:
-                    time_str = parts[0]
-                    if ' ' in time_str:
-                        time_str = time_str.split(' ')[1]
+                    time_str = parts[0].split(' ')[-1] if ' ' in parts[0] else parts[0]
                     if time_str < '09:30':
                         continue
                     times.append(time_str)
                     prices.append(float(parts[1]))
-
             cp = prices[-1] if prices else pre_close
             cv = cp - pre_close if pre_close else 0
             cpt = (cv / pre_close * 100) if pre_close else 0
-
             result = {
                 'success': True,
                 'data': {
-                    'preClose': pre_close,
-                    'times': times, 'prices': prices,
-                }
-            }
-            # 用新浪报价覆写实时字段
-            if quote_info:
-                result['data'].update(quote_info)
-            else:
-                result['data'].update({
                     'name': sd.get('name', '上证指数'),
+                    'preClose': pre_close,
                     'currentPrice': cp,
                     'change': f"{'+' if cpt >= 0 else ''}{cpt:.2f}%",
                     'changeValue': f"{'+' if cv >= 0 else ''}{cv:.2f}",
-                })
+                    'times': times, 'prices': prices,
+                }
+            }
             _cache_set(cache_key, result)
             return result
-
-        return {'success': False, 'error': 'No data from eastmoney'}
     except Exception:
         pass
-
-    # 新浪财经5分钟K线兜底
-    try:
-        url = "https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol=sh000001&scale=5&ma=no&datalen=240"
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
-        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-
-        json_match = re.search(r'data\((.+)\)', response.text, re.DOTALL)
-        kline_data = json.loads(json_match.group(1)) if json_match else json.loads(response.text)
-
-        if kline_data and len(kline_data) > 0:
-            day_groups = {}
-            for item in kline_data:
-                day_str = item.get('day', '')
-                date_part = day_str.split(' ')[0] if ' ' in day_str else day_str
-                day_groups.setdefault(date_part, []).append(item)
-
-            latest_day = sorted(day_groups.keys())[-1] if day_groups else ''
-            filtered_data = day_groups[latest_day] if latest_day else kline_data
-
-            times = []
-            prices = []
-            for item in filtered_data:
-                day_str = item.get('day', '')
-                time_part = day_str.split(' ')[-1][:5] if ' ' in day_str else day_str
-                times.append(time_part)
-                prices.append(round(float(item.get('close', 0)), 2))
-
-            if times and times[0] != '09:30':
-                open_price = float(filtered_data[0].get('open', 0))
-                times.insert(0, '09:30')
-                prices.insert(0, round(open_price, 2))
-
-            if prices:
-                cp = round(prices[-1], 2)
-                pc = round(prices[0], 2) if len(prices) > 1 else cp
-                cv = round(cp - pc, 2)
-                cpt = round(cv / pc * 100, 2) if pc else 0
-                result = {
-                    'success': True,
-                    'data': {
-                        'name': '上证指数', 'preClose': pc, 'currentPrice': cp,
-                        'change': f"{'+' if cpt >= 0 else ''}{cpt:.2f}%",
-                        'changeValue': f"{'+' if cv >= 0 else ''}{cv:.2f}",
-                        'times': times, 'prices': prices
-                    }
-                }
-                if quote_info:
-                    result['data'].update(quote_info)
-                _cache_set(cache_key, result)
-                return result
-    except Exception:
-        pass
-
-    return {'success': False, 'error': 'All sources failed'}
+    return {'success': False, 'error': '获取分时数据失败'}
 
 
 def get_market_fund_flow():
