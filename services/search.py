@@ -48,6 +48,16 @@ def search_stock(keyword):
         return {'success': False, 'error': str(e), 'data': []}
 
 
+def _is_etf(code, market):
+    """判断是否为ETF（沪市51xxxx，深市15xxxx）"""
+    c = str(code) if code else ''
+    m = str(market) if market else ''
+    if m in ('1', '2') and c[:2] == '51':
+        return True
+    if m == '0' and c[:2] == '15':
+        return True
+    return False
+
 def _fetch_quotes(secids):
     """批量获取股票实时行情"""
     try:
@@ -71,10 +81,13 @@ def _fetch_quotes(secids):
             pct = row.get('f3')
             change = row.get('f4')
             if row.get('f12'):
+                # ETF 价格/涨跌额显示三位小数
+                is_etf = _is_etf(row.get('f12'), row.get('f13'))
+                decimals = 3 if is_etf else 2
                 result[key] = {
-                    'price': f"{float(price):.2f}" if price else '-',
+                    'price': f"{float(price):.{decimals}f}" if price else '-',
                     'pct': f"{float(pct):.2f}%" if pct is not None else '-',
-                    'change': f"{float(change):.2f}" if change is not None else '-',
+                    'change': f"{float(change):.{decimals}f}" if change is not None else '-',
                 }
         return result
     except Exception:

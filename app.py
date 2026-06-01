@@ -93,9 +93,19 @@ def goodwill():
 def search_stock():
     return jsonify(do_search(request.args.get('q', '')))
 
-def _fmt(v):
+def _is_etf(code, market):
+    """判断是否为ETF（沪市51xxxx，深市15xxxx）"""
+    c = str(code) if code else ''
+    m = str(market) if market else ''
+    if m in ('1', '2') and c[:2] == '51':
+        return True
+    if m == '0' and c[:2] == '15':
+        return True
+    return False
+
+def _fmt(v, is_etf=False):
     if v is None or v == '-' or v == '': return '-'
-    try: return f"{float(v):.2f}"
+    try: return f"{float(v):.3f}" if is_etf else f"{float(v):.2f}"
     except: return str(v)
 
 def _fmt_pct(v):
@@ -160,15 +170,17 @@ def stock_quotes():
         for row in diff:
             key = f"{row.get('f13', '')}.{row.get('f12', '')}"
             if row.get('f12'):
+                # ETF 价格/涨跌额显示三位小数
+                is_etf = _is_etf(row.get('f12'), row.get('f13'))
                 # PE TTM(滚动市盈率)优先,更稳定,与同花顺一致;若没有则用动态市盈率(f9)
                 pe_ttm = row.get('f115')
                 pe_dynamic = row.get('f9')
                 pe = pe_ttm if pe_ttm is not None and pe_ttm != '-' else pe_dynamic
                 result[key] = {
                     'name': row.get('f14', ''),
-                    'price': _fmt(row.get('f2')),
+                    'price': _fmt(row.get('f2'), is_etf),
                     'pct': _fmt_pct(row.get('f3')),
-                    'change': _fmt(row.get('f4')),
+                    'change': _fmt(row.get('f4'), is_etf),
                     'volume': _fmt_volume(row.get('f5'), row.get('f13')),
                     'amount': _fmt_amount(row.get('f6')),
                     'amplitude': _fmt_pct(row.get('f7')),

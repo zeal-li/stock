@@ -1014,9 +1014,9 @@
             return (v/1e4).toFixed(2) + '万';
         }
         function _fmtRate(v) {
-            if (v == null || v === '' || v === '-') return '-';
+            if (v == null || v === '' || v === '-' || v === 0) return '-';
             const n = parseFloat(v);
-            if (isNaN(n)) return '-';
+            if (isNaN(n) || n === 0) return '-';
             return n.toFixed(2) + '%';
         }
 
@@ -1041,7 +1041,7 @@
                     <td><span style="color:#ddd;">${s.volume !== '-' && s.amount !== '-' ? s.volume + '/' + s.amount : s.volume}</span></td>
                     <td><span style="color:#ddd;">${s.total_cap !== '-' && s.float_cap !== '-' ? s.total_cap + '/' + s.float_cap : s.total_cap}</span></td>
                     <td><span style="color:#ddd;">${s.turnover !== '-' && s.amplitude !== '-' ? s.turnover + '/' + s.amplitude : s.turnover}</span></td>
-                    <td><span style="color:#ddd;">${s.pe !== '-' && s.pb !== '-' ? s.pe + '/' + s.pb : s.pe}</span></td>
+                    <td><span style="color:#ddd;">${s.pe + '/' + s.pb}</span></td>
                     <td><span style="color:#ddd;">${s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-'}</span></td>
                     <td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="removePicked('${s.code}')">&times;</span></td>
                 </tr>`;
