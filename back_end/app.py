@@ -199,28 +199,68 @@ def stock_quotes():
 
 @app.route('/api/stock-kline')
 def stock_kline():
-    """股票日K线（新浪）"""
-    import re, json
+    """股票日K线"""
+    import re, json, datetime as _dt
     code = request.args.get('code', '')
     market = request.args.get('market', '')
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
-        prefix = 'sh' if market in ('1', '2') else 'sz'
-        url = f"https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol={prefix}{code}&scale=240&ma=no&datalen=120"
-        r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}, timeout=10, proxies=REQUEST_PROXIES)
-        m = re.search(r'data\((.+)\)', r.text, re.DOTALL)
-        klines = json.loads(m.group(1)) if m else []
+        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
         rows = []
-        for k in klines:
-            rows.append({
-                'time': k['day'],
-                'open': float(k['open']),
-                'close': float(k['close']),
-                'high': float(k['high']),
-                'low': float(k['low']),
-                'volume': int(k['volume']),
-            })
+
+        if market in ('1', '2', '0', '90'):
+            # A股 → 新浪
+            prefix = 'sh' if market in ('1', '2') else 'sz'
+            url = f"https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol={prefix}{code}&scale=240&ma=no&datalen=120"
+            r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+            m = re.search(r'data\((.+)\)', r.text, re.DOTALL)
+            klines = json.loads(m.group(1)) if m else []
+            for k in klines:
+                rows.append({
+                    'time': k['day'],
+                    'open': float(k['open']), 'close': float(k['close']),
+                    'high': float(k['high']), 'low': float(k['low']),
+                    'volume': int(k['volume']),
+                })
+        elif market in ('116', '106'):
+            # 港股/美股 → Yahoo Finance（需走系统代理，不能 no_proxy）
+            import os as _os
+            _old_no = _os.environ.pop('no_proxy', None)
+            _old_NO = _os.environ.pop('NO_PROXY', None)
+            try:
+                if market == '116':
+                    symbol = str(int(code)).zfill(4) + '.HK'
+                else:
+                    symbol = code
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval=1d"
+                r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                result = (r.json().get('chart', {}).get('result') or [None])[0]
+                if not result:
+                    return jsonify({'success': False, 'error': '无数据'})
+                timestamps = result.get('timestamp') or []
+                quotes = (result.get('indicators', {}).get('quote') or [None])[0]
+                if not quotes:
+                    return jsonify({'success': False, 'error': '无数据'})
+                for i, ts in enumerate(timestamps):
+                    o = quotes['open'][i]
+                    if o is None:
+                        continue
+                    dt = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
+                    rows.append({
+                        'time': dt.strftime('%Y-%m-%d'),
+                        'open': round(float(o), 3),
+                        'close': round(float(quotes['close'][i] or 0), 3),
+                        'high': round(float(quotes['high'][i] or 0), 3),
+                        'low': round(float(quotes['low'][i] or 0), 3),
+                        'volume': int(quotes['volume'][i] or 0),
+                    })
+            finally:
+                if _old_no is not None: _os.environ['no_proxy'] = _old_no
+                if _old_NO is not None: _os.environ['NO_PROXY'] = _old_NO
+        else:
+            return jsonify({'success': False, 'error': '暂不支持该市场K线'})
+
         return jsonify({'success': True, 'data': {'name': code, 'code': code, 'market': market, 'klines': rows}})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
