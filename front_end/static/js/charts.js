@@ -401,7 +401,7 @@ async function loadIndexWithChart() {
                             <div id="fearPointer" style="position:absolute; top:-3px; left:${d.score}%; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 6px rgba(255,255,255,0.5);"></div>
                         </div>
                         <div style="display:flex; justify-content:space-between; width:100%; font-size:10px; color:#666; margin-bottom:10px;">
-                            <span>恐慌</span><span>中性</span><span>贪婪</span>
+                            <span>贪婪</span><span>中性</span><span>恐慌</span>
                         </div>
                         <div id="fearConclusion" style="font-size:12px; color:#aaa; margin-bottom:0; line-height:1.5;">${getFearSummary(d.score)}</div>
                         <div id="fearMetrics">${fMetrics}</div>
