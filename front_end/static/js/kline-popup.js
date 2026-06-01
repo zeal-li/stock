@@ -35,13 +35,18 @@ var KlinePopup = (function() {
     }
 
     // ---- 格式化十字线提示 ----
-    function _tooltipText(k) {
-        var chg = k.close - k.open;
-        var chgPct = k.open ? (chg / k.open * 100) : 0;
+    function _tooltipText(k, prevClose) {
+        var chg = prevClose ? (k.close - prevClose) : 0;
+        var chgPct = (prevClose && prevClose !== 0) ? (chg / prevClose * 100) : 0;
         var sign = chg >= 0 ? '+' : '';
         var color = chg >= 0 ? '#ef5350' : '#26a69a';
         var volStr = k.volume >= 1e8 ? (k.volume / 1e8).toFixed(2) + '亿' :
                      k.volume >= 1e4 ? (k.volume / 1e4).toFixed(2) + '万' : String(k.volume);
+        var amtStr = '-';
+        if (k.amount) {
+            amtStr = k.amount >= 1e8 ? (k.amount / 1e8).toFixed(2) + '亿' :
+                     k.amount >= 1e4 ? (k.amount / 1e4).toFixed(2) + '万' : String(k.amount);
+        }
         var n = function(v) { return '<span style="color:#ddd;">' + v.toFixed(2) + '</span>'; };
         var row = function(l, v, r, rv) {
             return '<tr><td style="color:#888;padding-right:4px;">' + l + '</td><td>' + v + '</td>' +
@@ -56,8 +61,8 @@ var KlinePopup = (function() {
                 row('涨跌额', '<span style="color:' + color + ';">' + sign + chg.toFixed(2) + '</span>',
                     '涨跌幅', '<span style="color:' + color + ';">' + sign + chgPct.toFixed(2) + '%</span>') +
                 row('成交量', '<span style="color:#ddd;">' + volStr + '</span>',
-                    '成交额', '<span style="color:#888;">--</span>') +
-                row('换手', '<span style="color:#888;">--</span>', '', '') +
+                    '成交额', '<span style="color:' + (k.amount ? '#ddd' : '#888') + ';">' + amtStr + '</span>') +
+                row('换手', '<span style="color:' + (k.turnover ? '#ddd' : '#888') + ';">' + (k.turnover ? k.turnover.toFixed(2) + '%' : '--') + '</span>', '', '') +
             '</table>'
         );
     }
@@ -118,16 +123,16 @@ var KlinePopup = (function() {
                 tooltip.style.display = 'none';
                 return;
             }
-            var k = null;
-            // 查原始数据的时间类型可能是字符串或 BusinessDay
+            var k = null, idx = -1;
             var tKey = typeof param.time === 'string' ? param.time :
                        param.time.year ? param.time.year + '-' + String(param.time.month).padStart(2,'0') + '-' + String(param.time.day).padStart(2,'0') : '';
             for (var i = 0; i < _klinesData.length; i++) {
-                if (_klinesData[i].time === tKey) { k = _klinesData[i]; break; }
+                if (_klinesData[i].time === tKey) { k = _klinesData[i]; idx = i; break; }
             }
             if (!k) { tooltip.style.display = 'none'; return; }
+            var prevClose = idx > 0 ? _klinesData[idx - 1].close : null;
 
-            tooltip.innerHTML = _tooltipText(k);
+            tooltip.innerHTML = _tooltipText(k, prevClose);
             tooltip.style.display = 'block';
             var rect = el.getBoundingClientRect();
             var left = param.point.x + 16;

@@ -210,19 +210,29 @@ def stock_kline():
         rows = []
 
         if market in ('1', '2', '0', '90'):
-            # A股 → 新浪
-            prefix = 'sh' if market in ('1', '2') else 'sz'
-            url = f"https://quotes.sina.cn/cn/api/jsonp_v2.php/data/CN_MarketDataService.getKLineData?symbol={prefix}{code}&scale=240&ma=no&datalen=120"
-            r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-            m = re.search(r'data\((.+)\)', r.text, re.DOTALL)
-            klines = json.loads(m.group(1)) if m else []
-            for k in klines:
-                rows.append({
-                    'time': k['day'],
-                    'open': float(k['open']), 'close': float(k['close']),
-                    'high': float(k['high']), 'low': float(k['low']),
-                    'volume': int(k['volume']),
-                })
+            # A股 → 同花顺（一个接口：开高低收/成交量/成交额/换手率全有）
+            url = f"https://d.10jqka.com.cn/v2/line/hs_{code}/01/last.js"
+            r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.10jqka.com.cn/'},
+                           timeout=10, proxies=REQUEST_PROXIES)
+            # JSONP → JSON
+            text = r.text
+            start = text.find('(') + 1
+            end = text.rfind(')')
+            d = json.loads(text[start:end]) if start > 0 and end > start else {}
+            data_str = d.get('data', '')
+            for kline in data_str.split(';'):
+                parts = kline.split(',')
+                if len(parts) >= 8:
+                    # 日期格式: 20251031 → 2025-10-31
+                    d = parts[0]
+                    rows.append({
+                        'time': d[:4] + '-' + d[4:6] + '-' + d[6:8],
+                        'open': float(parts[1]), 'close': float(parts[4]),
+                        'high': float(parts[2]), 'low': float(parts[3]),
+                        'volume': int(parts[5]),
+                        'amount': float(parts[6]),
+                        'turnover': round(float(parts[7]), 2),
+                    })
         elif market in ('116', '106'):
             # 港股/美股 → Yahoo Finance（需走系统代理，不能 no_proxy）
             import os as _os
