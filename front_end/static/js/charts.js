@@ -266,6 +266,13 @@ async function loadIndexWithChart() {
                         interaction: { mode: 'index', intersect: false }
                     }
                 });
+                // 让 0 刻度在 Y 轴中间
+                if (flows.length > 0) {
+                    var maxAbs = Math.max(Math.abs(Math.max.apply(null, flows)), Math.abs(Math.min.apply(null, flows)), 1);
+                    turnoverChart.options.scales.y.min = -maxAbs;
+                    turnoverChart.options.scales.y.max = maxAbs;
+                    turnoverChart.update();
+                }
             })
             .catch(err => console.log('资金流数据加载失败:', err));
 

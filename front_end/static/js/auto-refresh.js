@@ -73,8 +73,13 @@ async function refreshRealtimeData() {
                 turnoverChart.data.datasets[1].data = mapAndFill(fullFlowSlots, flowData.data.times, flowData.data.flows_mid || []);
                 turnoverChart.data.datasets[2].data = mapAndFill(fullFlowSlots, flowData.data.times, flowData.data.flows_small || []);
                 turnoverChart.data.datasets[3].data = Array(fullFlowSlots.length).fill(0);
-                turnoverChart.update('none');
                 const flows = flowData.data.flows;
+                if (flows.length > 0) {
+                    var maxAbs = Math.max(Math.abs(Math.max.apply(null, flows)), Math.abs(Math.min.apply(null, flows)), 1);
+                    turnoverChart.options.scales.y.min = -maxAbs;
+                    turnoverChart.options.scales.y.max = maxAbs;
+                }
+                turnoverChart.update('none');
                 const totalFlow = flows.length > 0 ? flows[flows.length - 1] : 0;
                 const elFlow = document.getElementById('netFlowValue');
                 if (elFlow) {
