@@ -235,30 +235,80 @@ def stock_extra():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+# ==================== 分时 ====================
+
+@app.route('/api/stock-minute')
+def stock_minute():
+    """股票分时走势"""
+    code = request.args.get('code', '')
+    market = request.args.get('market', '')
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    try:
+        url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get"
+        params = {
+            'secid': f"{market}.{code}",
+            'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
+            'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
+            'ndays': 1,
+        }
+        r = requests.get(url, params=params,
+            headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
+            timeout=10, proxies=REQUEST_PROXIES,
+        )
+        d = r.json()
+        trends = (d.get('data') or {}).get('trends') or []
+        pre_close = (d.get('data') or {}).get('preClose', 0)
+        times, prices, volumes, amounts = [], [], [], []
+        prevVol = prevAmt = 0
+        for t in trends:
+            parts = t.split(',')
+            if len(parts) >= 2:
+                tm = parts[0]; tm = tm.split(' ')[-1] if ' ' in tm else tm
+                if tm < '09:30': continue
+                times.append(tm)
+                prices.append(float(parts[1]))
+                curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0
+                curAmt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
+                diffVol = max(0, curVol - prevVol)
+                if market in ('0', '1', '2', '90'): diffVol *= 100  # A股手转股
+                volumes.append(diffVol)
+                amounts.append(max(0, curAmt - prevAmt))
+                prevVol = curVol; prevAmt = curAmt
+        return jsonify({'success': True, 'data': {'times': times, 'prices': prices, 'volumes': volumes, 'amounts': amounts, 'preClose': pre_close}})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 # ==================== K线 ====================
 
 @app.route('/api/stock-kline')
 def stock_kline():
-    """股票日K线"""
+    """股票K线（日K/周K/月K）"""
     import re, json, datetime as _dt
     code = request.args.get('code', '')
     market = request.args.get('market', '')
+    period = request.args.get('period', 'day')  # day / week / month
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
         headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
         rows = []
 
+        # Tencent/Yahoo 周期映射
+        tx_period = {'day': 'day', 'week': 'week', 'month': 'month'}.get(period, 'day')
+        tx_key = 'qfq' + tx_period
+        yh_intv = {'day': '1d', 'week': '1wk', 'month': '1mo'}.get(period, '1d')
+
         if market in ('1', '2', '0', '90'):
-            # A股 → 腾讯（K线）+ 同花顺（成交额/换手）
             prefix = 'sh' if market in ('1', '2') else 'sz'
-            param = f"{prefix}{code},day,,,360,qfq"
+            param = f"{prefix}{code},{tx_period},,,360,qfq"
             r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
                            params={'param': param},
                            headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
                            timeout=10, proxies=REQUEST_PROXIES)
             jd = r.json()
-            klines = (jd.get('data') or {}).get(f"{prefix}{code}", {}).get('qfqday') or []
+            jd_data = (jd.get('data') or {}).get(f"{prefix}{code}", {})
+            klines = jd_data.get(tx_key) or jd_data.get(tx_period) or []
 
             # 同花顺（成交额/换手率）
             extra = {}
@@ -301,7 +351,7 @@ def stock_kline():
                     symbol = str(int(code)).zfill(4) + '.HK'
                 else:
                     symbol = code
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval={yh_intv}"
                 r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
                 result = (r.json().get('chart', {}).get('result') or [None])[0]
                 if not result:

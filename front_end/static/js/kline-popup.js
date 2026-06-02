@@ -7,7 +7,10 @@ var KlinePopup = (function() {
     var _observer = null;
     var _klinesData = null;
     var _stockCode = '';
-    var _indicatorMode = 'ma';  // 'ma' | 'bb'
+    var _stockMarket = '';
+    var _indicatorMode = 'ma';   // ma | bb
+    var _currentPeriod = 'day';  // day | week | month
+    var _isMinute = false;       // 是否分时模式
     var _maLines = [];
     var _bbLines = [];
     var _maVals = null;  // {ma5, ma10, ma20, ma60}
@@ -47,7 +50,7 @@ var KlinePopup = (function() {
         _overlay.onclick = function(e) { if (e.target === _overlay) close(); };
 
         _overlay.innerHTML =
-            '<div style="width:1160px;max-width:98vw;height:620px;max-height:88vh;background:#1e1e2e;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.5);">' +
+            '<div style="width:1400px;max-width:98vw;height:720px;max-height:92vh;background:#1e1e2e;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.5);">' +
                 '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 16px 6px;background:#1a1a2e;flex-shrink:0;">' +
                     '<div style="display:flex;align-items:baseline;gap:8px;">' +
                         '<span id="klName" style="font-size:17px;color:#fff;font-weight:600;"></span>' +
@@ -58,6 +61,19 @@ var KlinePopup = (function() {
                     '<span style="color:#666;font-size:20px;cursor:pointer;padding:0 6px;line-height:1;" onclick="KlinePopup.close()">✕</span>' +
                 '</div>' +
                 '<div id="klParams" style="padding:6px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:11px;color:#8b8b9e;">加载中...</div>' +
+                '<div id="klPeriodBar" style="display:none;padding:4px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;align-items:center;gap:6px;font-size:11px;color:#8b8b9e;">' +
+                    '<button id="klBtnMinute" onclick="KlinePopup._toggleMinute()" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">分时</button>' +
+                    '<button data-p="day" onclick="KlinePopup._switchPeriod(\'day\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#2a2a4e;color:#fff;">日K</button>' +
+                    '<button data-p="week" onclick="KlinePopup._switchPeriod(\'week\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">周K</button>' +
+                    '<button data-p="month" onclick="KlinePopup._switchPeriod(\'month\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">月K</button>' +
+                '</div>' +
+                '<div id="klIndBar" style="display:none;padding:4px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;align-items:center;gap:8px;font-size:11px;color:#8b8b9e;">' +
+                    '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)" style="cursor:pointer;font-size:10px;padding:1px 4px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;">' +
+                        '<option value="ma">均线</option>' +
+                        '<option value="bb">布林线</option>' +
+                    '</select>' +
+                    '<span id="klIndVals" style="font-size:11px;"></span>' +
+                '</div>' +
                 '<div id="klChart" style="flex:1;min-height:0;position:relative;overflow:hidden;">' +
                     '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
                 '</div>' +
@@ -65,9 +81,202 @@ var KlinePopup = (function() {
         document.body.appendChild(_overlay);
     }
 
+    // ---- 分时 / 周期 切换 ----
+    function _toggleMinute() {
+        _isMinute = !_isMinute;
+        var btn = document.getElementById('klBtnMinute');
+        var indBar = document.getElementById('klIndBar');
+
+        if (_isMinute) {
+            btn.style.background = '#2a2a4e'; btn.style.color = '#fff';
+            indBar.style.display = 'flex';
+            indBar.innerHTML = '<span id="klMinuteVals" style="font-size:11px;color:#8b8b9e;"></span>';
+            _loadMinuteChart();
+        } else {
+            btn.style.background = '#1a1a2e'; btn.style.color = '#8b8b9e';
+            indBar.style.display = 'flex';
+            indBar.innerHTML = '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)"><option value="ma">均线</option><option value="bb">布林线</option></select><span id="klIndVals" style="font-size:11px;"></span>';
+            _loadKlineChart();
+        }
+    }
+
+    function _switchPeriod(p) {
+        _isMinute = false;
+        _currentPeriod = p;
+        document.getElementById('klBtnMinute').style.background = '#1a1a2e';
+        document.getElementById('klBtnMinute').style.color = '#8b8b9e';
+        document.getElementById('klIndBar').style.display = 'flex';
+        // 按钮样式
+        var btns = document.querySelectorAll('#klPeriodBar button[data-p]');
+        btns.forEach(function(b) {
+            var act = b.getAttribute('data-p') === p;
+            b.style.background = act ? '#2a2a4e' : '#1a1a2e';
+            b.style.color = act ? '#fff' : '#8b8b9e';
+        });
+        _loadKlineChart();
+    }
+
+    function _loadMinuteChart() {
+        var chartEl = document.getElementById('klChart');
+        chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
+        fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket))
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.success || !d.data.times || d.data.times.length === 0) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无分时数据</div>'; return; }
+                try { _renderMinute(d.data.times, d.data.prices, d.data.volumes || [], d.data.amounts || [], d.data.preClose || 0); }
+                catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
+            })
+            .catch(function() { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">请求失败</div>'; });
+    }
+
+    function _loadKlineChart() {
+        var chartEl = document.getElementById('klChart');
+        chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
+        fetch('/api/stock-kline?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&period=' + _currentPeriod)
+            .then(function(r) { return r.json(); })
+            .then(function(kdata) {
+                if (!kdata.success || !kdata.data.klines || kdata.data.klines.length === 0) {
+                    chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">暂无K线数据</div>';
+                    return;
+                }
+                _klinesData = kdata.data.klines;
+                try { _renderChart(kdata.data); _updateIndVals(); }
+                catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
+            })
+            .catch(function() { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">请求失败</div>'; });
+    }
+
+    function _renderMinute(times, prices, volumes, amounts, preClose) {
+        var el = document.getElementById('klChart');
+        el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
+        var today = new Date(); var base = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000;
+        var fullTimes = times.map(function(t) {
+            var parts = t.split(':'); return base + parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60;
+        });
+        _chart = LightweightCharts.createChart(el, {
+            layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
+            grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
+            crosshair: { mode: 1 },
+            rightPriceScale: { borderColor: '#2a2a4e', scaleMargins: { top: 0.08, bottom: 0.28 } },
+            handleScroll: { vertTouchDrag: false, horzTouchDrag: false },
+            handleScale: { axisPressedMouseMove: false, pinch: false, mouseWheel: false },
+            timeScale: {
+                borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
+                tickMarkFormatter: function(ts) {
+                    var d = new Date(ts * 1000);
+                    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+                },
+            },
+            width: el.clientWidth, height: el.clientHeight,
+        });
+
+        // 转为涨跌百分比
+        var pcts = prices.map(function(p) { return preClose ? ((p - preClose) / preClose * 100) : p; });
+        var pctsAvg = preClose ? 0 : 1; // 均价也用百分比
+
+        // 分时线（蓝色面积 + 线）
+        var series = _chart.addAreaSeries({
+            lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)',
+            lineWidth: 1.5, priceLineVisible: false,
+            priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(2) + '%'; } },
+        });
+        var data = [];
+        for (var i = 0; i < fullTimes.length; i++) data.push({ time: fullTimes[i], value: pcts[i] });
+        series.setData(data);
+
+        // 均价线（当日累计平均成本，百分比）
+        var avgData = [], avgSum = 0;
+        for (var i = 0; i < fullTimes.length; i++) { avgSum += prices[i]; avgData.push({ time: fullTimes[i], value: preClose ? ((avgSum / (i + 1) - preClose) / preClose * 100) : (avgSum / (i + 1)) }); }
+        var avgLine = _chart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        avgLine.setData(avgData);
+
+        // 更新指标栏：均价 最新 涨跌值 涨跌幅
+        var latestPrice = prices[prices.length - 1], latestAvg = avgData[avgData.length - 1].value;
+        var latestChg = preClose ? (latestPrice - preClose) : 0;
+        var latestChgPct = preClose ? (latestChg / preClose * 100) : 0;
+        var sign = latestChg >= 0 ? '+' : '';
+        var chgColor = latestChg >= 0 ? '#ef5350' : '#26a69a';
+        var mvEl = document.getElementById('klMinuteVals');
+        if (mvEl) {
+            mvEl.innerHTML = '<span style="color:#fbbf24;">均价:' + (preClose ? (latestAvg * preClose / 100 + preClose).toFixed(2) : '--') + '</span> ' +
+                '<span style="color:#3b82f6;">最新:' + latestPrice.toFixed(2) + '</span> ' +
+                '<span style="color:' + chgColor + ';">' + sign + latestChg.toFixed(2) + '</span> ' +
+                '<span style="color:' + chgColor + ';">' + sign + latestChgPct.toFixed(2) + '%</span>';
+        }
+
+        // 昨收线（0%线）
+        var zeroLine = _chart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+        zeroLine.setData([{ time: fullTimes[0], value: 0 }, { time: fullTimes[fullTimes.length - 1], value: 0 }]);
+
+        // 成交量柱（红涨绿跌）
+        if (volumes && volumes.length > 0) {
+            var volSeries = _chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
+            _chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.83, bottom: 0 }, visible: false });
+            var volData = [];
+            for (var i = 0; i < fullTimes.length; i++) {
+                var up = i > 0 ? prices[i] >= prices[i - 1] : true;
+                volData.push({ time: fullTimes[i], value: volumes[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
+            }
+            volSeries.setData(volData);
+        }
+
+        // ---- 十字线 tooltip ----
+        var tooltip = document.getElementById('klTooltip');
+        var mTimes = times, mPrices = prices, mVols = volumes || [], mAmts = amounts || [];
+        _chart.subscribeCrosshairMove(function(param) {
+            if (!param.time || !param.point) { tooltip.style.display = 'none'; return; }
+            var ts = param.time, idx = -1;
+            for (var i = 0; i < fullTimes.length; i++) {
+                if (fullTimes[i] === ts) { idx = i; break; }
+            }
+            if (idx < 0 || idx >= mPrices.length) { tooltip.style.display = 'none'; return; }
+            var d = new Date(ts * 1000);
+            var dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+            var timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+            var vol = mVols[idx] || 0;
+            var volStr = vol >= 1e8 ? (vol / 1e8).toFixed(2) + '亿股' : vol >= 1e4 ? (vol / 1e4).toFixed(2) + '万股' : vol + '股';
+            var amt = mAmts[idx] || 0;
+            var amtStr = amt >= 1e8 ? (amt / 1e8).toFixed(2) + '亿' : amt >= 1e4 ? (amt / 1e4).toFixed(2) + '万' : String(amt);
+            var pct = preClose ? ((mPrices[idx] - preClose) / preClose * 100) : 0;
+            var pctSign = pct >= 0 ? '+' : '';
+            var pctColor = pct >= 0 ? '#ef5350' : '#26a69a';
+            var avgVal = idx < avgData.length ? avgData[idx].value : null;
+            var avgPrice = (avgVal != null && preClose) ? (avgVal * preClose / 100 + preClose) : null;
+            tooltip.innerHTML =
+                '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + dateStr + ' ' + timeStr + '</div>' +
+                '<table style="border-spacing:0;">' +
+                '<tr><td style="color:#888;padding-right:4px;">价格</td><td><span style="color:#3b82f6;">' + mPrices[idx].toFixed(2) + '</span></td></tr>' +
+                '<tr><td style="color:#888;padding-right:4px;">均价</td><td><span style="color:#fbbf24;">' + (avgPrice ? avgPrice.toFixed(2) : '--') + '</span></td></tr>' +
+                '<tr><td style="color:#888;padding-right:4px;">涨幅</td><td><span style="color:' + pctColor + ';">' + pctSign + pct.toFixed(2) + '%</span></td></tr>' +
+                '<tr><td style="color:#888;padding-right:4px;">成交</td><td><span style="color:#ddd;">' + volStr + '</span></td></tr>' +
+                '<tr><td style="color:#888;padding-right:4px;">成交额</td><td><span style="color:#ddd;">' + amtStr + '</span></td></tr>' +
+                '</table>';
+            tooltip.style.display = 'block';
+            var rect = el.getBoundingClientRect();
+            var left = param.point.x + 16, top = param.point.y - 10;
+            if (left + 120 > rect.width) left = param.point.x - 130;
+            if (top + 60 > rect.height) top = rect.height - 70;
+            if (top < 0) top = 0;
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        });
+
+        _chart.timeScale().setVisibleRange({ from: base + 9*3600 + 30*60, to: base + 15*3600 });
+        _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true, rightOffset: 0 });
+
+        if (_observer) _observer.disconnect();
+        _observer = new ResizeObserver(function() {
+            if (_chart && el.clientWidth > 0) {
+                _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+            }
+        });
+        _observer.observe(el);
+    }
+
     // ---- 指标切换 ----
     function _switchIndicator(mode) {
         _indicatorMode = mode;
+        document.getElementById('klIndSelect').value = mode;
         for (var i = 0; i < _maLines.length; i++) { if (_maLines[i]) _maLines[i].applyOptions({ visible: mode === 'ma' }); }
         for (var i = 0; i < _bbLines.length; i++) { if (_bbLines[i]) _bbLines[i].applyOptions({ visible: mode === 'bb' }); }
         _updateIndVals();
@@ -308,11 +517,6 @@ var KlinePopup = (function() {
                 cell('流通股', quote.float_shares) +
                 cell('流通值', quote.float_cap) +
                 cell('商誉率', gw.gw != null ? gw.gw.toFixed(2) + '%' : null) +
-                '<span style="white-space:nowrap;">' +
-                    '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)" style="cursor:pointer;font-size:10px;padding:1px 4px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;">' +
-                        '<option value="ma" ' + (_indicatorMode === 'ma' ? 'selected' : '') + '>均线</option>' +
-                        '<option value="bb" ' + (_indicatorMode === 'bb' ? 'selected' : '') + '>布林线</option>' +
-                    '</select> <span id="klIndVals" style="color:#888;font-size:10px;"></span></span>' +
             '</div>';
     }
 
@@ -328,6 +532,9 @@ var KlinePopup = (function() {
     function open(code, market, name, extra) {
         extra = extra || {};
         _stockCode = code;
+        _stockMarket = market;
+        _currentPeriod = 'day';
+        _isMinute = false;
         _ensureDOM();
         document.getElementById('klName').textContent = (name || code);
         document.getElementById('klCode').textContent = '(' + code + ')';
@@ -384,10 +591,12 @@ var KlinePopup = (function() {
 
             if (!_klinesData) {
                 chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
-                return;
+            } else {
+                try { _renderChart(kdata.data); _updateIndVals(); }
+                catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             }
-            try { _renderChart(kdata.data); _updateIndVals(); }
-            catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
+            document.getElementById('klPeriodBar').style.display = 'flex';
+            document.getElementById('klIndBar').style.display = _klinesData ? 'flex' : 'none';
         });
     }
 
@@ -400,7 +609,12 @@ var KlinePopup = (function() {
         _bbLines = [];
         _maVals = null;
         _bbVals = null;
+        _isMinute = false;
+        var bar = document.getElementById('klIndBar');
+        if (bar) bar.style.display = 'none';
+        bar = document.getElementById('klPeriodBar');
+        if (bar) bar.style.display = 'none';
     }
 
-    return { open: open, close: close, _switchIndicator: _switchIndicator };
+    return { open: open, close: close, _switchIndicator: _switchIndicator, _toggleMinute: _toggleMinute, _switchPeriod: _switchPeriod };
 })();
