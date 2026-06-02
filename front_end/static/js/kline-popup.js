@@ -7,6 +7,36 @@ var KlinePopup = (function() {
     var _observer = null;
     var _klinesData = null;
     var _stockCode = '';
+    var _indicatorMode = 'ma';  // 'ma' | 'bb'
+    var _maLines = [];
+    var _bbLines = [];
+    var _maVals = null;  // {ma5, ma10, ma20, ma60}
+    var _bbVals = null;  // {up, mid, lo}
+
+    // ---- 指标计算 ----
+    function _calcSMA(data, period) {
+        var r = [];
+        for (var i = period - 1; i < data.length; i++) {
+            var s = 0;
+            for (var j = i - period + 1; j <= i; j++) s += data[j].close;
+            r.push({ time: data[i].time, value: s / period });
+        }
+        return r;
+    }
+    function _calcBB(data) {
+        var ma20 = _calcSMA(data, 20), up = [], mid = [], lo = [];
+        for (var i = 0; i < ma20.length; i++) {
+            var m = ma20[i];
+            mid.push({ time: m.time, value: m.value });
+            var idx = i + 19; // 在原始 data 中的索引
+            var s = 0, n = 0;
+            for (var j = Math.max(0, idx - 19); j <= idx; j++) { s += Math.pow(data[j].close - m.value, 2); n++; }
+            var std = Math.sqrt(s / n);
+            up.push({ time: m.time, value: m.value + 2 * std });
+            lo.push({ time: m.time, value: m.value - 2 * std });
+        }
+        return { up: up, mid: mid, lo: lo };
+    }
 
     // ---- 创建弹窗 DOM ----
     function _ensureDOM() {
@@ -33,6 +63,25 @@ var KlinePopup = (function() {
                 '</div>' +
             '</div>';
         document.body.appendChild(_overlay);
+    }
+
+    // ---- 指标切换 ----
+    function _switchIndicator(mode) {
+        _indicatorMode = mode;
+        for (var i = 0; i < _maLines.length; i++) { if (_maLines[i]) _maLines[i].applyOptions({ visible: mode === 'ma' }); }
+        for (var i = 0; i < _bbLines.length; i++) { if (_bbLines[i]) _bbLines[i].applyOptions({ visible: mode === 'bb' }); }
+        _updateIndVals();
+    }
+    function _updateIndVals() {
+        var el = document.getElementById('klIndVals');
+        if (!el) return;
+        if (_indicatorMode === 'ma' && _maVals) {
+            el.innerHTML = '<span style="color:#fbbf24;">MA5:' + _maVals.ma5 + '</span> <span style="color:#60a5fa;">MA10:' + _maVals.ma10 + '</span> <span style="color:#a78bfa;">MA20:' + _maVals.ma20 + '</span> <span style="color:#f472b6;">MA30:' + _maVals.ma30 + '</span> <span style="color:#34d399;">MA60:' + _maVals.ma60 + '</span> <span style="color:#fb923c;">MA120:' + _maVals.ma120 + '</span>';
+        } else if (_indicatorMode === 'bb' && _bbVals) {
+            el.innerHTML = '<span style="color:#ef5350;">UP:' + _bbVals.up + '</span> <span style="color:#60a5fa;">MID:' + _bbVals.mid + '</span> <span style="color:#26a69a;">LOW:' + _bbVals.lo + '</span>';
+        } else {
+            el.innerHTML = '';
+        }
     }
 
     // ---- 格式化十字线提示 ----
@@ -113,6 +162,36 @@ var KlinePopup = (function() {
         _volSeries.setData(data.klines.map(function(k) {
             return { time: k.time, value: k.volume, color: k.close >= k.open ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' };
         }));
+
+        // ---- 均线 MA5/10/20/30/60/120 ----
+        var maC = ['#fbbf24', '#60a5fa', '#a78bfa', '#f472b6', '#34d399', '#fb923c'];
+        var maP = [5, 10, 20, 30, 60, 120];
+        var maData = [];
+        _maLines = [];
+        for (var mi = 0; mi < maP.length; mi++) {
+            var md = _calcSMA(data.klines, maP[mi]);
+            maData.push(md);
+            var line = _chart.addLineSeries({ color: maC[mi], lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+            line.setData(md);
+            _maLines.push(line);
+        }
+        var lastMA = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
+        _maVals = {
+            ma5: lastMA(maData[0]), ma10: lastMA(maData[1]),
+            ma20: lastMA(maData[2]), ma30: lastMA(maData[3]),
+            ma60: lastMA(maData[4]), ma120: lastMA(maData[5]),
+        };
+
+        // ---- 布林线（默认隐藏）：黄上轨 / 蓝中轨 / 紫下轨 ----
+        _bbLines = [];
+        var bb = _calcBB(data.klines);
+        var lastBB = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
+        _bbVals = { up: lastBB(bb.up), mid: lastBB(bb.mid), lo: lastBB(bb.lo) };
+        [{v: bb.up, d: true, c: '#ef5350'}, {v: bb.mid, d: false, c: '#60a5fa'}, {v: bb.lo, d: true, c: '#26a69a'}].forEach(function(x) {
+            var line = _chart.addLineSeries({ color: x.c, lineWidth: 1, lineStyle: x.d ? 2 : 0, priceLineVisible: false, lastValueVisible: false, visible: false });
+            line.setData(x.v);
+            _bbLines.push(line);
+        });
 
         // ---- 十字线 tooltip ----
         var tooltip = document.getElementById('klTooltip');
@@ -229,6 +308,11 @@ var KlinePopup = (function() {
                 cell('流通股', quote.float_shares) +
                 cell('流通值', quote.float_cap) +
                 cell('商誉率', gw.gw != null ? gw.gw.toFixed(2) + '%' : null) +
+                '<span style="white-space:nowrap;">' +
+                    '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)" style="cursor:pointer;font-size:10px;padding:1px 4px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;">' +
+                        '<option value="ma" ' + (_indicatorMode === 'ma' ? 'selected' : '') + '>均线</option>' +
+                        '<option value="bb" ' + (_indicatorMode === 'bb' ? 'selected' : '') + '>布林线</option>' +
+                    '</select> <span id="klIndVals" style="color:#888;font-size:10px;"></span></span>' +
             '</div>';
     }
 
@@ -302,7 +386,7 @@ var KlinePopup = (function() {
                 chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
                 return;
             }
-            try { _renderChart(kdata.data); }
+            try { _renderChart(kdata.data); _updateIndVals(); }
             catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
         });
     }
@@ -312,7 +396,11 @@ var KlinePopup = (function() {
         if (_chart) { _chart.remove(); _chart = null; _series = null; _volSeries = null; }
         if (_overlay) _overlay.style.display = 'none';
         _klinesData = null;
+        _maLines = [];
+        _bbLines = [];
+        _maVals = null;
+        _bbVals = null;
     }
 
-    return { open: open, close: close };
+    return { open: open, close: close, _switchIndicator: _switchIndicator };
 })();

@@ -252,7 +252,7 @@ def stock_kline():
         if market in ('1', '2', '0', '90'):
             # A股 → 腾讯（K线）+ 同花顺（成交额/换手）
             prefix = 'sh' if market in ('1', '2') else 'sz'
-            param = f"{prefix}{code},day,,,120,qfq"
+            param = f"{prefix}{code},day,,,360,qfq"
             r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
                            params={'param': param},
                            headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
@@ -301,7 +301,7 @@ def stock_kline():
                     symbol = str(int(code)).zfill(4) + '.HK'
                 else:
                     symbol = code
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval=1d"
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
                 r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
                 result = (r.json().get('chart', {}).get('result') or [None])[0]
                 if not result:
