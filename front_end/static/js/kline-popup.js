@@ -159,12 +159,32 @@ var KlinePopup = (function() {
     function _renderMinute(times, prices, volumes, amounts, preClose) {
         var el = document.getElementById('klChart');
         el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
-        var isUS = _stockMarket === '106';
+        var isUS = _stockMarket === '106', isHK = _stockMarket === '116';
         var today = new Date(); var base = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000;
         var fullTimes = times.map(function(t) {
             if (isUS) return new Date(t).getTime() / 1000;
             var parts = t.split(':'); return base + parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60;
         });
+        _minutePreClose = preClose;
+
+        var pcts = prices.map(function(p) { return preClose ? ((p - preClose) / preClose * 100) : p; });
+
+        // 填充空数据到整个时段
+        if (isUS) { _minuteFrom = fullTimes[0]; _minuteTo = _minuteFrom + 6.5 * 3600; }
+        else if (isHK) { _minuteFrom = base + 9*3600 + 30*60; _minuteTo = base + 16*3600; }
+        else { _minuteFrom = base + 9*3600 + 30*60; _minuteTo = base + 15*3600; }
+        var allT = [], allP = [], allV = [], allA = [], di = 0;
+        var lunchAStart = base + 11*3600 + 31*60, lunchAEnd = base + 13*3600;
+        var lunchHKStart = base + 12*3600 + 1*60, lunchHKEnd = base + 13*3600;
+        for (var t = _minuteFrom; t <= _minuteTo; t += 60) {
+            // 跳过午休 A股:11:31-13:00  港股:12:01-13:00
+            if (!isUS && ((!isHK && t >= lunchAStart && t <= lunchAEnd) || (isHK && t >= lunchHKStart && t <= lunchHKEnd))) continue;
+            allT.push(t);
+            if (di < fullTimes.length && fullTimes[di] >= t - 30 && fullTimes[di] <= t + 30) {
+                allP.push(pcts[di]); allV.push(volumes[di]); allA.push(amounts[di]); di++;
+            } else { allP.push(null); allV.push(null); allA.push(null); }
+        }
+
         _chart = LightweightCharts.createChart(el, {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
@@ -175,129 +195,99 @@ var KlinePopup = (function() {
             timeScale: {
                 borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
                 tickMarkFormatter: function(ts) {
-                    var d = new Date(ts * 1000);
-                    var h = d.getHours(), m = d.getMinutes();
-                    return (d.getMonth()+1) + '/' + d.getDate() + ' ' + String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+                    var d = new Date(ts * 1000), h = d.getHours(), m = d.getMinutes();
+                    if (isUS) return (d.getMonth()+1)+'/'+d.getDate()+' '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+                    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
                 },
             },
             width: el.clientWidth, height: el.clientHeight,
         });
 
-        // 转为涨跌百分比
-        var pcts = prices.map(function(p) { return preClose ? ((p - preClose) / preClose * 100) : p; });
-        var pctsAvg = preClose ? 0 : 1; // 均价也用百分比
+        // 找最后有效数据索引，两条线都只画到那里
+        var lastValidIdx = -1;
+        for (var vi = allP.length - 1; vi >= 0; vi--) { if (allP[vi] != null) { lastValidIdx = vi; break; } }
 
-        // 分时线（蓝色面积 + 线）
-        _minutePreClose = preClose;
-        var series = _chart.addAreaSeries({
-            lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)',
-            lineWidth: 1.5, priceLineVisible: false,
-            priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(2) + '%'; } },
-        });
+        // 蓝色面积线
+        var series = _chart.addAreaSeries({ lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)', lineWidth: 1.5, priceLineVisible: false, priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(2) + '%'; } } });
         _minuteSeries = series;
-        var data = [];
-        for (var i = 0; i < fullTimes.length; i++) data.push({ time: fullTimes[i], value: pcts[i] });
-        series.setData(data);
+        var lineData = []; for (var i = 0; i <= lastValidIdx; i++) lineData.push({ time: allT[i], value: allP[i] });
+        series.setData(lineData);
 
-        // 均价线（当日累计平均成本，百分比）
-        var avgData = [], avgSum = 0;
-        for (var i = 0; i < fullTimes.length; i++) { avgSum += prices[i]; avgData.push({ time: fullTimes[i], value: preClose ? ((avgSum / (i + 1) - preClose) / preClose * 100) : (avgSum / (i + 1)) }); }
+        // 均价线
+        var avgData = [], avgSum = 0, avgN = 0;
+        for (var i = 0; i <= lastValidIdx; i++) {
+            if (allP[i] != null) { avgSum += prices[Math.min(avgN, prices.length - 1)]; avgN++; }
+            avgData.push({ time: allT[i], value: allP[i] != null ? (avgN > 0 ? (preClose ? ((avgSum / avgN - preClose) / preClose * 100) : (avgSum / avgN)) : null) : null });
+        }
         var avgLine = _chart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         avgLine.setData(avgData);
         _minuteAvgLine = avgLine;
 
-        // 更新指标栏：均价 最新 涨跌值 涨跌幅
-        var latestPrice = prices[prices.length - 1], latestAvg = avgData[avgData.length - 1].value;
-        var latestChg = preClose ? (latestPrice - preClose) : 0;
-        var latestChgPct = preClose ? (latestChg / preClose * 100) : 0;
-        var sign = latestChg >= 0 ? '+' : '';
-        var chgColor = latestChg >= 0 ? '#ef5350' : '#26a69a';
-        var mvEl = document.getElementById('klMinuteVals');
-        if (mvEl) {
-            mvEl.innerHTML = '<span style="color:#fbbf24;">均价:' + (preClose ? (latestAvg * preClose / 100 + preClose).toFixed(2) : '--') + '</span> ' +
-                '<span style="color:#3b82f6;">最新:' + latestPrice.toFixed(2) + '</span> ' +
-                '<span style="color:' + chgColor + ';">' + sign + latestChg.toFixed(2) + '</span> ' +
-                '<span style="color:' + chgColor + ';">' + sign + latestChgPct.toFixed(2) + '%</span>';
-        }
+        // 昨收0%线
+        var zLine = _chart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+        zLine.setData([{ time: _minuteFrom, value: 0 }, { time: _minuteTo, value: 0 }]);
 
-        // 昨收线（0%线）
-        var zeroLine = _chart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-        zeroLine.setData([{ time: fullTimes[0], value: 0 }, { time: fullTimes[fullTimes.length - 1], value: 0 }]);
-
-        // 成交量柱（红涨绿跌）
+        // 成交量柱
         if (volumes && volumes.length > 0) {
             var volSeries = _chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
             _chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.83, bottom: 0 }, visible: false });
-            var volData = [];
-            for (var i = 0; i < fullTimes.length; i++) {
-                var up = i > 0 ? prices[i] >= prices[i - 1] : true;
-                volData.push({ time: fullTimes[i], value: volumes[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
+            var vd = [];
+            for (var i = 0; i < allT.length; i++) {
+                var up = (i > 0 && allP[i] != null && allP[i-1] != null) ? allP[i] >= allP[i-1] : true;
+                vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
             }
-            volSeries.setData(volData);
+            volSeries.setData(vd);
             _minuteVolSeries = volSeries;
         }
 
-        // ---- 十字线 tooltip ----
+        // 游标
         var tooltip = document.getElementById('klTooltip');
-        var mTimes = times, mPrices = prices, mVols = volumes || [], mAmts = amounts || [];
         _chart.subscribeCrosshairMove(function(param) {
             if (!param.time || !param.point) { tooltip.style.display = 'none'; return; }
-            var ts = param.time, idx = -1;
-            for (var i = 0; i < fullTimes.length; i++) {
-                if (fullTimes[i] === ts) { idx = i; break; }
-            }
-            if (idx < 0 || idx >= mPrices.length) { tooltip.style.display = 'none'; return; }
-            var d = new Date(ts * 1000);
-            var dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-            var timeStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-            var vol = mVols[idx] || 0;
-            var volStr = vol >= 1e8 ? (vol / 1e8).toFixed(2) + '亿股' : vol >= 1e4 ? (vol / 1e4).toFixed(2) + '万股' : vol + '股';
-            var amt = mAmts[idx] || 0;
-            var amtStr = amt >= 1e8 ? (amt / 1e8).toFixed(2) + '亿' : amt >= 1e4 ? (amt / 1e4).toFixed(2) + '万' : String(amt);
-            var pct = preClose ? ((mPrices[idx] - preClose) / preClose * 100) : 0;
-            var pctSign = pct >= 0 ? '+' : '';
-            var pctColor = pct >= 0 ? '#ef5350' : '#26a69a';
-            var avgVal = idx < avgData.length ? avgData[idx].value : null;
-            var avgPrice = (avgVal != null && preClose) ? (avgVal * preClose / 100 + preClose) : null;
-            tooltip.innerHTML =
-                '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + dateStr + ' ' + timeStr + '</div>' +
-                '<table style="border-spacing:0;">' +
-                '<tr><td style="color:#888;padding-right:4px;">价格</td><td><span style="color:#3b82f6;">' + mPrices[idx].toFixed(2) + '</span></td></tr>' +
-                '<tr><td style="color:#888;padding-right:4px;">均价</td><td><span style="color:#fbbf24;">' + (avgPrice ? avgPrice.toFixed(2) : '--') + '</span></td></tr>' +
-                '<tr><td style="color:#888;padding-right:4px;">涨幅</td><td><span style="color:' + pctColor + ';">' + pctSign + pct.toFixed(2) + '%</span></td></tr>' +
-                '<tr><td style="color:#888;padding-right:4px;">成交</td><td><span style="color:#ddd;">' + volStr + '</span></td></tr>' +
-                '<tr><td style="color:#888;padding-right:4px;">成交额</td><td><span style="color:#ddd;">' + amtStr + '</span></td></tr>' +
-                '</table>';
+            var idx = -1;
+            for (var i = 0; i < allT.length; i++) { if (allT[i] === param.time) { idx = i; break; } }
+            if (idx < 0 || allP[idx] == null) { tooltip.style.display = 'none'; return; }
+            var rawIdx = 0; for (var ri = 0; ri <= idx; ri++) { if (allP[ri] != null) rawIdx++; } rawIdx--;
+            var d = new Date(param.time * 1000);
+            var ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+            var ts = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+            var pr = prices[rawIdx], vl = volumes[rawIdx] || 0, am = amounts[rawIdx] || 0;
+            var vs = vl >= 1e8 ? (vl/1e8).toFixed(2)+'亿股' : vl >= 1e4 ? (vl/1e4).toFixed(2)+'万股' : vl+'股';
+            var as = am >= 1e8 ? (am/1e8).toFixed(2)+'亿' : am >= 1e4 ? (am/1e4).toFixed(2)+'万' : String(am);
+            var pc = (pr - preClose) / preClose * 100, pcs = pc >= 0 ? '+' : '', pcc = pc >= 0 ? '#ef5350' : '#26a69a';
+            var av = idx < avgData.length ? avgData[idx].value : null;
+            var ap = (av != null && preClose) ? (av * preClose / 100 + preClose) : null;
+            tooltip.innerHTML = '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">'+ds+' '+ts+'</div><table style="border-spacing:0;">'+
+                '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">'+pr.toFixed(2)+'</span></td></tr>'+
+                '<tr><td style="color:#888;">均价</td><td><span style="color:#fbbf24;">'+(ap?ap.toFixed(2):'--')+'</span></td></tr>'+
+                '<tr><td style="color:#888;">涨幅</td><td><span style="color:'+pcc+';">'+pcs+pc.toFixed(2)+'%</span></td></tr>'+
+                '<tr><td style="color:#888;">成交</td><td><span style="color:#ddd;">'+vs+'</span></td></tr>'+
+                '<tr><td style="color:#888;">成交额</td><td><span style="color:#ddd;">'+as+'</span></td></tr></table>';
             tooltip.style.display = 'block';
             var rect = el.getBoundingClientRect();
-            var left = param.point.x + 16, top = param.point.y - 10;
-            if (left + 120 > rect.width) left = param.point.x - 130;
-            if (top + 60 > rect.height) top = rect.height - 70;
-            if (top < 0) top = 0;
-            tooltip.style.left = left + 'px';
-            tooltip.style.top = top + 'px';
+            var l = param.point.x + 16, tp = param.point.y - 10;
+            if (l + 120 > rect.width) l = param.point.x - 130;
+            if (tp + 60 > rect.height) tp = rect.height - 70;
+            if (tp < 0) tp = 0;
+            tooltip.style.left = l + 'px'; tooltip.style.top = tp + 'px';
         });
 
-        // 时间范围固定（不随数据增长）
-        if (_stockMarket === '106') {
-            _minuteFrom = fullTimes[0];
-            _minuteTo = _minuteFrom + 6.5 * 3600;
-        } else {
-            _minuteFrom = base + 9*3600 + 30*60;
-            _minuteTo = base + 15*3600;
-        }
-        _chart.timeScale().setVisibleRange({ from: _minuteFrom, to: _minuteTo });
-        _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true, rightOffset: 0 });
+        // 标题栏信息（取最后一个有效数据）
+        var lastP = prices[prices.length - 1], lastAvgV = null;
+        for (var ai = avgData.length - 1; ai >= 0; ai--) { if (avgData[ai].value != null) { lastAvgV = avgData[ai].value; break; } }
+        var lChg = preClose ? lastP - preClose : 0, lChgPct = preClose ? lChg / preClose * 100 : 0;
+        var ls = lChg >= 0 ? '+' : '', lc = lChg >= 0 ? '#ef5350' : '#26a69a';
+        var mv = document.getElementById('klMinuteVals');
+        if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(2):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
+
+        _chart.timeScale().fitContent();
+        _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
 
         if (_observer) _observer.disconnect();
-        _observer = new ResizeObserver(function() {
-            if (_chart && el.clientWidth > 0) {
-                _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
-            }
-        });
+        _observer = new ResizeObserver(function() { if (_chart && el.clientWidth > 0) _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); });
         _observer.observe(el);
 
-        // 交易时段 10 秒自动刷新
+        // 10秒刷新
         if (_minuteTimer) clearInterval(_minuteTimer);
         _minuteTimer = setInterval(_refreshMinuteData, 10000);
     }
@@ -310,36 +300,52 @@ var KlinePopup = (function() {
                 if (!d.success || !d.data.times || d.data.times.length === 0) return;
                 var times = d.data.times, prices = d.data.prices, volumes = d.data.volumes || [], amounts = d.data.amounts || [];
                 var preClose = d.data.preClose || _minutePreClose;
-                var isUS2 = _stockMarket === '106';
+                var isUS2 = _stockMarket === '106', isHK2 = _stockMarket === '116';
                 var today2 = new Date(); var base2 = new Date(today2.getFullYear(), today2.getMonth(), today2.getDate()).getTime() / 1000;
-                var fullTimes = times.map(function(t) {
+                var rawTimes = times.map(function(t) {
                     if (isUS2) return new Date(t).getTime() / 1000;
                     var pp = t.split(':'); return base2 + parseInt(pp[0]) * 3600 + parseInt(pp[1]) * 60;
                 });
                 var pcts = prices.map(function(p) { return preClose ? ((p - preClose) / preClose * 100) : p; });
 
+                var rAllT = [], rAllP = [], rAllV = [], rAllA = [];
+                var lAS = base2 + 11*3600 + 31*60, lAE = base2 + 13*3600;
+                var lHS = base2 + 12*3600 + 1*60, lHE = base2 + 13*3600;
+                var ri = 0;
+                for (var t2 = _minuteFrom; t2 <= _minuteTo; t2 += 60) {
+                    if (!isUS2 && ((!isHK2 && t2 >= lAS && t2 <= lAE) || (isHK2 && t2 >= lHS && t2 <= lHE))) continue;
+                    rAllT.push(t2);
+                    if (ri < rawTimes.length && rawTimes[ri] >= t2 - 30 && rawTimes[ri] <= t2 + 30) {
+                        rAllP.push(pcts[ri] != null ? pcts[ri] : null);
+                        rAllV.push(volumes[ri] != null ? volumes[ri] : 0);
+                        rAllA.push(amounts[ri] != null ? amounts[ri] : 0);
+                        ri++;
+                    } else { rAllP.push(null); rAllV.push(null); rAllA.push(null); }
+                }
+                // 找最后有效索引
+                var lvi = -1;
+                for (var vi2 = rAllP.length - 1; vi2 >= 0; vi2--) { if (rAllP[vi2] != null) { lvi = vi2; break; } }
                 // 更新分时面积图
                 var lineData = [];
-                for (var i = 0; i < fullTimes.length; i++) lineData.push({ time: fullTimes[i], value: pcts[i] });
+                for (var i = 0; i <= lvi; i++) lineData.push({ time: rAllT[i], value: rAllP[i] });
                 _minuteSeries.setData(lineData);
-
                 // 更新均价线
-                var avgData = [], avgSum = 0;
-                for (var i = 0; i < fullTimes.length; i++) { avgSum += prices[i]; avgData.push({ time: fullTimes[i], value: preClose ? ((avgSum / (i + 1) - preClose) / preClose * 100) : (avgSum / (i + 1)) }); }
+                var avgData = [], avgSum = 0, avgN = 0;
+                for (var i = 0; i <= lvi; i++) {
+                    if (rAllP[i] != null) { avgSum += prices[Math.min(avgN, prices.length - 1)]; avgN++; }
+                    avgData.push({ time: rAllT[i], value: rAllP[i] != null ? (avgN > 0 ? (preClose ? ((avgSum / avgN - preClose) / preClose * 100) : (avgSum / avgN)) : null) : null });
+                }
                 if (_minuteAvgLine) _minuteAvgLine.setData(avgData);
-
                 // 更新成交量柱
                 if (_minuteVolSeries) {
                     var volData = [];
-                    for (var i = 0; i < fullTimes.length; i++) {
-                        var up = i > 0 ? prices[i] >= prices[i - 1] : true;
-                        volData.push({ time: fullTimes[i], value: volumes[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
+                    for (var i = 0; i < rAllT.length; i++) {
+                        var prevP2 = i > 0 ? rAllP[i - 1] : rAllP[i];
+                        var up = prevP2 != null && rAllP[i] != null ? rAllP[i] >= prevP2 : true;
+                        volData.push({ time: rAllT[i], value: rAllV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
                     }
                     _minuteVolSeries.setData(volData);
                 }
-                // 锁定窗口不变
-                _chart.timeScale().setVisibleRange({ from: _minuteFrom, to: _minuteTo });
-                _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true, rightOffset: 0 });
             })
             .catch(function() {});
     }
