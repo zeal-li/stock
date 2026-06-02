@@ -16,6 +16,7 @@ var KlinePopup = (function() {
     var _minuteAvgLine = null;   // 均价线引用
     var _minuteVolSeries = null; // 成交量柱引用
     var _minutePreClose = 0;
+    var _minuteFrom = 0, _minuteTo = 0;  // 分时窗口固定范围
     var _maLines = [];
     var _bbLines = [];
     var _maVals = null;  // {ma5, ma10, ma20, ma60}
@@ -158,8 +159,10 @@ var KlinePopup = (function() {
     function _renderMinute(times, prices, volumes, amounts, preClose) {
         var el = document.getElementById('klChart');
         el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
+        var isUS = _stockMarket === '106';
         var today = new Date(); var base = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000;
         var fullTimes = times.map(function(t) {
+            if (isUS) return new Date(t).getTime() / 1000;
             var parts = t.split(':'); return base + parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60;
         });
         _chart = LightweightCharts.createChart(el, {
@@ -275,13 +278,16 @@ var KlinePopup = (function() {
             tooltip.style.top = top + 'px';
         });
 
-        // 时间范围：A/港股固定 09:30-15:00，美股用实际数据范围
+        // 时间范围固定（不随数据增长）
         if (_stockMarket === '106') {
-            _chart.timeScale().fitContent();
+            _minuteFrom = fullTimes[0];
+            _minuteTo = _minuteFrom + 6.5 * 3600;
         } else {
-            _chart.timeScale().setVisibleRange({ from: base + 9*3600 + 30*60, to: base + 15*3600 });
-            _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true, rightOffset: 0 });
+            _minuteFrom = base + 9*3600 + 30*60;
+            _minuteTo = base + 15*3600;
         }
+        _chart.timeScale().setVisibleRange({ from: _minuteFrom, to: _minuteTo });
+        _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true, rightOffset: 0 });
 
         if (_observer) _observer.disconnect();
         _observer = new ResizeObserver(function() {
@@ -304,8 +310,12 @@ var KlinePopup = (function() {
                 if (!d.success || !d.data.times || d.data.times.length === 0) return;
                 var times = d.data.times, prices = d.data.prices, volumes = d.data.volumes || [], amounts = d.data.amounts || [];
                 var preClose = d.data.preClose || _minutePreClose;
-                var today = new Date(); var base = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000;
-                var fullTimes = times.map(function(t) { var pp = t.split(':'); return base + parseInt(pp[0]) * 3600 + parseInt(pp[1]) * 60; });
+                var isUS2 = _stockMarket === '106';
+                var today2 = new Date(); var base2 = new Date(today2.getFullYear(), today2.getMonth(), today2.getDate()).getTime() / 1000;
+                var fullTimes = times.map(function(t) {
+                    if (isUS2) return new Date(t).getTime() / 1000;
+                    var pp = t.split(':'); return base2 + parseInt(pp[0]) * 3600 + parseInt(pp[1]) * 60;
+                });
                 var pcts = prices.map(function(p) { return preClose ? ((p - preClose) / preClose * 100) : p; });
 
                 // 更新分时面积图
@@ -327,6 +337,9 @@ var KlinePopup = (function() {
                     }
                     _minuteVolSeries.setData(volData);
                 }
+                // 锁定窗口不变
+                _chart.timeScale().setVisibleRange({ from: _minuteFrom, to: _minuteTo });
+                _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true, rightOffset: 0 });
             })
             .catch(function() {});
     }

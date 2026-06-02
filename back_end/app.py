@@ -264,12 +264,13 @@ def stock_minute():
         for t in trends:
             parts = t.split(',')
             if len(parts) >= 2:
-                tm = parts[0]; tm = tm.split(' ')[-1] if ' ' in tm else tm
+                full_tm = parts[0]
+                tm = full_tm.split(' ')[-1] if ' ' in full_tm else full_tm
                 # 按市场过滤盘前数据
                 if market in ('0','1','2','90','116'):
                     if tm < '09:30': continue
-                # 美股 21:30 开盘，保留 21:30 后数据（跨日期所以不过滤时间）
-                times.append(tm)
+                # 美股返回完整日期时间（跨天），A/港股只返回时间
+                times.append(full_tm if market == '106' else tm)
                 prices.append(float(parts[1]))
                 curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0
                 curAmt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
