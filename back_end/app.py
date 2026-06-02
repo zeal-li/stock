@@ -174,9 +174,7 @@ def stock_quotes():
                 # ETF 价格/涨跌额显示三位小数
                 is_etf = _is_etf(row.get('f12'), row.get('f13'))
                 # PE TTM(滚动市盈率)优先,更稳定,与同花顺一致;若没有则用动态市盈率(f9)
-                pe_ttm = row.get('f115')
-                pe_dynamic = row.get('f9')
-                pe = pe_ttm if pe_ttm is not None and pe_ttm != '-' else pe_dynamic
+                pe = row.get('f115')  # 只取 TTM
                 result[key] = {
                     'name': row.get('f14', ''),
                     'price': _fmt(row.get('f2'), is_etf),

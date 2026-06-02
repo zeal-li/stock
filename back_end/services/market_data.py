@@ -64,7 +64,7 @@ def get_major_indices():
                 return result
     except Exception:
         pass
-    return {'success': True, 'data': [{'code': 'sh000001', 'name': '上证指数', 'price': '-', 'change': '0.00%', 'change_value': '+0.00'}]}
+    return {'success': False, 'error': '东财指数行情请求失败'}
 
 
 def get_sh000001_minute_data():

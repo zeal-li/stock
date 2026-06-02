@@ -193,29 +193,25 @@ var KlinePopup = (function() {
         }
 
         paramsEl.innerHTML =
-            '<div style="display:flex;flex-direction:column;gap:2px;">' +
-                '<div style="display:flex;flex-wrap:wrap;gap:2px 12px;">' +
-                    cell('高', latest ? latest.high.toFixed(2) : null) +
-                    cell('涨停', limitUp) +
-                    cell('今开', latest ? latest.open.toFixed(2) : null) +
-                    cell('成交量', quote.volume) +
-                    cell('换手', quote.turnover) +
-                    cell('市盈', quote.pe) +
-                    cell('总股本', quote.total_shares) +
-                    cell('总市值', quote.total_cap) +
-                    cell('质押率', gw.pld != null ? gw.pld.toFixed(2) + '%' : null) +
-                '</div>' +
-                '<div style="display:flex;flex-wrap:wrap;gap:2px 12px;">' +
-                    cell('低', latest ? latest.low.toFixed(2) : null) +
-                    cell('跌停', limitDown) +
-                    cell('昨收', quote.pre_close) +
-                    cell('成交额', quote.amount) +
-                    cell('振幅', quote.amplitude) +
-                    cell('市净', quote.pb) +
-                    cell('流通股', quote.float_shares) +
-                    cell('流通值', quote.float_cap) +
-                    cell('商誉率', gw.gw != null ? gw.gw.toFixed(2) + '%' : null) +
-                '</div>' +
+            '<div style="display:grid;grid-template-columns:repeat(9,auto);column-gap:12px;row-gap:2px;justify-content:start;">' +
+                cell('高', latest ? latest.high.toFixed(2) : null) +
+                cell('涨停', limitUp) +
+                cell('今开', latest ? latest.open.toFixed(2) : null) +
+                cell('成交量', quote.volume) +
+                cell('换手', quote.turnover) +
+                cell('市盈', quote.pe) +
+                cell('总股本', quote.total_shares) +
+                cell('总市值', quote.total_cap) +
+                cell('质押率', gw.pld != null ? gw.pld.toFixed(2) + '%' : null) +
+                cell('低', latest ? latest.low.toFixed(2) : null) +
+                cell('跌停', limitDown) +
+                cell('昨收', quote.pre_close) +
+                cell('成交额', quote.amount) +
+                cell('振幅', quote.amplitude) +
+                cell('市净', quote.pb) +
+                cell('流通股', quote.float_shares) +
+                cell('流通值', quote.float_cap) +
+                cell('商誉率', gw.gw != null ? gw.gw.toFixed(2) + '%' : null) +
             '</div>';
     }
 
@@ -242,7 +238,7 @@ var KlinePopup = (function() {
         var chartEl = document.getElementById('klChart');
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
 
-        // 并行请求行情 + K线
+        // 并行请求行情 + K线 + 商誉质押
         var secid = encodeURIComponent(market + '.' + code);
         var pQuote = fetch('/api/stock-quotes?secids=' + secid)
             .then(function(r) { return r.json(); })
@@ -253,17 +249,24 @@ var KlinePopup = (function() {
             .then(function(r) { return r.json(); })
             .catch(function() { return { success: false }; });
 
-        Promise.all([pQuote, pKline]).then(function(results) {
+        var pGoodwill = fetch('/api/goodwill?codes=' + encodeURIComponent(code))
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return (d.success && d.data[code]) || null; })
+            .catch(function() { return null; });
+
+        Promise.all([pQuote, pKline, pGoodwill]).then(function(results) {
             var quote = results[0] || {};
             var kdata = results[1];
-            if (extra.goodwill) quote.goodwill = extra.goodwill;
+            var goodwill = results[2];
+            if (goodwill) quote.goodwill = goodwill;
 
             // 先存 K线原始数据，_fillHeader 需要取最新 OHLC
             if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
                 _klinesData = kdata.data.klines;
             }
 
-            _fillHeader(quote);
+            try { _fillHeader(quote); }
+            catch(e) { document.getElementById('klParams').innerHTML = '<span style="color:#ef5350;">头部渲染失败: ' + (e.message || e) + '</span>'; }
 
             if (!_klinesData) {
                 chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
