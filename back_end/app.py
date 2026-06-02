@@ -182,8 +182,10 @@ def stock_quotes():
                     'change': _fmt(row.get('f4'), is_etf),
                     'volume': _fmt_volume(row.get('f5'), row.get('f13')),
                     'amount': _fmt_amount(row.get('f6')),
+                    'amount_raw': row.get('f6'),
                     'amplitude': _fmt_pct(row.get('f7')),
                     'turnover': _fmt_pct(row.get('f8')),
+                    'turnover_raw': row.get('f8'),
                     'pe': _fmt(pe),
                     'pb': _fmt(row.get('f23')),
                     'high': _fmt(row.get('f15'), is_etf),
@@ -215,7 +217,7 @@ def stock_kline():
         rows = []
 
         if market in ('1', '2', '0', '90'):
-            # A股 → 腾讯（盘中返回当天实时蜡烛，close=最新价）
+            # A股 → 腾讯（K线）+ 同花顺（成交额/换手）
             prefix = 'sh' if market in ('1', '2') else 'sz'
             param = f"{prefix}{code},day,,,120,qfq"
             r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
@@ -224,14 +226,38 @@ def stock_kline():
                            timeout=10, proxies=REQUEST_PROXIES)
             jd = r.json()
             klines = (jd.get('data') or {}).get(f"{prefix}{code}", {}).get('qfqday') or []
+
+            # 同花顺（成交额/换手率）
+            extra = {}
+            try:
+                r2 = requests.get(f"https://d.10jqka.com.cn/v2/line/hs_{code}/01/last.js",
+                                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.10jqka.com.cn/'},
+                                timeout=8, proxies=REQUEST_PROXIES)
+                text = r2.text
+                s = text.find('(') + 1; e = text.rfind(')')
+                ths = json.loads(text[s:e]) if s > 0 and e > s else {}
+                for line in ths.get('data', '').split(';'):
+                    parts = line.split(',')
+                    if len(parts) >= 8:
+                        d = parts[0]
+                        extra[d[:4] + '-' + d[4:6] + '-' + d[6:8]] = {
+                            'amount': float(parts[6]), 'turnover': round(float(parts[7]), 2)
+                        }
+            except: pass
+
             for k in klines:
                 if len(k) >= 6:
-                    rows.append({
+                    row = {
                         'time': k[0],
                         'open': float(k[1]), 'close': float(k[2]),
                         'high': float(k[3]), 'low': float(k[4]),
                         'volume': int(float(k[5])),
-                    })
+                    }
+                    ex = extra.get(k[0])
+                    if ex:
+                        row['amount'] = ex['amount']
+                        row['turnover'] = ex['turnover']
+                    rows.append(row)
         elif market in ('116', '106'):
             # 港股/美股 → Yahoo Finance（需走系统代理，不能 no_proxy）
             import os as _os

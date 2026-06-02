@@ -43,11 +43,7 @@ var KlinePopup = (function() {
         var color = chg >= 0 ? '#ef5350' : '#26a69a';
         var volStr = k.volume >= 1e8 ? (k.volume / 1e8).toFixed(2) + '亿' :
                      k.volume >= 1e4 ? (k.volume / 1e4).toFixed(2) + '万' : String(k.volume);
-        var amtStr = '-';
-        if (k.amount) {
-            amtStr = k.amount >= 1e8 ? (k.amount / 1e8).toFixed(2) + '亿' :
-                     k.amount >= 1e4 ? (k.amount / 1e4).toFixed(2) + '万' : String(k.amount);
-        }
+        var amtStr = k.amount ? (k.amount >= 1e8 ? (k.amount / 1e8).toFixed(2) + '亿' : (k.amount / 1e4).toFixed(2) + '万') : '--';
         var tDec = (_stockCode && (_stockCode.startsWith('51') || _stockCode.startsWith('15'))) ? 3 : 2;
         var n = function(v) { return '<span style="color:#ddd;">' + v.toFixed(tDec) + '</span>'; };
         var row = function(l, v, r, rv) {
@@ -62,9 +58,9 @@ var KlinePopup = (function() {
                 row('开', n(k.open), '收', '<span style="color:' + color + ';">' + k.close.toFixed(tDec) + '</span>') +
                 row('涨跌额', '<span style="color:' + color + ';">' + sign + chg.toFixed(tDec) + '</span>',
                     '涨跌幅', '<span style="color:' + color + ';">' + sign + chgPct.toFixed(2) + '%</span>') +
-                row('成交量', '<span style="color:#ddd;">' + volStr + '</span>',
-                    '成交额', '<span style="color:' + (k.amount ? '#ddd' : '#888') + ';">' + amtStr + '</span>') +
-                row('换手', '<span style="color:' + (k.turnover ? '#ddd' : '#888') + ';">' + (k.turnover ? k.turnover.toFixed(2) + '%' : '--') + '</span>', '', '') +
+                row('量', '<span style="color:#ddd;">' + volStr + '</span>',
+                    '额', '<span style="color:' + (k.amount ? '#ddd' : '#888') + ';">' + amtStr + '</span>') +
+                (k.turnover != null ? row('换手', '<span style="color:#ddd;">' + k.turnover.toFixed(2) + '%</span>', '', '') : '') +
             '</table>'
         );
     }
@@ -265,9 +261,15 @@ var KlinePopup = (function() {
             var goodwill = results[2];
             if (goodwill) quote.goodwill = goodwill;
 
-            // 先存 K线原始数据，_fillHeader 需要取最新 OHLC
+            // 先存 K线原始数据
             if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
                 _klinesData = kdata.data.klines;
+                // 最新一天如果缺成交额/换手（同花顺还没出今天数据），用实时行情补
+                var last = _klinesData[_klinesData.length - 1];
+                if (quote) {
+                    if (last.amount == null && quote.amount_raw != null && quote.amount_raw !== '-') last.amount = parseFloat(quote.amount_raw);
+                    if (last.turnover == null && quote.turnover_raw != null && quote.turnover_raw !== '-') last.turnover = parseFloat(quote.turnover_raw);
+                }
             }
 
             try { _fillHeader(quote); }
