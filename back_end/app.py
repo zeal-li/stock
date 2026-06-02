@@ -265,7 +265,10 @@ def stock_minute():
             parts = t.split(',')
             if len(parts) >= 2:
                 tm = parts[0]; tm = tm.split(' ')[-1] if ' ' in tm else tm
-                if tm < '09:30': continue
+                # 按市场过滤盘前数据
+                if market in ('0','1','2','90','116'):
+                    if tm < '09:30': continue
+                # 美股 21:30 开盘，保留 21:30 后数据（跨日期所以不过滤时间）
                 times.append(tm)
                 prices.append(float(parts[1]))
                 curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0

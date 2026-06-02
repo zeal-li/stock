@@ -112,7 +112,9 @@ var KlinePopup = (function() {
         _currentPeriod = p;
         document.getElementById('klBtnMinute').style.background = '#1a1a2e';
         document.getElementById('klBtnMinute').style.color = '#8b8b9e';
-        document.getElementById('klIndBar').style.display = 'flex';
+        var indBar = document.getElementById('klIndBar');
+        indBar.style.display = 'flex';
+        indBar.innerHTML = '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)" style="cursor:pointer;font-size:10px;padding:1px 4px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;"><option value="ma">均线</option><option value="bb">布林线</option></select><span id="klIndVals" style="font-size:11px;"></span>';
         // 按钮样式
         var btns = document.querySelectorAll('#klPeriodBar button[data-p]');
         btns.forEach(function(b) {
@@ -147,7 +149,7 @@ var KlinePopup = (function() {
                     return;
                 }
                 _klinesData = kdata.data.klines;
-                try { _renderChart(kdata.data); _updateIndVals(); }
+                try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _updateIndVals(); }
                 catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             })
             .catch(function() { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">请求失败</div>'; });
@@ -171,7 +173,8 @@ var KlinePopup = (function() {
                 borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
                 tickMarkFormatter: function(ts) {
                     var d = new Date(ts * 1000);
-                    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+                    var h = d.getHours(), m = d.getMinutes();
+                    return (d.getMonth()+1) + '/' + d.getDate() + ' ' + String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
                 },
             },
             width: el.clientWidth, height: el.clientHeight,
@@ -272,8 +275,13 @@ var KlinePopup = (function() {
             tooltip.style.top = top + 'px';
         });
 
-        _chart.timeScale().setVisibleRange({ from: base + 9*3600 + 30*60, to: base + 15*3600 });
-        _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true, rightOffset: 0 });
+        // 时间范围：A/港股固定 09:30-15:00，美股用实际数据范围
+        if (_stockMarket === '106') {
+            _chart.timeScale().fitContent();
+        } else {
+            _chart.timeScale().setVisibleRange({ from: base + 9*3600 + 30*60, to: base + 15*3600 });
+            _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true, rightOffset: 0 });
+        }
 
         if (_observer) _observer.disconnect();
         _observer = new ResizeObserver(function() {
@@ -642,7 +650,7 @@ var KlinePopup = (function() {
             if (!_klinesData) {
                 chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
             } else {
-                try { _renderChart(kdata.data); _updateIndVals(); }
+                try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _updateIndVals(); }
                 catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             }
             document.getElementById('klPeriodBar').style.display = 'flex';
