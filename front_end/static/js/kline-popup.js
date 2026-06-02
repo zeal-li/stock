@@ -48,7 +48,8 @@ var KlinePopup = (function() {
             amtStr = k.amount >= 1e8 ? (k.amount / 1e8).toFixed(2) + '亿' :
                      k.amount >= 1e4 ? (k.amount / 1e4).toFixed(2) + '万' : String(k.amount);
         }
-        var n = function(v) { return '<span style="color:#ddd;">' + v.toFixed(2) + '</span>'; };
+        var tDec = (_stockCode && (_stockCode.startsWith('51') || _stockCode.startsWith('15'))) ? 3 : 2;
+        var n = function(v) { return '<span style="color:#ddd;">' + v.toFixed(tDec) + '</span>'; };
         var row = function(l, v, r, rv) {
             return '<tr><td style="color:#888;padding-right:4px;">' + l + '</td><td>' + v + '</td>' +
                    '<td style="color:#888;padding:0 4px;">' + r + '</td><td>' + rv + '</td></tr>';
@@ -56,10 +57,10 @@ var KlinePopup = (function() {
         return (
             '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + k.time + '</div>' +
             '<table style="border-spacing:0;">' +
-                row('高', '<span style="color:#ef5350;">' + k.high.toFixed(2) + '</span>',
-                    '低', '<span style="color:#26a69a;">' + k.low.toFixed(2) + '</span>') +
-                row('开', n(k.open), '收', '<span style="color:' + color + ';">' + k.close.toFixed(2) + '</span>') +
-                row('涨跌额', '<span style="color:' + color + ';">' + sign + chg.toFixed(2) + '</span>',
+                row('高', '<span style="color:#ef5350;">' + k.high.toFixed(tDec) + '</span>',
+                    '低', '<span style="color:#26a69a;">' + k.low.toFixed(tDec) + '</span>') +
+                row('开', n(k.open), '收', '<span style="color:' + color + ';">' + k.close.toFixed(tDec) + '</span>') +
+                row('涨跌额', '<span style="color:' + color + ';">' + sign + chg.toFixed(tDec) + '</span>',
                     '涨跌幅', '<span style="color:' + color + ';">' + sign + chgPct.toFixed(2) + '%</span>') +
                 row('成交量', '<span style="color:#ddd;">' + volStr + '</span>',
                     '成交额', '<span style="color:' + (k.amount ? '#ddd' : '#888') + ';">' + amtStr + '</span>') +
@@ -179,6 +180,9 @@ var KlinePopup = (function() {
         function cell(label, value) { return '<span style="white-space:nowrap;"><span style="color:#8b8b9e;">' + label + '</span> ' + v(value) + '</span>'; }
 
         var latest = (_klinesData && _klinesData.length > 0) ? _klinesData[_klinesData.length - 1] : null;
+        var isEtf = _stockCode && (_stockCode.startsWith('51') || _stockCode.startsWith('15'));
+        // ETF 腾讯 K线只有2位小数，用实时行情（3位）；普通股用 K线数据
+        var fix = function(v, qv) { return isEtf ? (qv) : (v ? v.toFixed(2) : null); };
         var gw = quote.goodwill || {};
 
         // 计算涨停跌停
@@ -187,23 +191,24 @@ var KlinePopup = (function() {
             var pc = parseFloat(quote.pre_close);
             if (!isNaN(pc) && pc > 0) {
                 var rate = _stockCode ? _limitRate(_stockCode) : 0.1;
-                limitUp = (pc * (1 + rate)).toFixed(2);
-                limitDown = (pc * (1 - rate)).toFixed(2);
+                var limDec = isEtf ? 3 : 2;
+                limitUp = (pc * (1 + rate)).toFixed(limDec);
+                limitDown = (pc * (1 - rate)).toFixed(limDec);
             }
         }
 
         paramsEl.innerHTML =
             '<div style="display:grid;grid-template-columns:repeat(9,auto);column-gap:12px;row-gap:2px;justify-content:start;">' +
-                cell('高', latest ? latest.high.toFixed(2) : null) +
+                cell('高', fix(latest ? latest.high : null, quote.high)) +
                 cell('涨停', limitUp) +
-                cell('今开', latest ? latest.open.toFixed(2) : null) +
+                cell('今开', fix(latest ? latest.open : null, quote.open)) +
                 cell('成交量', quote.volume) +
                 cell('换手', quote.turnover) +
                 cell('市盈', quote.pe) +
                 cell('总股本', quote.total_shares) +
                 cell('总市值', quote.total_cap) +
                 cell('质押率', gw.pld != null ? gw.pld.toFixed(2) + '%' : null) +
-                cell('低', latest ? latest.low.toFixed(2) : null) +
+                cell('低', fix(latest ? latest.low : null, quote.low)) +
                 cell('跌停', limitDown) +
                 cell('昨收', quote.pre_close) +
                 cell('成交额', quote.amount) +

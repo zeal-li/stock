@@ -215,28 +215,22 @@ def stock_kline():
         rows = []
 
         if market in ('1', '2', '0', '90'):
-            # A股 → 同花顺（一个接口：开高低收/成交量/成交额/换手率全有）
-            url = f"https://d.10jqka.com.cn/v2/line/hs_{code}/01/last.js"
-            r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.10jqka.com.cn/'},
+            # A股 → 腾讯（盘中返回当天实时蜡烛，close=最新价）
+            prefix = 'sh' if market in ('1', '2') else 'sz'
+            param = f"{prefix}{code},day,,,120,qfq"
+            r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+                           params={'param': param},
+                           headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
                            timeout=10, proxies=REQUEST_PROXIES)
-            # JSONP → JSON
-            text = r.text
-            start = text.find('(') + 1
-            end = text.rfind(')')
-            d = json.loads(text[start:end]) if start > 0 and end > start else {}
-            data_str = d.get('data', '')
-            for kline in data_str.split(';'):
-                parts = kline.split(',')
-                if len(parts) >= 8:
-                    # 日期格式: 20251031 → 2025-10-31
-                    d = parts[0]
+            jd = r.json()
+            klines = (jd.get('data') or {}).get(f"{prefix}{code}", {}).get('qfqday') or []
+            for k in klines:
+                if len(k) >= 6:
                     rows.append({
-                        'time': d[:4] + '-' + d[4:6] + '-' + d[6:8],
-                        'open': float(parts[1]), 'close': float(parts[4]),
-                        'high': float(parts[2]), 'low': float(parts[3]),
-                        'volume': int(parts[5]),
-                        'amount': float(parts[6]),
-                        'turnover': round(float(parts[7]), 2),
+                        'time': k[0],
+                        'open': float(k[1]), 'close': float(k[2]),
+                        'high': float(k[3]), 'low': float(k[4]),
+                        'volume': int(float(k[5])),
                     })
         elif market in ('116', '106'):
             # 港股/美股 → Yahoo Finance（需走系统代理，不能 no_proxy）
