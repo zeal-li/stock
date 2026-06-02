@@ -156,7 +156,8 @@ def stock_quotes():
         params = {
             'fltt': 2, 'invt': 2,
             # f9=动态市盈率(原PE), f115=市盈率TTM(滚动市盈率,同花顺默认), f162=静态市盈率
-            'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f12,f13,f14,f20,f21,f23,f115,f162',
+            # f15=最高, f16=最低, f17=今开, f18=昨收, f38=总股本, f39=流通股本
+            'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f38,f39,f115,f162',
             'secids': secids,
             'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
         }
@@ -187,8 +188,14 @@ def stock_quotes():
                     'turnover': _fmt_pct(row.get('f8')),
                     'pe': _fmt(pe),
                     'pb': _fmt(row.get('f23')),
+                    'high': _fmt(row.get('f15'), is_etf),
+                    'low': _fmt(row.get('f16'), is_etf),
+                    'open': _fmt(row.get('f17'), is_etf),
+                    'pre_close': _fmt(row.get('f18'), is_etf),
                     'total_cap': _fmt_cap(row.get('f20')),
                     'float_cap': _fmt_cap(row.get('f21')),
+                    'total_shares': _fmt_cap(row.get('f38')),
+                    'float_shares': _fmt_cap(row.get('f39')),
                 }
         return jsonify({'success': True, 'data': result})
     except Exception as e:

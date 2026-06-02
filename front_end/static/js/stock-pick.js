@@ -133,17 +133,19 @@ function loadPickedStocks() {
         if (raw && raw.stocks) {
             const expired = raw.date !== getToday(); // 跨天→财务数据失效，但股票列表保留
             stocks = raw.stocks.map(s => ({
-                code: s.code, name: s.code, market: s.market,
-                price: '-', pct: '-', change: '-', pe: '-', pb: '-',
-                turnover: '-', amplitude: '-', volume: '-', amount: '-',
-                total_cap: '-', float_cap: '-',
-                goodwill: (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null,
-            }));
+        code: s.code, name: s.code, market: s.market,
+        price: '-', pct: '-', change: '-', pe: '-', pb: '-',
+        high: '-', low: '-', open: '-', pre_close: '-',
+        total_shares: '-', float_shares: '-',
+        turnover: '-', amplitude: '-', volume: '-', amount: '-',
+        total_cap: '-', float_cap: '-',
+        goodwill: (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null,
+    }));
         }
         // 兼容旧格式
         if (!stocks) {
             const saved = JSON.parse(localStorage.getItem('pickedStocks') || '[]');
-            stocks = saved.map(s => ({ code: s.code, name: s.code, market: s.market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null }));
+            stocks = saved.map(s => ({ code: s.code, name: s.code, market: s.market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', high: '-', low: '-', open: '-', pre_close: '-', total_shares: '-', float_shares: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null }));
             localStorage.removeItem('pickedStocks');
             localStorage.removeItem('financeCache');
         }
@@ -158,7 +160,7 @@ function loadPickedStocks() {
 
 async function pickStock(code, name, market) {
     if (pickedStocks.find(s => s.code === code)) return;
-    pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null });
+    pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', high: '-', low: '-', open: '-', pre_close: '-', total_shares: '-', float_shares: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null });
     saveCache();
     document.getElementById('searchInput').value = '';
     document.getElementById('searchResults').innerHTML = '';
@@ -190,6 +192,12 @@ async function refreshPickedQuotes() {
                     s.change = q.change || '-';
                     s.pe = q.pe || '-';
                     s.pb = q.pb || '-';
+                    s.high = q.high || '-';
+                    s.low = q.low || '-';
+                    s.open = q.open || '-';
+                    s.pre_close = q.pre_close || '-';
+                    s.total_shares = q.total_shares || '-';
+                    s.float_shares = q.float_shares || '-';
                     s.amplitude = q.amplitude || '-';
                     s.turnover = q.turnover || '-';
                     s.volume = q.volume || '-';

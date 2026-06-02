@@ -5,7 +5,8 @@
 var KlinePopup = (function() {
     var _chart = null, _overlay = null, _series = null, _volSeries = null;
     var _observer = null;
-    var _klinesData = null;  // 原始 K线数据，供十字线 tooltip 查询
+    var _klinesData = null;
+    var _stockCode = '';
 
     // ---- 创建弹窗 DOM ----
     function _ensureDOM() {
@@ -16,7 +17,7 @@ var KlinePopup = (function() {
         _overlay.onclick = function(e) { if (e.target === _overlay) close(); };
 
         _overlay.innerHTML =
-            '<div style="width:1050px;max-width:96vw;height:620px;max-height:88vh;background:#1e1e2e;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.5);">' +
+            '<div style="width:1160px;max-width:98vw;height:620px;max-height:88vh;background:#1e1e2e;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.5);">' +
                 '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 16px 6px;background:#1a1a2e;flex-shrink:0;">' +
                     '<div style="display:flex;align-items:baseline;gap:8px;">' +
                         '<span id="klName" style="font-size:17px;color:#fff;font-weight:600;"></span>' +
@@ -159,8 +160,10 @@ var KlinePopup = (function() {
     function _fillHeader(quote) {
         var priceEl = document.getElementById('klPrice');
         var chgEl = document.getElementById('klChange');
+        var paramsEl = document.getElementById('klParams');
+
         if (!quote || !quote.price || quote.price === '-') {
-            priceEl.textContent = ''; chgEl.textContent = ''; return;
+            priceEl.textContent = ''; chgEl.textContent = ''; paramsEl.innerHTML = '--'; return;
         }
         var chg = quote.change || '', pct = quote.pct || '';
         var isUp = chg.startsWith('+') || parseFloat(chg) > 0;
@@ -171,23 +174,63 @@ var KlinePopup = (function() {
         chgEl.textContent = chg + '  ' + pct;
         chgEl.style.color = color;
 
-        var params = [];
-        function add(label, val) { if (val && val !== '-') params.push(label + ': ' + val); }
-        add('总市值', quote.total_cap);
-        add('流通市值', quote.float_cap);
-        add('市盈(TTM)', quote.pe);
-        add('市净率', quote.pb);
-        add('成交量', quote.volume);
-        add('成交额', quote.amount);
-        add('换手', quote.turnover);
-        add('振幅', quote.amplitude);
-        document.getElementById('klParams').innerHTML = params.map(function(p) {
-            return '<span style="white-space:nowrap;">' + p + '</span>';
-        }).join('<span style="color:#2a2a4e;">|</span>') || '--';
+        // 双行数据面板
+        function v(val) { return (val && val !== '-') ? '<span style="color:#ccc;">' + val + '</span>' : '<span style="color:#555;">--</span>'; }
+        function cell(label, value) { return '<span style="white-space:nowrap;"><span style="color:#8b8b9e;">' + label + '</span> ' + v(value) + '</span>'; }
+
+        var latest = (_klinesData && _klinesData.length > 0) ? _klinesData[_klinesData.length - 1] : null;
+        var gw = quote.goodwill || {};
+
+        // 计算涨停跌停
+        var limitUp = null, limitDown = null;
+        if (quote.pre_close && quote.pre_close !== '-') {
+            var pc = parseFloat(quote.pre_close);
+            if (!isNaN(pc) && pc > 0) {
+                var rate = _stockCode ? _limitRate(_stockCode) : 0.1;
+                limitUp = (pc * (1 + rate)).toFixed(2);
+                limitDown = (pc * (1 - rate)).toFixed(2);
+            }
+        }
+
+        paramsEl.innerHTML =
+            '<div style="display:flex;flex-direction:column;gap:2px;">' +
+                '<div style="display:flex;flex-wrap:wrap;gap:2px 12px;">' +
+                    cell('高', latest ? latest.high.toFixed(2) : null) +
+                    cell('涨停', limitUp) +
+                    cell('今开', latest ? latest.open.toFixed(2) : null) +
+                    cell('成交量', quote.volume) +
+                    cell('换手', quote.turnover) +
+                    cell('市盈', quote.pe) +
+                    cell('总股本', quote.total_shares) +
+                    cell('总市值', quote.total_cap) +
+                    cell('质押率', gw.pld != null ? gw.pld.toFixed(2) + '%' : null) +
+                '</div>' +
+                '<div style="display:flex;flex-wrap:wrap;gap:2px 12px;">' +
+                    cell('低', latest ? latest.low.toFixed(2) : null) +
+                    cell('跌停', limitDown) +
+                    cell('昨收', quote.pre_close) +
+                    cell('成交额', quote.amount) +
+                    cell('振幅', quote.amplitude) +
+                    cell('市净', quote.pb) +
+                    cell('流通股', quote.float_shares) +
+                    cell('流通值', quote.float_cap) +
+                    cell('商誉率', gw.gw != null ? gw.gw.toFixed(2) + '%' : null) +
+                '</div>' +
+            '</div>';
     }
 
     // ---- 公开方法 ----
-    function open(code, market, name) {
+    function _limitRate(code) {
+        var c = String(code);
+        if (/^30[04]/.test(c) || /^68/.test(c)) return 0.20;
+        if (/^8[34]|^43|^87|^88/.test(c)) return 0.30;  // 北交所/新三板
+        if (/^90/.test(c)) return 0.30;
+        return 0.10;
+    }
+
+    function open(code, market, name, extra) {
+        extra = extra || {};
+        _stockCode = code;
         _ensureDOM();
         document.getElementById('klName').textContent = (name || code);
         document.getElementById('klCode').textContent = '(' + code + ')';
@@ -211,13 +254,18 @@ var KlinePopup = (function() {
             .catch(function() { return { success: false }; });
 
         Promise.all([pQuote, pKline]).then(function(results) {
-            var quote = results[0];
+            var quote = results[0] || {};
             var kdata = results[1];
+            if (extra.goodwill) quote.goodwill = extra.goodwill;
 
-            // 行情头部（不管K线成功与否都显示）
-            _fillHeader(quote || {});
+            // 先存 K线原始数据，_fillHeader 需要取最新 OHLC
+            if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
+                _klinesData = kdata.data.klines;
+            }
 
-            if (!kdata.success || !kdata.data.klines || kdata.data.klines.length === 0) {
+            _fillHeader(quote);
+
+            if (!_klinesData) {
                 chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
                 return;
             }
