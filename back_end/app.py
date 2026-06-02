@@ -202,6 +202,39 @@ def stock_quotes():
         return jsonify({'success': False, 'error': str(e), 'data': {}})
 
 
+# ==================== 个股补充 ====================
+
+@app.route('/api/stock-extra')
+def stock_extra():
+    """量比/委比（ulist.np/get 的 fltt=2 不支持，需单独请求）"""
+    code = request.args.get('code', '')
+    market = request.args.get('market', '')
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    try:
+        url = "https://push2delay.eastmoney.com/api/qt/stock/get"
+        params = {
+            'secid': f"{market}.{code}",
+            'fields': 'f50,f191',
+            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+        }
+        r = requests.get(url, params=params, headers={
+            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/',
+        }, timeout=8, proxies=REQUEST_PROXIES)
+        d = (r.json().get('data') or {})
+        vr = d.get('f50')
+        br = d.get('f191')
+        if market not in ('1', '2', '0', '90'): br = None
+        return jsonify({
+            'success': True,
+            'data': {
+                'volume_ratio': round(float(vr) / 100, 2) if vr is not None and vr != '-' else '-',
+                'bid_ratio': (str(round(br / 100, 2)) + '%') if br is not None and br != '-' else '-',
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 # ==================== K线 ====================
 
 @app.route('/api/stock-kline')

@@ -177,8 +177,22 @@ var KlinePopup = (function() {
 
         var latest = (_klinesData && _klinesData.length > 0) ? _klinesData[_klinesData.length - 1] : null;
         var isEtf = _stockCode && (_stockCode.startsWith('51') || _stockCode.startsWith('15'));
-        // ETF 腾讯 K线只有2位小数，用实时行情（3位）；普通股用 K线数据
-        var fix = function(v, qv) { return isEtf ? (qv) : (v ? v.toFixed(2) : null); };
+        var fixVal = function(val, qv) { return isEtf ? parseFloat(qv) : (val != null ? val : null); };
+
+        // 相对昨收上色
+        var pcNum = (quote.pre_close && quote.pre_close !== '-') ? parseFloat(quote.pre_close) : null;
+        function cmpColor(val) {
+            if (val == null || pcNum == null || isNaN(pcNum) || isNaN(val)) return '#ccc';
+            if (val > pcNum) return '#ef5350';
+            if (val < pcNum) return '#26a69a';
+            return '#ccc';
+        }
+        function ohlcCell(label, qv) {
+            var val = fixVal(latest ? (label === '高' ? latest.high : label === '低' ? latest.low : latest.open) : null, qv);
+            var display = (val != null && !isNaN(val)) ? val.toFixed(isEtf ? 3 : 2) : null;
+            var clr = cmpColor(val);
+            return '<span style="white-space:nowrap;"><span style="color:#8b8b9e;">' + label + '</span> <span style="color:' + clr + ';">' + (display || '--') + '</span></span>';
+        }
         var gw = quote.goodwill || {};
 
         // 计算涨停跌停
@@ -194,21 +208,23 @@ var KlinePopup = (function() {
         }
 
         paramsEl.innerHTML =
-            '<div style="display:grid;grid-template-columns:repeat(9,auto);column-gap:12px;row-gap:2px;justify-content:start;">' +
-                cell('高', fix(latest ? latest.high : null, quote.high)) +
-                cell('涨停', limitUp) +
-                cell('今开', fix(latest ? latest.open : null, quote.open)) +
+            '<div style="display:grid;grid-template-columns:repeat(10,auto);column-gap:12px;row-gap:2px;justify-content:start;">' +
+                ohlcCell('高', quote.high) +
+                cell('涨停', limitUp ? '<span style="color:#ef5350;">' + limitUp + '</span>' : null) +
+                ohlcCell('今开', quote.open) +
                 cell('成交量', quote.volume) +
                 cell('换手', quote.turnover) +
+                cell('量比', (function(){ var v = parseFloat(quote.volume_ratio); if (isNaN(v)) return null; var c = v > 1 ? '#ef5350' : v < 1 ? '#26a69a' : '#ccc'; return '<span style="color:' + c + ';">' + v.toFixed(2) + '</span>'; })()) +
                 cell('市盈', quote.pe) +
                 cell('总股本', quote.total_shares) +
                 cell('总市值', quote.total_cap) +
                 cell('质押率', gw.pld != null ? gw.pld.toFixed(2) + '%' : null) +
-                cell('低', fix(latest ? latest.low : null, quote.low)) +
-                cell('跌停', limitDown) +
+                ohlcCell('低', quote.low) +
+                cell('跌停', limitDown ? '<span style="color:#26a69a;">' + limitDown + '</span>' : null) +
                 cell('昨收', quote.pre_close) +
                 cell('成交额', quote.amount) +
                 cell('振幅', quote.amplitude) +
+                cell('委比', (function(){ var v = parseFloat(quote.bid_ratio); if (isNaN(v)) return null; var c = v > 0 ? '#ef5350' : v < 0 ? '#26a69a' : '#ccc'; return '<span style="color:' + c + ';">' + v.toFixed(2) + '%</span>'; })()) +
                 cell('市净', quote.pb) +
                 cell('流通股', quote.float_shares) +
                 cell('流通值', quote.float_cap) +
@@ -239,7 +255,7 @@ var KlinePopup = (function() {
         var chartEl = document.getElementById('klChart');
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
 
-        // 并行请求行情 + K线 + 商誉质押
+        // 并行请求行情 + K线 + 商誉质押 + 量比委比
         var secid = encodeURIComponent(market + '.' + code);
         var pQuote = fetch('/api/stock-quotes?secids=' + secid)
             .then(function(r) { return r.json(); })
@@ -255,11 +271,18 @@ var KlinePopup = (function() {
             .then(function(d) { return (d.success && d.data[code]) || null; })
             .catch(function() { return null; });
 
-        Promise.all([pQuote, pKline, pGoodwill]).then(function(results) {
+        var pExtra = fetch('/api/stock-extra?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return (d.success ? d.data : null); })
+            .catch(function() { return null; });
+
+        Promise.all([pQuote, pKline, pGoodwill, pExtra]).then(function(results) {
             var quote = results[0] || {};
             var kdata = results[1];
             var goodwill = results[2];
+            var extra = results[3];
             if (goodwill) quote.goodwill = goodwill;
+            if (extra) { quote.volume_ratio = extra.volume_ratio; quote.bid_ratio = extra.bid_ratio; }
 
             // 先存 K线原始数据
             if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
