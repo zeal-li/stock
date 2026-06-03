@@ -17,6 +17,11 @@ var KlinePopup = (function() {
     var _minuteVolSeries = null; // 成交量柱引用
     var _minutePreClose = 0;
     var _minuteFrom = 0, _minuteTo = 0;  // 分时窗口固定范围
+    var _fiveDayAreaSeries = null;   // 五日面积线
+    var _fiveDayVolSeries = null;    // 五日成交量柱
+    var _fiveDayPreClose = 0;        // 最新日昨收
+    var _fiveDayRaw = null;          // 原始API数据，用于刷新最新一天
+    var _fiveDayTimer = null;        // 五日刷新定时器
     var _maLines = [];
     var _bbLines = [];
     var _maVals = null;  // {ma5, ma10, ma20, ma60}
@@ -91,6 +96,7 @@ var KlinePopup = (function() {
     // ---- 分时 / 周期 切换 ----
     function _toggleMinute() {
         _isMinute = !_isMinute;
+        if (_fiveDayTimer) { clearInterval(_fiveDayTimer); _fiveDayTimer = null; }
         var btn = document.getElementById('klBtnMinute');
         var indBar = document.getElementById('klIndBar');
         // 五日按钮还原
@@ -114,6 +120,7 @@ var KlinePopup = (function() {
     function _switchPeriod(p) {
         _isMinute = false;
         if (_minuteTimer) { clearInterval(_minuteTimer); _minuteTimer = null; }
+        if (_fiveDayTimer) { clearInterval(_fiveDayTimer); _fiveDayTimer = null; }
         _currentPeriod = p;
         document.getElementById('klBtnMinute').style.background = '#1a1a2e';
         document.getElementById('klBtnMinute').style.color = '#8b8b9e';
@@ -171,133 +178,107 @@ var KlinePopup = (function() {
     function _loadFiveDayMinute() {
         _currentPeriod = '5day';
         if (_minuteTimer) { clearInterval(_minuteTimer); _minuteTimer = null; }
-        var chartEl = document.getElementById('klChart');
-        chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
-        fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&days=5')
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                if (!d.success || !d.data.times || d.data.times.length === 0) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无五日分时数据</div>'; return; }
-                try { _renderFiveDayMinute(d.data.times, d.data.prices, d.data.volumes || [], d.data.amounts || [], d.data.preClose || 0); }
-                catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
-            })
-            .catch(function() { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">请求失败</div>'; });
+        if (_fiveDayTimer) { clearInterval(_fiveDayTimer); _fiveDayTimer = null; }
+        _renderFiveDayMinute();
     }
 
-    function _renderFiveDayMinute(times, prices, volumes, amounts, preClose) {
+    // 纯测试：5 日视图骨架，不请求数据
+    function _renderFiveDayMinute() {
         var el = document.getElementById('klChart');
-        el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
+        el.innerHTML = '';
 
-        // 解析时间戳
-        var timestamps = times.map(function(t) {
-            return new Date(t.replace(' ', 'T') + ':00').getTime() / 1000;
-        });
-
-        // 收集所有有效数据点的日期，用于 x 轴标签
-        var dates = {};
-        for (var i = 0; i < times.length; i++) {
-            if (prices[i] != null) {
-                var dp = times[i].split(' '); // "2026-06-03 09:30"
-                dates[dp[0]] = true;
-            }
+        // ---- 纯测试：5 日视图骨架，5 个等分区域，X 轴标注日期 ----
+        // 5 日：5/28, 5/29, 6/1, 6/2, 6/3 （跳过周末 5/30, 5/31）
+        var testDates = [
+            new Date(2026, 4, 28).getTime() / 1000,  // May 28
+            new Date(2026, 4, 29).getTime() / 1000,  // May 29
+            new Date(2026, 5, 1).getTime() / 1000,   // Jun 1
+            new Date(2026, 5, 2).getTime() / 1000,   // Jun 2
+            new Date(2026, 5, 3).getTime() / 1000,   // Jun 3
+        ];
+        // 每个日期只放一个 09:30 的点，让图表有范围
+        var testData = [];
+        for (var di = 0; di < testDates.length; di++) {
+            testData.push({ time: testDates[di] + 9*3600 + 30*60, value: 0 });
         }
-        var dateList = Object.keys(dates).sort();
 
         _chart = LightweightCharts.createChart(el, {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
-            crosshair: { mode: 1 },
-            rightPriceScale: { borderColor: '#2a2a4e', scaleMargins: { top: 0.08, bottom: 0.28 } },
-            handleScroll: { vertTouchDrag: false, horzTouchDrag: false },
-            handleScale: { axisPressedMouseMove: false, pinch: false, mouseWheel: false },
+            crosshair: { mode: 0 },
+            rightPriceScale: { borderColor: '#2a2a4e', visible: true },
+            handleScroll: false,
+            handleScale: false,
             timeScale: {
                 borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
                 tickMarkFormatter: function(ts) {
-                    var d = new Date(ts * 1000);
-                    var M = d.getMonth() + 1, D = d.getDate(), h = d.getHours(), m = d.getMinutes();
-                    // 每天开盘时显示日期
-                    if (h === 9 && m === 30) return M + '/' + D;
-                    // 午间也显示日期
-                    if (h === 13 && m === 0) return M + '/' + D;
-                    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                    var d2 = new Date(ts * 1000);
+                    if (d2.getHours() === 9) return (d2.getMonth() + 1) + '/' + d2.getDate();
+                    return '';
                 },
             },
             width: el.clientWidth, height: el.clientHeight,
         });
 
-        // 面积线
-        var areaData = [];
-        for (var i = 0; i < times.length; i++) {
-            if (prices[i] != null) areaData.push({ time: timestamps[i], value: prices[i] });
-        }
-        var series = _chart.addAreaSeries({
-            lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)',
-            lineWidth: 1.5, priceLineVisible: false,
-            priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(2); } }
-        });
-        series.setData(areaData);
-
-        // 昨收参考线
-        if (preClose) {
-            var zLine = _chart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-            zLine.setData([{ time: timestamps[0], value: preClose }, { time: timestamps[timestamps.length - 1], value: preClose }]);
-        }
-
-        // 成交量柱
-        if (volumes && volumes.length > 0) {
-            var volSeries = _chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-            _chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.83, bottom: 0 }, visible: false });
-            var vd = [];
-            for (var i = 0; i < times.length; i++) {
-                var isUp = (i > 0 && prices[i] != null && prices[i - 1] != null) ? prices[i] >= prices[i - 1] : true;
-                vd.push({ time: timestamps[i], value: volumes[i] || 0, color: isUp ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
-            }
-            volSeries.setData(vd);
-        }
-
-        // 十字线 tooltip
-        var tooltip = document.getElementById('klTooltip');
-        _chart.subscribeCrosshairMove(function(param) {
-            if (!param.time || !param.point) { tooltip.style.display = 'none'; return; }
-            var idx = -1;
-            for (var i = 0; i < timestamps.length; i++) { if (timestamps[i] === param.time) { idx = i; break; } }
-            if (idx < 0 || prices[idx] == null) { tooltip.style.display = 'none'; return; }
-            var d = new Date(param.time * 1000);
-            var ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-            var ts = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-            var pr = prices[idx], vl = volumes[idx] || 0, am = amounts[idx] || 0;
-            var vs = vl >= 1e8 ? (vl / 1e8).toFixed(2) + '亿股' : vl >= 1e4 ? (vl / 1e4).toFixed(2) + '万股' : vl + '股';
-            var as = am >= 1e8 ? (am / 1e8).toFixed(2) + '亿' : am >= 1e4 ? (am / 1e4).toFixed(2) + '万' : String(am);
-            var pc = preClose ? (pr - preClose) / preClose * 100 : 0;
-            var pcs = pc >= 0 ? '+' : '', pcc = pc >= 0 ? '#ef5350' : '#26a69a';
-            tooltip.innerHTML = '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + ds + ' ' + ts + '</div><table style="border-spacing:0;">' +
-                '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">' + pr.toFixed(2) + '</span></td></tr>' +
-                '<tr><td style="color:#888;">较昨收</td><td><span style="color:' + pcc + ';">' + pcs + pc.toFixed(2) + '%</span></td></tr>' +
-                '<tr><td style="color:#888;">成交</td><td><span style="color:#ddd;">' + vs + '</span></td></tr>' +
-                '<tr><td style="color:#888;">成交额</td><td><span style="color:#ddd;">' + as + '</span></td></tr></table>';
-            tooltip.style.display = 'block';
-            var rect = el.getBoundingClientRect();
-            var l = param.point.x + 16, tp = param.point.y - 10;
-            if (l + 120 > rect.width) l = param.point.x - 130;
-            if (tp + 60 > rect.height) tp = rect.height - 70;
-            if (tp < 0) tp = 0;
-            tooltip.style.left = l + 'px'; tooltip.style.top = tp + 'px';
-        });
-
-        // 标题栏信息（取最后一个有效价格）
-        var lastP = null;
-        for (var li = prices.length - 1; li >= 0; li--) { if (prices[li] != null) { lastP = prices[li]; break; } }
-        if (lastP != null && preClose) {
-            var lChg = lastP - preClose, lChgPct = (preClose ? lChg / preClose * 100 : 0);
-            var ls = lChg >= 0 ? '+' : '', lc = lChg >= 0 ? '#ef5350' : '#26a69a';
-            var m5v = document.getElementById('kl5DayVals');
-            if (m5v) m5v.innerHTML = '<span style="color:#3b82f6;">最新:' + lastP.toFixed(2) + '</span> <span style="color:' + lc + ';">' + ls + lChg.toFixed(2) + '</span> <span style="color:' + lc + ';">' + ls + lChgPct.toFixed(2) + '%</span>';
-        }
+        var ts = _chart.addLineSeries({ lineWidth: 0, priceLineVisible: false, lastValueVisible: false });
+        ts.setData(testData);
+        _fiveDayAreaSeries = ts;
 
         _chart.timeScale().fitContent();
+        _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
 
         if (_observer) _observer.disconnect();
         _observer = new ResizeObserver(function() { if (_chart && el.clientWidth > 0) _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); });
         _observer.observe(el);
+
+    }
+
+    function _refreshFiveDayData() {
+        if (_currentPeriod !== '5day' || !_fiveDayAreaSeries) return;
+        fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&days=1')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.success || !d.data.times || d.data.times.length === 0) return;
+                // 只取今天的日期（从 _fiveDayRaw 的最后一个日期获取）
+                var rawDates = Object.keys(_fiveDayRaw || {});
+                var todayDate = null;
+                if (_fiveDayRaw && _fiveDayRaw.times && _fiveDayRaw.times.length > 0) {
+                    var lastT = _fiveDayRaw.times[_fiveDayRaw.times.length - 1];
+                    todayDate = lastT.split(' ')[0];
+                }
+                if (!todayDate) return;
+
+                var todayStr = todayDate;
+                var base = new Date(todayStr + 'T00:00:00').getTime() / 1000;
+                var prices = d.data.prices, volumes = d.data.volumes || [], amounts = d.data.amounts || [];
+                var newTimes = d.data.times;
+
+                // 更新最新一天的数据
+                for (var i = 0; i < newTimes.length; i++) {
+                    if (prices[i] == null) continue;
+                    var tp = newTimes[i];
+                    var tm = tp.indexOf(' ') >= 0 ? tp.split(' ')[1] : tp;
+                    var ts = base + parseInt(tm.split(':')[0]) * 3600 + parseInt(tm.split(':')[1]) * 60;
+                    try {
+                        _fiveDayAreaSeries.update({ time: ts, value: prices[i] });
+                        if (_fiveDayVolSeries) {
+                            _fiveDayVolSeries.update({ time: ts, value: volumes[i] || 0 });
+                        }
+                    } catch(e) {}
+                }
+
+                // 更新指标栏
+                var lastP = null;
+                for (var li = prices.length - 1; li >= 0; li--) { if (prices[li] != null) { lastP = prices[li]; break; } }
+                if (lastP != null) {
+                    var pc2 = _fiveDayPreClose;
+                    var lChg = lastP - pc2, lChgPct = pc2 ? lChg / pc2 * 100 : 0;
+                    var ls2 = lChg >= 0 ? '+' : '', lc2 = lChg >= 0 ? '#ef5350' : '#26a69a';
+                    var m5v = document.getElementById('kl5DayVals');
+                    if (m5v) m5v.innerHTML = '<span style="color:#3b82f6;">最新:' + lastP.toFixed(2) + '</span> <span style="color:' + lc2 + ';">' + ls2 + lChg.toFixed(2) + '</span> <span style="color:' + lc2 + ';">' + ls2 + lChgPct.toFixed(2) + '%</span>';
+                }
+            })
+            .catch(function() {});
     }
 
     function _renderMinute(times, prices, volumes, amounts, preClose) {
@@ -846,6 +827,10 @@ var KlinePopup = (function() {
         _bbVals = null;
         _isMinute = false;
         if (_minuteTimer) { clearInterval(_minuteTimer); _minuteTimer = null; }
+        if (_fiveDayTimer) { clearInterval(_fiveDayTimer); _fiveDayTimer = null; }
+        _fiveDayAreaSeries = null;
+        _fiveDayVolSeries = null;
+        _fiveDayRaw = null;
         var bar = document.getElementById('klIndBar');
         if (bar) bar.style.display = 'none';
         bar = document.getElementById('klPeriodBar');
