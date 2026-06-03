@@ -313,7 +313,8 @@ var KlinePopup = (function() {
             for (var si = 0; si < allSlots.length; si++) { if (allSlots[si].ts === param.time) { slot = allSlots[si]; slotIdx = si; break; } }
             if (!slot || slot.price == null) { tooltip.style.display = 'none'; return; }
             var d4 = new Date(param.time * 1000);
-            var ds2 = d4.getFullYear() + '-' + String(d4.getMonth() + 1).padStart(2,'0') + '-' + String(d4.getDate()).padStart(2,'0');
+            var weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
+            var ds2 = d4.getFullYear() + '-' + String(d4.getMonth() + 1).padStart(2,'0') + '-' + String(d4.getDate()).padStart(2,'0') + ' ' + weekNames[d4.getDay()];
             var ts2 = String(d4.getHours()).padStart(2,'0') + ':' + String(d4.getMinutes()).padStart(2,'0');
             // 五日累计均价
             var curAvg = avgLineData[slotIdx] ? avgLineData[slotIdx].value : null;
