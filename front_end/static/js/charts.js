@@ -102,8 +102,9 @@ async function loadIndexWithChart() {
                         <span id="marketBreadth" style="font-size: 12px; color: #888;"></span>
                     </div>
                 </div>
-                <div style="display: flex; gap: 30px; font-size: 13px; color: #888; margin-bottom: 15px;">
-                    <span>加载中...</span>
+                <div style="display: flex; gap: 15px; font-size: 13px; color: #888; margin-bottom: 6px;">
+                    <span id="headerTurnover">加载中...</span>
+                    <span id="headerFlow"></span>
                 </div>
                 <div style="display: flex; gap: 15px;">
                     <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;">
@@ -140,42 +141,36 @@ async function loadIndexWithChart() {
                 </div>
             `;
 
-        // 等待真实分时数据到达后再绘制图表，避免显示直线 mock 数据
-
+        // 成交额 header（独立容器，互不覆盖）
         fetch('/api/turnover-minute')
             .then(res => res.json())
             .then(turnoverResult => {
-                const headerDiv1 = indexCard.querySelector('div[style*="gap: 30px"]');
-                let turnoverHeader = {};
-                if (turnoverResult.success && turnoverResult.data.header) {
-                    turnoverHeader = turnoverResult.data.header;
+                var el = document.getElementById('headerTurnover');
+                if (!el) return;
+                if (turnoverResult.success && turnoverResult.data.header && turnoverResult.data.header.turnover) {
+                    var th = turnoverResult.data.header;
+                    var todayT = th.turnover / 100000000;
+                    var yesterdayT = th.turnover_pre / 100000000;
+                    var chg = th.turnover_change / 100000000;
+                    var chgPct = yesterdayT ? (chg / yesterdayT * 100) : 0;
+                    el.innerHTML = '<span>当日成交额: <span id="todayTurnover" style="color:#fff;">' + todayT.toFixed(2) + '亿</span></span> ' +
+                        '<span>昨日成交额: <span id="yesterdayTurnover" style="color:#fff;">' + yesterdayT.toFixed(2) + '亿</span></span> ' +
+                        '<span>较昨日变动: <span id="turnoverChange" style="color:' + (chg >= 0 ? '#e94560' : '#4ade80') + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '亿 (' + (chgPct >= 0 ? '+' : '') + chgPct.toFixed(1) + '%)</span></span>';
+                } else {
+                    el.textContent = '暂无成交额数据';
                 }
-                let headerInfo = '';
-                if (turnoverHeader && turnoverHeader.turnover) {
-                    const todayTurnover = turnoverHeader.turnover / 100000000;
-                    const yesterdayTurnover = turnoverHeader.turnover_pre / 100000000;
-                    const change = turnoverHeader.turnover_change / 100000000;
-                    const changePct = yesterdayTurnover ? (change / yesterdayTurnover * 100) : 0;
-                    headerInfo = `
-                        <div style="display: flex; gap: 30px; font-size: 13px; color: #888;">
-                            <span>当日成交额: <span id="todayTurnover" style="color: #fff;">${todayTurnover.toFixed(2)}亿</span></span>
-                            <span>昨日成交额: <span id="yesterdayTurnover" style="color: #fff;">${yesterdayTurnover.toFixed(2)}亿</span></span>
-                            <span>较昨日变动: <span id="turnoverChange" style="color: ${change >= 0 ? '#e94560' : '#4ade80'};">${change >= 0 ? '+' : ''}${change.toFixed(2)}亿 (${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%)</span></span>
-                        </div>
-                    `;
-                }
-                if (headerDiv1) headerDiv1.innerHTML = headerInfo || '<span style="color:#888;">暂无成交额数据</span>';
             })
             .catch(err => console.log('成交额数据加载失败:', err));
 
+        // 资金流 header + 图表（独立容器，互不覆盖）
         fetch('/api/market-fund-flow')
             .then(res => res.json())
             .then(flowResult => {
-                let flowTimes = [];
-                let flows = [];
-                let flowsMid = [];
-                let flowsSmall = [];
-                let totalFlow = 0;
+                var flowTimes = [];
+                var flows = [];
+                var flowsMid = [];
+                var flowsSmall = [];
+                var totalFlow = 0;
 
                 if (flowResult.success && flowResult.data.times) {
                     fullFlowSlots = generateFlowSlots();
@@ -186,17 +181,16 @@ async function loadIndexWithChart() {
                     totalFlow = flowResult.data.flows.length > 0 ? flowResult.data.flows[flowResult.data.flows.length - 1] : 0;
                 }
 
-                // 更新 header 追加大盘资金净流入
-                const headerDiv2 = indexCard.querySelector('div[style*="gap: 30px"]');
-                if (headerDiv2 && flowResult.success) {
-                    const flowColor = totalFlow >= 0 ? '#e94560' : '#4ade80';
-                    headerDiv2.innerHTML += `<span>大盘资金净流入: <span id="netFlowValue" style="color: ${flowColor};">${totalFlow >= 0 ? '+' : ''}${totalFlow.toFixed(2)}亿</span></span>`;
+                var hf = document.getElementById('headerFlow');
+                if (hf && flowResult.success) {
+                    var flowColor = totalFlow >= 0 ? '#e94560' : '#4ade80';
+                    hf.innerHTML = '<span>大盘资金净流入: <span id="netFlowValue" style="color:' + flowColor + ';">' + (totalFlow >= 0 ? '+' : '') + totalFlow.toFixed(2) + '亿</span></span>';
                 }
 
                 const ctxTurnover = document.getElementById('turnoverChart').getContext('2d');
-                if (turnoverChart) turnoverChart.destroy();
+            if (turnoverChart) turnoverChart.destroy();
 
-                turnoverChart = new Chart(ctxTurnover, {
+            turnoverChart = new Chart(ctxTurnover, {
                     type: 'line',
                     data: {
                         labels: flowTimes,
@@ -266,13 +260,18 @@ async function loadIndexWithChart() {
                         interaction: { mode: 'index', intersect: false }
                     }
                 });
-                // 让 0 刻度在 Y 轴中间
-                if (flows.length > 0) {
-                    var maxAbs = Math.max(Math.abs(Math.max.apply(null, flows)), Math.abs(Math.min.apply(null, flows)), 1);
-                    turnoverChart.options.scales.y.min = -maxAbs;
-                    turnoverChart.options.scales.y.max = maxAbs;
-                    turnoverChart.update();
-                }
+            // 让 0 刻度在 Y 轴中间，综合主力/中单/散户三条线的范围
+            var _fm = function(arr) { var f = arr.filter(function(v) { return v != null; }); return f.length > 0 ? Math.max.apply(null, f) : 0; };
+            var _fn = function(arr) { var f = arr.filter(function(v) { return v != null; }); return f.length > 0 ? Math.min.apply(null, f) : 0; };
+            var maxAbs = Math.max(
+                Math.abs(_fm(flows)), Math.abs(_fn(flows)),
+                Math.abs(_fm(flowsMid)), Math.abs(_fn(flowsMid)),
+                Math.abs(_fm(flowsSmall)), Math.abs(_fn(flowsSmall)),
+                1
+            );
+            turnoverChart.options.scales.y.min = -maxAbs;
+            turnoverChart.options.scales.y.max = maxAbs;
+            turnoverChart.update();
             })
             .catch(err => console.log('资金流数据加载失败:', err));
 

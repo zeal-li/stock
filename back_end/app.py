@@ -231,6 +231,7 @@ def stock_minute():
     """股票分时走势"""
     code = request.args.get('code', '')
     market = request.args.get('market', '')
+    days = int(request.args.get('days', '1'))
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
@@ -239,7 +240,7 @@ def stock_minute():
             'secid': f"{market}.{code}",
             'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
             'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
-            'ndays': 1,
+            'ndays': days,
         }
         r = requests.get(url, params=params,
             headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
@@ -258,8 +259,8 @@ def stock_minute():
                 # 按市场过滤盘前数据
                 if market in ('0','1','2','90','116'):
                     if tm < '09:30': continue
-                # 美股返回完整日期时间（跨天），A/港股只返回时间
-                times.append(full_tm if market == '106' else tm)
+                # 多日模式返回完整日期时间，单日模式 A/港股只返回时间
+                times.append(full_tm if (market == '106' or days > 1) else tm)
                 prices.append(float(parts[1]))
                 curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0
                 curAmt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
@@ -268,7 +269,7 @@ def stock_minute():
                 volumes.append(diffVol)
                 amounts.append(max(0, curAmt - prevAmt))
                 prevVol = curVol; prevAmt = curAmt
-        return jsonify({'success': True, 'data': {'times': times, 'prices': prices, 'volumes': volumes, 'amounts': amounts, 'preClose': pre_close}})
+        return jsonify({'success': True, 'data': {'times': times, 'prices': prices, 'volumes': volumes, 'amounts': amounts, 'preClose': pre_close, 'days': days}})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 

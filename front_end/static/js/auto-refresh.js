@@ -69,16 +69,18 @@ async function refreshRealtimeData() {
             const flowRes = await fetch('/api/market-fund-flow');
             const flowData = await flowRes.json();
             if (turnoverChart && flowData.success && flowData.data.times && fullFlowSlots.length > 0) {
-                turnoverChart.data.datasets[0].data = mapAndFill(fullFlowSlots, flowData.data.times, flowData.data.flows);
-                turnoverChart.data.datasets[1].data = mapAndFill(fullFlowSlots, flowData.data.times, flowData.data.flows_mid || []);
-                turnoverChart.data.datasets[2].data = mapAndFill(fullFlowSlots, flowData.data.times, flowData.data.flows_small || []);
-                turnoverChart.data.datasets[3].data = Array(fullFlowSlots.length).fill(0);
                 const flows = flowData.data.flows;
-                if (flows.length > 0) {
-                    var maxAbs = Math.max(Math.abs(Math.max.apply(null, flows)), Math.abs(Math.min.apply(null, flows)), 1);
-                    turnoverChart.options.scales.y.min = -maxAbs;
-                    turnoverChart.options.scales.y.max = maxAbs;
-                }
+                const flowsMid = flowData.data.flows_mid || [];
+                const flowsSmall = flowData.data.flows_small || [];
+                turnoverChart.data.datasets[0].data = mapAndFill(fullFlowSlots, flowData.data.times, flows);
+                turnoverChart.data.datasets[1].data = mapAndFill(fullFlowSlots, flowData.data.times, flowsMid);
+                turnoverChart.data.datasets[2].data = mapAndFill(fullFlowSlots, flowData.data.times, flowsSmall);
+                turnoverChart.data.datasets[3].data = Array(fullFlowSlots.length).fill(0);
+                var _fm = function(arr) { var f = arr.filter(function(v) { return v != null; }); return f.length > 0 ? Math.max.apply(null, f) : 0; };
+                var _fn = function(arr) { var f = arr.filter(function(v) { return v != null; }); return f.length > 0 ? Math.min.apply(null, f) : 0; };
+                var maxAbs = Math.max(Math.abs(_fm(flows)), Math.abs(_fn(flows)), Math.abs(_fm(flowsMid)), Math.abs(_fn(flowsMid)), Math.abs(_fm(flowsSmall)), Math.abs(_fn(flowsSmall)), 1);
+                turnoverChart.options.scales.y.min = -maxAbs;
+                turnoverChart.options.scales.y.max = maxAbs;
                 turnoverChart.update('none');
                 const totalFlow = flows.length > 0 ? flows[flows.length - 1] : 0;
                 const elFlow = document.getElementById('netFlowValue');
@@ -131,8 +133,8 @@ async function refreshRealtimeData() {
                 _setText('risk-idx-10d', rd.idx_10d, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
                 _setText('risk-idx-20d-dd', rd.idx_20d_dd, v => v.toFixed(2) + '%');
                 _setText('risk-volatility', rd.volatility, v => v.toFixed(2) + '%');
-                _setText('risk-panic-score', rd.panic_score, v => v.toFixed(1) + '分');
-                _setText('risk-limit-score', rd.limit_score, v => v.toFixed(1) + '分');
+                _setText('risk-panic-score', rd.panic_score_in, v => v.toFixed(1) + '分');
+                _setText('risk-limit-score', rd.limit_score_in, v => v.toFixed(1) + '分');
             }
         }
     } catch(e) { console.log('Auto refresh error:', e); }
