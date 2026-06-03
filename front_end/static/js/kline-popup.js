@@ -356,8 +356,27 @@ var KlinePopup = (function() {
         _chart.timeScale().fitContent();
         _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
 
+        // ---- 绘制日间分隔竖虚线 ----
+        function _drawDayBounds() {
+            el.querySelectorAll('.five-day-boundary').forEach(function(b) { b.remove(); });
+            for (var di = 0; di < sortedDates.length - 1; di++) {
+                var dp2 = sortedDates[di].split('-');
+                var dayEndTs = new Date(parseInt(dp2[0]), parseInt(dp2[1]) - 1, parseInt(dp2[2])).getTime() / 1000 + 54000; // 15:00
+                var x = _chart.timeScale().timeToCoordinate(dayEndTs);
+                if (x == null) continue;
+                var line = document.createElement('div');
+                line.className = 'five-day-boundary';
+                line.style.cssText = 'position:absolute;top:0;bottom:28%;left:' + x + 'px;width:0;border-left:1px dashed rgba(160,100,255,0.6);pointer-events:none;z-index:5;';
+                el.appendChild(line);
+            }
+        }
+        requestAnimationFrame(function() { _drawDayBounds(); });
+
         if (_observer) _observer.disconnect();
-        _observer = new ResizeObserver(function() { if (_chart && el.clientWidth > 0) _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); });
+        _observer = new ResizeObserver(function() {
+            if (_chart && el.clientWidth > 0) _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+            requestAnimationFrame(function() { _drawDayBounds(); });
+        });
         _observer.observe(el);
     }
 
