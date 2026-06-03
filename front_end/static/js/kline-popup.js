@@ -182,47 +182,47 @@ var KlinePopup = (function() {
         _renderFiveDayMinute();
     }
 
-    // 纯测试：5 日视图骨架，不请求数据
     function _renderFiveDayMinute() {
         var el = document.getElementById('klChart');
         el.innerHTML = '';
 
-        // ---- 纯测试：5 日视图骨架，5 个等分区域，X 轴标注日期 ----
-        // 5 日：5/28, 5/29, 6/1, 6/2, 6/3 （跳过周末 5/30, 5/31）
-        var testDates = [
-            new Date(2026, 4, 28).getTime() / 1000,  // May 28
-            new Date(2026, 4, 29).getTime() / 1000,  // May 29
-            new Date(2026, 5, 1).getTime() / 1000,   // Jun 1
-            new Date(2026, 5, 2).getTime() / 1000,   // Jun 2
-            new Date(2026, 5, 3).getTime() / 1000,   // Jun 3
-        ];
-        // 每个日期只放一个 09:30 的点，让图表有范围
+        // 6 个交易日时间戳（跳过周末），chart 根据真实间隔自动分节
+        var now = new Date();
+        var td = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        // 回溯 4 个交易日（5/28 ~ 6/3 共 5 天）
+        for (var c = 0; c < 4; c++) {
+            td.setDate(td.getDate() - 1);
+            while (td.getDay() === 0 || td.getDay() === 6) td.setDate(td.getDate() - 1);
+        }
         var testData = [];
-        for (var di = 0; di < testDates.length; di++) {
-            testData.push({ time: testDates[di] + 9*3600 + 30*60, value: 0 });
+        for (var i = 0; i < 6; i++) {
+            testData.push({ time: td.getTime() / 1000, value: 0 });
+            td.setDate(td.getDate() + 1);
+            while (td.getDay() === 0 || td.getDay() === 6) td.setDate(td.getDate() + 1);
         }
 
         _chart = LightweightCharts.createChart(el, {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 0 },
-            rightPriceScale: { borderColor: '#2a2a4e', visible: true },
+            rightPriceScale: { visible: false },
             handleScroll: false,
             handleScale: false,
             timeScale: {
-                borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
+                borderColor: '#2a2a4e',
                 tickMarkFormatter: function(ts) {
-                    var d2 = new Date(ts * 1000);
-                    if (d2.getHours() === 9) return (d2.getMonth() + 1) + '/' + d2.getDate();
-                    return '';
+                    var d = new Date(ts * 1000);
+                    var dow = d.getDay();
+                    if (dow === 0 || dow === 6) return '';
+                    return (d.getMonth() + 1) + '/' + d.getDate();
                 },
             },
             width: el.clientWidth, height: el.clientHeight,
         });
 
-        var ts = _chart.addLineSeries({ lineWidth: 0, priceLineVisible: false, lastValueVisible: false });
-        ts.setData(testData);
-        _fiveDayAreaSeries = ts;
+        var s = _chart.addLineSeries({ visible: false });
+        s.setData(testData);
+        _fiveDayAreaSeries = s;
 
         _chart.timeScale().fitContent();
         _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
@@ -230,7 +230,6 @@ var KlinePopup = (function() {
         if (_observer) _observer.disconnect();
         _observer = new ResizeObserver(function() { if (_chart && el.clientWidth > 0) _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); });
         _observer.observe(el);
-
     }
 
     function _refreshFiveDayData() {
