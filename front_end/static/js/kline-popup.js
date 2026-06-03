@@ -626,6 +626,10 @@ var KlinePopup = (function() {
         document.getElementById('klChange').textContent = '';
         document.getElementById('klParams').innerHTML = '加载中...';
 
+        // 重置指标栏为默认 K 线模式（防止上次分时模式的 innerHTML 残留）
+        var indBar = document.getElementById('klIndBar');
+        if (indBar) indBar.innerHTML = '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)" style="cursor:pointer;font-size:10px;padding:1px 4px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;"><option value="ma">均线</option><option value="bb">布林线</option></select><span id="klIndVals" style="font-size:11px;"></span>';
+
         _overlay.style.display = 'flex';
         var chartEl = document.getElementById('klChart');
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';

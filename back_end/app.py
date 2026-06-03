@@ -4,7 +4,7 @@ from flask_cors import CORS
 import requests
 
 from services import REQUEST_PROXIES
-from services.money_flow import get_money_flow_data, get_index_minute_data, get_turnover_day_data
+from services.money_flow import get_index_minute_data, get_turnover_day_data
 from services.market_data import (
     get_major_indices, get_sh000001_minute_data, get_market_fund_flow,
     get_fear_index, get_risk_index, get_margin_trading,
@@ -21,17 +21,6 @@ CORS(app)
 @app.route('/')
 def index():
     return render_template('index.html')
-
-
-# ==================== 资金流向 ====================
-
-@app.route('/api/money-flow/<flow_type>')
-def money_flow_type(flow_type):
-    return jsonify(get_money_flow_data(flow_type))
-
-@app.route('/api/money-flow')
-def money_flow():
-    return jsonify(get_money_flow_data('concept'))
 
 
 # ==================== 行情数据 ====================

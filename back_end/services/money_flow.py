@@ -1,47 +1,7 @@
-"""资金流向：概念/行业/指数板块 + 成交额"""
+"""资金流向：成交额分时/日线"""
 import datetime
 import requests
-from bs4 import BeautifulSoup
 from . import REQUEST_PROXIES
-
-
-def get_money_flow_data(flow_type):
-    """概念/行业/指数板块资金流"""
-    url_mapping = {
-        'concept': 'https://data.10jqka.com.cn/funds/gnzjl/',
-        'industry': 'https://data.10jqka.com.cn/funds/hyzjl/',
-        'index': 'https://data.10jqka.com.cn/funds/zzzjl/'
-    }
-    url = url_mapping.get(flow_type, 'https://data.10jqka.com.cn/funds/gnzjl/')
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://data.10jqka.com.cn/',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
-    }
-    resp = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-    resp.encoding = resp.apparent_encoding
-    soup = BeautifulSoup(resp.text, 'lxml')
-
-    data_list = []
-    table = soup.find('table', class_='m-table J-ajax-table')
-    if table:
-        tbody = table.find('tbody')
-        if tbody:
-            for row in tbody.find_all('tr')[:20]:
-                cols = row.find_all('td')
-                if len(cols) >= 6:
-                    data_list.append({
-                        'rank': cols[0].get_text(strip=True),
-                        'name': cols[1].get_text(strip=True),
-                        'price': cols[2].get_text(strip=True),
-                        'change': cols[3].get_text(strip=True),
-                        'inflow': cols[4].get_text(strip=True),
-                        'outflow': cols[5].get_text(strip=True),
-                        'net_inflow': cols[6].get_text(strip=True) if len(cols) > 6 else '0'
-                    })
-    if not data_list:
-        return {'success': False, 'error': '同花顺板块资金流解析无数据', 'data': [], 'type': flow_type}
-    return {'success': True, 'data': data_list, 'type': flow_type}
 
 
 def get_index_minute_data():
