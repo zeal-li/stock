@@ -269,8 +269,77 @@ def stock_minute():
                     volumes.append(diffVol)
                     amounts.append(max(0, curAmt - prevAmt))
                     prevVol = curVol; prevAmt = curAmt
+        elif market in ('116', '106'):
+            # 港股/美股多日：Yahoo Finance 5分钟K线
+            import os as _os2, datetime as _dt2
+            from datetime import timezone as _tz, timedelta as _td
+            _old_no2 = _os2.environ.pop('no_proxy', None)
+            _old_NO2 = _os2.environ.pop('NO_PROXY', None)
+            try:
+                if market == '116':
+                    symbol = str(int(code)).zfill(4) + '.HK'
+                    _yh_tz = _tz(_td(hours=8))  # UTC+8
+                else:
+                    symbol = code
+                    _yh_tz = _tz(_td(hours=-5))  # 美股冬令时 UTC-5
+
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=5m"
+                r_yh = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                result = (r_yh.json().get('chart', {}).get('result') or [None])[0]
+                if not result:
+                    return jsonify({'success': False, 'error': '无数据'})
+
+                yh_ts = result.get('timestamp') or []
+                yh_quotes = (result.get('indicators', {}).get('quote') or [None])[0]
+                if not yh_quotes:
+                    return jsonify({'success': False, 'error': '无数据'})
+
+                raw_points = []
+                for i, ts in enumerate(yh_ts):
+                    c = yh_quotes['close'][i]
+                    v = yh_quotes['volume'][i]
+                    if c is None:
+                        continue
+                    dt = _dt2.datetime.fromtimestamp(ts, tz=_yh_tz)
+                    raw_points.append({
+                        'date': dt.strftime('%Y-%m-%d'),
+                        'time': dt.strftime('%H:%M'),
+                        'price': round(float(c), 3),
+                        'volume': int(v or 0)
+                    })
+
+                if not raw_points:
+                    return jsonify({'success': False, 'error': '无数据'})
+
+                # 按日期去重排序，取最近 days 个交易日
+                all_dates = []
+                seen_dates = set()
+                for p in raw_points:
+                    if p['date'] not in seen_dates:
+                        all_dates.append(p['date'])
+                        seen_dates.add(p['date'])
+                keep_dates = set(all_dates[-days:])
+
+                # preClose：最后一个非保留日的收盘价
+                pre_close = 0
+                for p in reversed(raw_points):
+                    if p['date'] not in keep_dates:
+                        pre_close = p['price']
+                        break
+
+                times, prices, volumes, amounts = [], [], [], []
+                for p in raw_points:
+                    if p['date'] not in keep_dates:
+                        continue
+                    times.append(p['date'] + ' ' + p['time'])
+                    prices.append(p['price'])
+                    volumes.append(p['volume'])
+                    amounts.append(round(p['price'] * p['volume'], 2))
+            finally:
+                if _old_no2 is not None: _os2.environ['no_proxy'] = _old_no2
+                if _old_NO2 is not None: _os2.environ['NO_PROXY'] = _old_NO2
         else:
-            # 多日：新浪 5分钟K线
+            # 多日：A股 新浪 5分钟K线
             prefix = 'sh' if market in ('1', '2') else 'sz' if market in ('0', '90') else None
             if not prefix:
                 return jsonify({'success': False, 'error': '该市场暂不支持多日分时'})

@@ -198,51 +198,78 @@ var KlinePopup = (function() {
 
         var raw = _fiveDayRaw;
         var times = raw.times, prices = raw.prices, volumes = raw.volumes || [], amounts = raw.amounts || [];
+        var isHK = _stockMarket === '116', isUS = _stockMarket === '106';
+        var _isOverseas5D = isHK || isUS;  // 港股/美股五日模式
 
-        // ---- 按日期分组原始数据 ----
-        var daySlots = {};
-        for (var i = 0; i < times.length; i++) {
-            if (prices[i] == null) continue;
-            var p = times[i].split(' ');
-            if (!daySlots[p[0]]) daySlots[p[0]] = {};
-            daySlots[p[0]][p[1]] = { price: prices[i], vol: volumes[i] || 0, amt: amounts[i] || 0 };
-        }
-        var sortedDates = Object.keys(daySlots).sort();
-        if (sortedDates.length === 0) { el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">无数据</div>'; return; }
-
-        // ---- 逐日生成5分钟槽位（匹配新浪5分钟K线：09:35~11:30, 13:05~15:00） ----
-        var allSlots = [];
-        var tsToDate = {};
-        var dayBasePrice = {};
-
-        for (var di = 0; di < sortedDates.length; di++) {
-            var ds = sortedDates[di];
-            var dp = ds.split('-');
-            var base = new Date(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2])).getTime() / 1000;
-            var slots = daySlots[ds];
-            // 上午 09:35 ~ 11:30
-            for (var t = base + 34500; t <= base + 41400; t += 300) {
-                var d2 = new Date(t * 1000);
-                var tk = String(d2.getHours()).padStart(2,'0') + ':' + String(d2.getMinutes()).padStart(2,'0');
-                var s2 = slots[tk];
-                tsToDate[t] = ds;
-                allSlots.push({ ts: t, price: s2 ? s2.price : null, vol: s2 ? s2.vol : 0, amt: s2 ? s2.amt : 0 });
+        if (_isOverseas5D) {
+            // 港股/美股：直接用 Yahoo Finance 返回的实际数据点
+            var _allSlots = [];
+            var _tsToDate = {};
+            var _dayBasePrice = {};
+            var _sortedDates = [];
+            var _seenDates = {};
+            for (var i = 0; i < times.length; i++) {
+                if (prices[i] == null) continue;
+                var parts = times[i].split(' ');
+                var date = parts[0], time = parts[1];
+                var dp = date.split('-'), tp = time.split(':');
+                var ts = Date.UTC(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2]),
+                                  parseInt(tp[0]), parseInt(tp[1])) / 1000;
+                if (!_seenDates[date]) {
+                    _sortedDates.push(date);
+                    _seenDates[date] = true;
+                    _dayBasePrice[date] = prices[i];
+                }
+                _tsToDate[ts] = date;
+                _allSlots.push({ ts: ts, price: prices[i], vol: volumes[i] || 0, amt: amounts[i] || 0 });
             }
-            // 下午 13:05 ~ 15:00
-            for (var t = base + 47100; t <= base + 54000; t += 300) {
-                var d2 = new Date(t * 1000);
-                var tk = String(d2.getHours()).padStart(2,'0') + ':' + String(d2.getMinutes()).padStart(2,'0');
-                var s2 = slots[tk];
-                tsToDate[t] = ds;
-                allSlots.push({ ts: t, price: s2 ? s2.price : null, vol: s2 ? s2.vol : 0, amt: s2 ? s2.amt : 0 });
+            if (_sortedDates.length === 0) { el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">无数据</div>'; return; }
+            var allSlots = _allSlots, tsToDate = _tsToDate, dayBasePrice = _dayBasePrice, sortedDates = _sortedDates;
+        } else {
+            // A股：按日期分组原始数据，生成标准5分钟槽位
+            var daySlots = {};
+            for (var i = 0; i < times.length; i++) {
+                if (prices[i] == null) continue;
+                var p = times[i].split(' ');
+                if (!daySlots[p[0]]) daySlots[p[0]] = {};
+                daySlots[p[0]][p[1]] = { price: prices[i], vol: volumes[i] || 0, amt: amounts[i] || 0 };
             }
-        }
+            var sortedDates = Object.keys(daySlots).sort();
+            if (sortedDates.length === 0) { el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">无数据</div>'; return; }
 
-        // 计算每日基准价（第一个有效价格，用于算涨跌幅）
-        for (var si = 0; si < allSlots.length; si++) {
-            if (allSlots[si].price == null) continue;
-            var dk = tsToDate[allSlots[si].ts];
-            if (dk && !(dk in dayBasePrice)) dayBasePrice[dk] = allSlots[si].price;
+            var allSlots = [];
+            var tsToDate = {};
+            var dayBasePrice = {};
+
+            for (var di = 0; di < sortedDates.length; di++) {
+                var ds = sortedDates[di];
+                var dp = ds.split('-');
+                var base = new Date(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2])).getTime() / 1000;
+                var slots = daySlots[ds];
+                // 上午 09:35 ~ 11:30
+                for (var t = base + 34500; t <= base + 41400; t += 300) {
+                    var d2 = new Date(t * 1000);
+                    var tk = String(d2.getHours()).padStart(2,'0') + ':' + String(d2.getMinutes()).padStart(2,'0');
+                    var s2 = slots[tk];
+                    tsToDate[t] = ds;
+                    allSlots.push({ ts: t, price: s2 ? s2.price : null, vol: s2 ? s2.vol : 0, amt: s2 ? s2.amt : 0 });
+                }
+                // 下午 13:05 ~ 15:00
+                for (var t = base + 47100; t <= base + 54000; t += 300) {
+                    var d2 = new Date(t * 1000);
+                    var tk = String(d2.getHours()).padStart(2,'0') + ':' + String(d2.getMinutes()).padStart(2,'0');
+                    var s2 = slots[tk];
+                    tsToDate[t] = ds;
+                    allSlots.push({ ts: t, price: s2 ? s2.price : null, vol: s2 ? s2.vol : 0, amt: s2 ? s2.amt : 0 });
+                }
+            }
+
+            // 计算每日基准价（第一个有效价格，用于算涨跌幅）
+            for (var si = 0; si < allSlots.length; si++) {
+                if (allSlots[si].price == null) continue;
+                var dk = tsToDate[allSlots[si].ts];
+                if (dk && !(dk in dayBasePrice)) dayBasePrice[dk] = allSlots[si].price;
+            }
         }
 
         // ---- 创建图表 ----
@@ -274,10 +301,11 @@ var KlinePopup = (function() {
         for (var si = 0; si < allSlots.length; si++) {
             if (allSlots[si].price != null) areaData.push({ time: allSlots[si].ts, value: allSlots[si].price });
         }
+        var _priceDec = _isOverseas5D ? 3 : 2;
         var areaSeries = _chart.addAreaSeries({
             lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)',
             lineWidth: 1.5, priceLineVisible: false,
-            priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(2); } }
+            priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(_priceDec); } }
         });
         areaSeries.setData(areaData);
         _fiveDayAreaSeries = areaSeries;
@@ -324,8 +352,8 @@ var KlinePopup = (function() {
             var volStr = slot.vol >= 1e8 ? (slot.vol/1e8).toFixed(2)+'亿' : slot.vol >= 1e4 ? (slot.vol/1e4).toFixed(2)+'万' : String(slot.vol);
             var amtStr = slot.amt >= 1e8 ? (slot.amt/1e8).toFixed(2)+'亿' : slot.amt >= 1e4 ? (slot.amt/1e4).toFixed(2)+'万' : String(slot.amt);
             tooltip.innerHTML = '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">'+ds2+' '+ts2+'</div><table style="border-spacing:0;">'+
-                '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">'+slot.price.toFixed(2)+'</span></td></tr>'+
-                '<tr><td style="color:#888;">均价</td><td><span style="color:#fbbf24;">'+(curAvg != null ? curAvg.toFixed(2) : '--')+'</span></td></tr>'+
+                '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">'+slot.price.toFixed(_priceDec)+'</span></td></tr>'+
+                '<tr><td style="color:#888;">均价</td><td><span style="color:#fbbf24;">'+(curAvg != null ? curAvg.toFixed(_priceDec) : '--')+'</span></td></tr>'+
                 '<tr><td style="color:#888;">涨幅</td><td><span style="color:'+chgColor+';">'+chgSign+chgPct.toFixed(2)+'%</span></td></tr>'+
                 '<tr><td style="color:#888;">成交</td><td><span style="color:#ddd;">'+volStr+'</span></td></tr>'+
                 '<tr><td style="color:#888;">成交额</td><td><span style="color:#ddd;">'+amtStr+'</span></td></tr></table>';
@@ -351,7 +379,7 @@ var KlinePopup = (function() {
             var lChg = lastP - firstBase, lChgPct = firstBase ? lChg / firstBase * 100 : 0;
             var lc = lChg >= 0 ? '#ef5350' : '#26a69a', ls2 = lChg >= 0 ? '+' : '';
             var m5v = document.getElementById('kl5DayVals');
-            if (m5v) m5v.innerHTML = '<span style="color:#fbbf24;">均价:'+(lastAvg != null ? lastAvg.toFixed(2):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls2+lChg.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls2+lChgPct.toFixed(2)+'%</span>';
+            if (m5v) m5v.innerHTML = '<span style="color:#fbbf24;">均价:'+(lastAvg != null ? lastAvg.toFixed(_priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(_priceDec)+'</span> <span style="color:'+lc+';">'+ls2+lChg.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls2+lChgPct.toFixed(2)+'%</span>';
         }
 
         _chart.timeScale().fitContent();
@@ -362,7 +390,20 @@ var KlinePopup = (function() {
             el.querySelectorAll('.five-day-boundary').forEach(function(b) { b.remove(); });
             for (var di = 0; di < sortedDates.length - 1; di++) {
                 var dp2 = sortedDates[di].split('-');
-                var dayEndTs = new Date(parseInt(dp2[0]), parseInt(dp2[1]) - 1, parseInt(dp2[2])).getTime() / 1000 + 54000; // 15:00
+                var dayEndTs;
+                if (_isOverseas5D) {
+                    // 港股/美股：用该日期最后一个数据点的时间
+                    dayEndTs = 0;
+                    for (var si = 0; si < allSlots.length; si++) {
+                        if (tsToDate[allSlots[si].ts] === sortedDates[di] && allSlots[si].ts > dayEndTs) {
+                            dayEndTs = allSlots[si].ts;
+                        }
+                    }
+                } else {
+                    // A股：固定15:00
+                    dayEndTs = new Date(parseInt(dp2[0]), parseInt(dp2[1]) - 1, parseInt(dp2[2])).getTime() / 1000 + 54000;
+                }
+                if (!dayEndTs) continue;
                 var x = _chart.timeScale().timeToCoordinate(dayEndTs);
                 if (x == null) continue;
                 var line = document.createElement('div');
