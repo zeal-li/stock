@@ -612,6 +612,13 @@ var KlinePopup = (function() {
         _stockMarket = market;
         _currentPeriod = 'day';
         _isMinute = false;
+        // 重置周期按钮样式
+        var pBtns = document.querySelectorAll('#klPeriodBar button[data-p]');
+        pBtns.forEach(function(b) {
+            var act = b.getAttribute('data-p') === 'day';
+            b.style.background = act ? '#2a2a4e' : '#1a1a2e';
+            b.style.color = act ? '#fff' : '#8b8b9e';
+        });
         _ensureDOM();
         document.getElementById('klName').textContent = (name || code);
         document.getElementById('klCode').textContent = '(' + code + ')';
