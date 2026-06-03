@@ -228,47 +228,97 @@ def stock_extra():
 
 @app.route('/api/stock-minute')
 def stock_minute():
-    """股票分时走势"""
+    """股票分时走势（单日用东财 push2delay，多日用新浪 5分钟K线）"""
     code = request.args.get('code', '')
     market = request.args.get('market', '')
     days = int(request.args.get('days', '1'))
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
-        url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get"
-        params = {
-            'secid': f"{market}.{code}",
-            'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
-            'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
-            'ndays': days,
-        }
-        r = requests.get(url, params=params,
-            headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
-            timeout=10, proxies=REQUEST_PROXIES,
-        )
-        d = r.json()
-        trends = (d.get('data') or {}).get('trends') or []
-        pre_close = (d.get('data') or {}).get('preClose', 0)
-        times, prices, volumes, amounts = [], [], [], []
-        prevVol = prevAmt = 0
-        for t in trends:
-            parts = t.split(',')
-            if len(parts) >= 2:
-                full_tm = parts[0]
-                tm = full_tm.split(' ')[-1] if ' ' in full_tm else full_tm
-                # 按市场过滤盘前数据
-                if market in ('0','1','2','90','116'):
-                    if tm < '09:30': continue
-                # 多日模式返回完整日期时间，单日模式 A/港股只返回时间
-                times.append(full_tm if (market == '106' or days > 1) else tm)
-                prices.append(float(parts[1]))
-                curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0
-                curAmt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
-                diffVol = max(0, curVol - prevVol)
-                if market in ('0', '1', '2', '90'): diffVol *= 100  # A股手转股
-                volumes.append(diffVol)
-                amounts.append(max(0, curAmt - prevAmt))
-                prevVol = curVol; prevAmt = curAmt
+        if days <= 1:
+            # 单日：东财 push2delay trends2
+            url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get"
+            params = {
+                'secid': f"{market}.{code}",
+                'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
+                'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
+                'ndays': 1,
+            }
+            r = requests.get(url, params=params,
+                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
+                timeout=10, proxies=REQUEST_PROXIES,
+            )
+            d = r.json()
+            trends = (d.get('data') or {}).get('trends') or []
+            pre_close = (d.get('data') or {}).get('preClose', 0)
+            times, prices, volumes, amounts = [], [], [], []
+            prevVol = prevAmt = 0
+            for t in trends:
+                parts = t.split(',')
+                if len(parts) >= 2:
+                    full_tm = parts[0]
+                    tm = full_tm.split(' ')[-1] if ' ' in full_tm else full_tm
+                    if market in ('0','1','2','90','116'):
+                        if tm < '09:30': continue
+                    times.append(full_tm if market == '106' else tm)
+                    prices.append(float(parts[1]))
+                    curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0
+                    curAmt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
+                    diffVol = max(0, curVol - prevVol)
+                    if market in ('0', '1', '2', '90'): diffVol *= 100
+                    volumes.append(diffVol)
+                    amounts.append(max(0, curAmt - prevAmt))
+                    prevVol = curVol; prevAmt = curAmt
+        else:
+            # 多日：新浪 5分钟K线
+            prefix = 'sh' if market in ('1', '2') else 'sz' if market in ('0', '90') else None
+            if not prefix:
+                return jsonify({'success': False, 'error': '该市场暂不支持多日分时'})
+
+            sina_prefix = 'sh' if prefix == 'sh' else 'sz'
+            sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale=5&datalen={days*60}"
+            sr = requests.get(sina_url,
+                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
+                timeout=15,
+            )
+            srows = sr.json()
+            times, prices, volumes, amounts = [], [], [], []
+            pre_close = 0
+            if isinstance(srows, list) and len(srows) > 0:
+                # 先收集所有日期，取最后 days 个
+                all_dates = []
+                for row in srows:
+                    dt = row.get('day', '')
+                    if dt:
+                        ds = dt.split(' ')[0]
+                        if not all_dates or all_dates[-1] != ds:
+                            all_dates.append(ds)
+                keep_dates = set(all_dates[-days:])
+                # preClose: 最近一天的前一日收盘价
+                prev_close = 0
+                for row in srows:
+                    dt = row.get('day', '')
+                    close_v = float(row.get('close', 0))
+                    if not dt or not close_v: continue
+                    ds = dt.split(' ')[0]
+                    if ds not in keep_dates:
+                        prev_close = close_v  # 不断覆盖为最后一个非保留日的收盘价
+                pre_close = prev_close
+                for row in srows:
+                    dt = row.get('day', '')
+                    close_v = row.get('close', 0)
+                    vol_v = row.get('volume', 0)
+                    if not dt or not close_v: continue
+                    if dt.split(' ')[0] not in keep_dates: continue
+                    if ':' in dt and dt.count(':') == 2:
+                        dt = dt[:dt.rfind(':')]
+                    price = float(close_v)
+                    vol = int(float(vol_v)) if vol_v else 0
+                    if market in ('0', '1', '2', '90'): vol *= 100  # 手→股
+                    times.append(dt)
+                    prices.append(price)
+                    volumes.append(vol)
+                    amounts.append(round(price * vol, 2))  # 成交额=价格×成交量
         return jsonify({'success': True, 'data': {'times': times, 'prices': prices, 'volumes': volumes, 'amounts': amounts, 'preClose': pre_close, 'days': days}})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
