@@ -441,16 +441,16 @@ var KlinePopup = (function() {
                 var dp = ds.split('-');
                 var base = new Date(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2])).getTime() / 1000;
                 var slots = daySlots[ds];
-                // 上午 09:15 ~ 11:35
-                for (var t = base + 33300; t <= base + 41700; t += 300) {
+                // 上午 09:35 ~ 11:30（5分钟K线实际数据起止时间）
+                for (var t = base + 34500; t <= base + 41400; t += 300) {
                     var d2 = new Date(t * 1000);
                     var tk = String(d2.getHours()).padStart(2,'0') + ':' + String(d2.getMinutes()).padStart(2,'0');
                     var s2 = slots[tk];
                     tsToDate[t] = ds;
                     allSlots.push({ ts: t, price: s2 ? s2.price : null, vol: s2 ? s2.vol : 0, amt: s2 ? s2.amt : 0 });
                 }
-                // 下午 12:55 ~ 15:05
-                for (var t = base + 46500; t <= base + 54300; t += 300) {
+                // 下午 13:05 ~ 15:00（5分钟K线实际数据起止时间）
+                for (var t = base + 47100; t <= base + 54000; t += 300) {
                     var d2 = new Date(t * 1000);
                     var tk = String(d2.getHours()).padStart(2,'0') + ':' + String(d2.getMinutes()).padStart(2,'0');
                     var s2 = slots[tk];
@@ -595,8 +595,8 @@ var KlinePopup = (function() {
                         }
                     }
                 } else {
-                    // A股：固定15:05
-                    dayEndTs = new Date(parseInt(dp2[0]), parseInt(dp2[1]) - 1, parseInt(dp2[2])).getTime() / 1000 + 54300;
+                    // A股：固定15:00（匹配最后5分钟K线）
+                    dayEndTs = new Date(parseInt(dp2[0]), parseInt(dp2[1]) - 1, parseInt(dp2[2])).getTime() / 1000 + 54000;
                 }
                 if (!dayEndTs) continue;
                 var x = _chart.timeScale().timeToCoordinate(dayEndTs);
@@ -652,9 +652,9 @@ var KlinePopup = (function() {
         // 填充空数据到整个时段
         if (isUS) { _minuteFrom = fullTimes[0]; _minuteTo = _minuteFrom + 6.5 * 3600; }
         else if (isHK) { _minuteFrom = base + 9*3600 + 30*60; _minuteTo = base + 16*3600; }
-        else { _minuteFrom = base + 9*3600 + 15*60; _minuteTo = base + 15*3600 + 5*60; }
+        else { _minuteFrom = base + 9*3600 + 30*60; _minuteTo = base + 15*3600; }
         var allT = [], allP = [], allV = [], allA = [], di = 0;
-        var lunchAStart = base + 11*3600 + 36*60, lunchAEnd = base + 12*3600 + 54*60;
+        var lunchAStart = base + 11*3600 + 31*60, lunchAEnd = base + 13*3600;
         var lunchHKStart = base + 12*3600 + 1*60, lunchHKEnd = base + 13*3600;
         for (var t = _minuteFrom; t <= _minuteTo; t += 60) {
             // 跳过午休 A股:11:31-13:00  港股:12:01-13:00
@@ -790,7 +790,7 @@ var KlinePopup = (function() {
                 var pcts = prices.map(function(p) { return preClose ? ((p - preClose) / preClose * 100) : p; });
 
                 var rAllT = [], rAllP = [], rAllV = [], rAllA = [];
-                var lAS = base2 + 11*3600 + 36*60, lAE = base2 + 12*3600 + 54*60;
+                var lAS = base2 + 11*3600 + 31*60, lAE = base2 + 13*3600;
                 var lHS = base2 + 12*3600 + 1*60, lHE = base2 + 13*3600;
                 var ri = 0;
                 for (var t2 = _minuteFrom; t2 <= _minuteTo; t2 += 60) {
