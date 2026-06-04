@@ -8,36 +8,6 @@ var selectedSearchIdx = -1;
 // 已选股票
 var pickedStocks = [];
 
-// 股票类型判断
-function getStockType(code, market) {
-    const c = (code || '').toString();
-    const m = (market || '').toString();
-    // 沪市
-    if (m === '1' || m === '2') {
-        if (/^68/.test(c)) return '科创';
-        if (/^60|^900/.test(c)) return '沪A';
-        if (/^51[0-9]/.test(c)) return '沪ETF';
-        if (/^5[0-9]/.test(c)) return '沪基';
-        if (/^11/.test(c)) return '沪债';
-        return '沪市';
-    }
-    // 深市
-    if (m === '0') {
-        if (/^30[04]/.test(c)) return '创业';
-        if (/^00[024]|^002|^003/.test(c)) return '深A';
-        if (/^15[0-9]/.test(c)) return '深ETF';
-        if (/^1[0-9]/.test(c)) return '深基';
-        if (/^12/.test(c)) return '深债';
-        return '深市';
-    }
-    // 北交所
-    if (m === '90') return '北交所';
-    if (m === '116') return '港股';
-    if (m === '106') return '美股';
-    if (/^1[0-5]/.test(m) && parseInt(m) >= 105) return '境外';
-    return '';
-}
-
 // 股票搜索（防抖）
 function debounceSearch() {
     clearTimeout(searchTimer);
@@ -301,7 +271,7 @@ function updatePickedPrices() {
         if (!row) return;
         // 名称（首次获取后更新）
         const nameEl = row.cells[1] && row.cells[1].querySelector('span');
-        if (nameEl && s.name !== '-' && nameEl.textContent !== s.name) nameEl.textContent = s.name;
+        if (nameEl && s.name !== '-' && nameEl.textContent !== s.name) { nameEl.textContent = s.name; nameEl.setAttribute('onclick', "KlinePopup.open('" + s.code + "','" + s.market + "','" + s.name + "')"); }
         // 价格 + 涨跌
         const color = _chgColor(s.change);
         _setCell(row, 'cell-price', s.price, color);

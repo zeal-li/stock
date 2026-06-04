@@ -1,5 +1,32 @@
 // ==================== 图表 & 资金流向 ====================
 
+// 股票类型判断（公共）
+function getStockType(code, market) {
+    const c = (code || '').toString();
+    const m = (market || '').toString();
+    if (m === '1' || m === '2') {
+        if (/^68/.test(c)) return '科创';
+        if (/^60|^900/.test(c)) return '沪A';
+        if (/^51[0-9]/.test(c)) return '沪ETF';
+        if (/^5[0-9]/.test(c)) return '沪基';
+        if (/^11/.test(c)) return '沪债';
+        return '沪市';
+    }
+    if (m === '0') {
+        if (/^30[04]/.test(c)) return '创业';
+        if (/^00[024]|^002|^003/.test(c)) return '深A';
+        if (/^15[0-9]/.test(c)) return '深ETF';
+        if (/^1[0-9]/.test(c)) return '深基';
+        if (/^12/.test(c)) return '深债';
+        return '深市';
+    }
+    if (m === '90') return '北交所';
+    if (m === '116') return '港股';
+    if (m === '106') return '美股';
+    if (/^1[0-5]/.test(m) && parseInt(m) >= 105) return '境外';
+    return '';
+}
+
 function generateFlowSlots() {
     const slots = [];
     for (let h = 9, m = 30; h < 12; ) {

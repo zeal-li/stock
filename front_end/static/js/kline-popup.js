@@ -890,7 +890,7 @@ var KlinePopup = (function() {
         if (minBtn) { minBtn.style.background = '#1a1a2e'; minBtn.style.color = '#8b8b9e'; }
         _ensureDOM();
         document.getElementById('klName').textContent = (name || code);
-        document.getElementById('klCode').textContent = '(' + code + ')';
+        document.getElementById('klCode').textContent = '(' + code + ') ' + getStockType(code, market);
         document.getElementById('klPrice').textContent = '';
         document.getElementById('klChange').textContent = '';
         document.getElementById('klParams').innerHTML = '加载中...';
