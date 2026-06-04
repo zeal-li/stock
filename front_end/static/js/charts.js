@@ -78,9 +78,10 @@ async function loadIndexWithChart() {
         const indexRes = await fetch('/api/major-indices');
         const indexResult = await indexRes.json();
 
-        let indexData = null;
+        let indexData = null, indexDataSZ = null;
         if (indexResult.success && indexResult.data.length > 0) {
             indexData = indexResult.data[0];
+            if (indexResult.data.length > 1) indexDataSZ = indexResult.data[1];
         }
 
         if (!indexData) {
@@ -93,12 +94,23 @@ async function loadIndexWithChart() {
         const lineColor = isUp ? '#e94560' : '#4ade80';
         const gradientColor = isUp ? 'rgba(233, 69, 96, 0.2)' : 'rgba(74, 222, 128, 0.2)';
 
+        // 深证
+        var szName = indexDataSZ ? '深证' : '';
+        var szIsUp = indexDataSZ && indexDataSZ.change.startsWith('+');
+        var szColor = szIsUp ? '#e94560' : '#4ade80';
+        var szChangeClass = szIsUp ? 'up' : 'down';
+
         indexCard.innerHTML = `
                 <div class="index-header">
                     <div class="index-info">
-                        <span class="index-name">${indexData.name}</span>
-                        <span class="index-price" style="color: ${lineColor};">${indexData.price}</span>
-                        <span class="index-change ${changeClass}">${indexData.change} ${indexData.change_value}</span>
+                        <span class="index-name">上证</span>
+                        <span class="index-price index-sh-price" style="color: ${lineColor};">${indexData.price}</span>
+                        <span class="index-change index-sh-change ${changeClass}">${indexData.change} ${indexData.change_value}</span>
+                        ` + (indexDataSZ ? `
+                        <span class="index-name">${szName}</span>
+                        <span class="index-price index-sz-price" style="color: ${szColor};">${indexDataSZ.price}</span>
+                        <span class="index-change index-sz-change ${szChangeClass}">${indexDataSZ.change} ${indexDataSZ.change_value}</span>
+                        ` : '') + `
                         <span id="marketBreadth" style="font-size: 12px; color: #888;"></span>
                     </div>
                 </div>

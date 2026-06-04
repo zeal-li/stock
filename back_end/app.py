@@ -8,6 +8,7 @@ from services.money_flow import get_index_minute_data, get_turnover_day_data
 from services.market_data import (
     get_major_indices, get_sh000001_minute_data, get_market_fund_flow,
     get_fear_index, get_risk_index, get_margin_trading,
+    start_major_indices_poller,
 )
 from services.search import search_stock as do_search
 from services.finance import get_goodwill
@@ -499,4 +500,5 @@ def stock_kline():
 # ==================== 启动 ====================
 
 if __name__ == '__main__':
+    start_major_indices_poller()  # 启动后台指数行情轮询
     app.run(debug=True, host='0.0.0.0', port=5000)

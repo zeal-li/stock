@@ -1,6 +1,7 @@
 """市场数据：指数行情、分时走势、资金流、恐慌/风险指数、融资融券"""
 import datetime
 import time
+import threading
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from . import REQUEST_PROXIES
@@ -27,12 +28,24 @@ def _cache_set(key, val):
     _cache[key] = (val, time.time())
 
 
-def get_major_indices():
-    """上证指数实时行情"""
-    cache_key = 'major_indices'
-    cached = _cached(cache_key, ttl=3)
-    if cached is not None:
-        return cached
+# ===== 后台轮询：指数行情自动抓取 =====
+
+_MAJOR_INDICES_KEY = 'major_indices'
+_MARKET_BREADTH_KEY = 'market_breadth'
+
+def _is_trading_time():
+    """判断当前是否在A股交易时段（周一至周五 09:15-11:35, 12:55-15:05）"""
+    now = datetime.datetime.now()
+    day = now.weekday()  # 0=周一, 6=周日
+    if day >= 5:  # 周六日
+        return False
+    t = now.hour * 60 + now.minute
+    return (555 <= t <= 695) or (775 <= t <= 905)
+    # 09:15=555, 11:35=695, 12:55=775, 15:05=905
+
+
+def _fetch_and_cache_major_indices():
+    """抓取沪深指数行情并写入缓存（内部函数，复用了 get_major_indices 原始逻辑）"""
     try:
         url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
         params = {
@@ -59,12 +72,56 @@ def get_major_indices():
                     'change_value': f"{'+' if change_val and float(change_val) >= 0 else ''}{float(change_val):.2f}" if change_val is not None else '+0.00',
                 })
             if data:
-                result = {'success': True, 'data': data}
-                _cache_set(cache_key, result)
-                return result
-    except Exception:
-        pass
-    return {'success': False, 'error': '东财指数行情请求失败'}
+                _cache[_MAJOR_INDICES_KEY] = ({'success': True, 'data': data}, time.time())
+                return True
+    except Exception as e:
+        print(f"[major-indices poller] fetch error: {e}")
+    return False
+
+
+def _fetch_and_cache_breadth():
+    """抓取沪深涨跌家数并写入缓存"""
+    try:
+        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+        params = {'fltt': 2, 'invt': 2, 'fields': 'f104,f105', 'secids': '1.000001,0.399001', 'ut': _EM_UT}
+        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=8, proxies=REQUEST_PROXIES)
+        diff = (r.json().get('data') or {}).get('diff') or []
+        rise = sum(int(row.get('f104', 0)) for row in diff)
+        fall = sum(int(row.get('f105', 0)) for row in diff)
+        _cache[_MARKET_BREADTH_KEY] = ((rise, fall), time.time())
+        return True
+    except Exception as e:
+        print(f"[breadth poller] fetch error: {e}")
+    return False
+
+
+def _background_poller():
+    """后台线程：启动时立即抓取一次，之后在交易时段每5秒自动抓取"""
+    # 启动时立即抓取一次
+    _fetch_and_cache_major_indices()
+    _fetch_and_cache_breadth()
+
+    while True:
+        time.sleep(5)
+        try:
+            if _is_trading_time():
+                _fetch_and_cache_major_indices()
+                _fetch_and_cache_breadth()
+        except Exception:
+            pass
+
+
+def start_major_indices_poller():
+    """启动指数行情后台轮询线程（由 app.py 调用）"""
+    t = threading.Thread(target=_background_poller, daemon=True, name='major-indices-poller')
+    t.start()
+
+
+def get_major_indices():
+    """上证指数实时行情（数据由后台轮询线程自动更新，此处仅读缓存）"""
+    if _MAJOR_INDICES_KEY in _cache:
+        return _cache[_MAJOR_INDICES_KEY][0]
+    return {'success': False, 'error': '暂无指数数据'}
 
 
 def get_sh000001_minute_data():
@@ -194,25 +251,32 @@ def get_fear_index():
         return cached
 
     try:
-        # ---- 并行获取 3 个独立数据源 ----
+        # ---- 沪深涨跌幅：直接从大盘行情缓存读取（免去重复请求东财）----
         idx_changes = []
+        major_cached = _cache.get(_MAJOR_INDICES_KEY)
+        if major_cached and major_cached[0].get('success'):
+            for item in major_cached[0]['data']:
+                chg_str = item.get('change', '0%')
+                try:
+                    idx_changes.append(float(chg_str.replace('%', '')))
+                except (ValueError, AttributeError):
+                    idx_changes.append(0.0)
+
+        # ---- 并行获取其余 4 个独立数据源 ----
         minute = None
         sz_intraday = 0.0
         rise = fall = 0
         fund = None
 
         with ThreadPoolExecutor(max_workers=4) as pool:
-            # 1. 沪深指数变化（东财）
-            fut_idx = pool.submit(_fetch_idx_changes)
-            # 2. 上证分时数据
+            # 1. 上证分时数据
             fut_min = pool.submit(get_sh000001_minute_data)
-            # 3. 深证分时
+            # 2. 深证分时
             fut_sz = pool.submit(_fetch_sz_intraday)
-            # 4. 涨跌家数 + 资金流（可串行，资金流依赖强）
+            # 3. 涨跌家数 + 资金流
             fut_breadth = pool.submit(_fetch_breadth)
             fut_fund = pool.submit(get_market_fund_flow)
 
-            idx_changes = fut_idx.result()
             minute = fut_min.result()
             sz_intraday = fut_sz.result()
             rise, fall = fut_breadth.result()
@@ -354,17 +418,11 @@ def _fetch_sz_intraday():
 
 
 def _fetch_breadth():
-    """东财获取沪深涨跌家数"""
-    try:
-        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-        params = {'fltt': 2, 'invt': 2, 'fields': 'f104,f105,f106', 'secids': '1.000001,0.399001', 'ut': _EM_UT}
-        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=8, proxies=REQUEST_PROXIES)
-        diff = (r.json().get('data') or {}).get('diff') or []
-        rise = sum(int(row.get('f104', 0)) for row in diff)
-        fall = sum(int(row.get('f105', 0)) for row in diff)
-        return rise, fall
-    except Exception:
-        return 0, 0
+    """获取沪深涨跌家数（从后台缓存读取，不发起网络请求）"""
+    cached = _cache.get(_MARKET_BREADTH_KEY)
+    if cached:
+        return cached[0]  # (rise, fall)
+    return 0, 0
 
 
 def get_risk_index():

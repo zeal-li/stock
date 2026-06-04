@@ -22,13 +22,25 @@ async function refreshRealtimeData() {
             const idxRes = await fetch('/api/major-indices');
             const idxData = await idxRes.json();
             if (idxData.success && idxData.data.length > 0) {
+                // 上证
                 const d = idxData.data[0];
                 const isUp = d.change.startsWith('+');
                 const color = isUp ? '#e94560' : '#4ade80';
-                const priceEl = document.querySelector('.index-price');
-                const changeEl = document.querySelector('.index-change');
+                const priceEl = document.querySelector('.index-sh-price');
+                const changeEl = document.querySelector('.index-sh-change');
                 if (priceEl) { priceEl.textContent = d.price; priceEl.style.color = color; }
                 if (changeEl) { changeEl.textContent = d.change + ' ' + d.change_value; changeEl.className = 'index-change ' + (isUp ? 'up' : 'down'); }
+                // 深证
+                if (idxData.data.length > 1) {
+                    const d2 = idxData.data[1];
+                    const isUp2 = d2.change.startsWith('+');
+                    const color2 = isUp2 ? '#e94560' : '#4ade80';
+                    const priceEl2 = document.querySelector('.index-sz-price');
+                    const changeEl2 = document.querySelector('.index-sz-change');
+                    if (priceEl2) { priceEl2.textContent = d2.price; priceEl2.style.color = color2; }
+                    if (changeEl2) { changeEl2.textContent = d2.change + ' ' + d2.change_value; changeEl2.className = 'index-change ' + (isUp2 ? 'up' : 'down'); }
+                }
+            }
             }
 
             const minRes = await fetch('/api/sh000001-minute');
