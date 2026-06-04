@@ -44,7 +44,6 @@ async function refreshRealtimeData() {
                     if (changeEl2) { changeEl2.textContent = d2.change + ' ' + d2.change_value; changeEl2.className = 'index-change ' + (isUp2 ? 'up' : 'down'); }
                 }
             }
-            }
 
             var _doMinuteRefresh = Date.now() - _lastMinuteRefresh >= 60000;
             if (_doMinuteRefresh) {
