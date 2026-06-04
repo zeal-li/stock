@@ -180,6 +180,7 @@ var KlinePopup = (function() {
         var all = _getAllKlineCache();
         if (!all[_stockCode]) all[_stockCode] = {};
         all[_stockCode][period] = data;
+        all._date = new Date().toISOString().slice(0, 10);
         _saveAllKlineCache(all);
     }
 
@@ -220,6 +221,7 @@ var KlinePopup = (function() {
         var all = _getAllKlineCache();
         if (!all[_stockCode]) all[_stockCode] = {};
         all[_stockCode].goodwill = data;
+        all._date = new Date().toISOString().slice(0, 10);
         _saveAllKlineCache(all);
     }
 
@@ -1024,10 +1026,8 @@ var KlinePopup = (function() {
             if (goodwill) quote.goodwill = goodwill;
             if (extra) { quote.volume_ratio = extra.volume_ratio; quote.bid_ratio = extra.bid_ratio; }
 
-            // 先存 K线原始数据
             if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
                 _klinesData = kdata.data.klines;
-                // 最新一天如果缺成交额/换手（同花顺还没出今天数据），用实时行情补
                 var last = _klinesData[_klinesData.length - 1];
                 if (quote) {
                     if (last.amount == null && quote.amount_raw != null && quote.amount_raw !== '-') last.amount = parseFloat(quote.amount_raw);
