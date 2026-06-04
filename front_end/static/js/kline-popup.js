@@ -1092,8 +1092,8 @@ var KlinePopup = (function() {
         _stockMarket = market;
         _clearAllKlineCache();  // 跨天清全部K线缓存
         _currentPeriod = 'day';
-        _updateWatchlistBtn();
         _isMinute = false;
+        _ensureDOM();
         // 重置周期按钮样式
         var pBtns = document.querySelectorAll('#klPeriodBar button[data-p]');
         pBtns.forEach(function(b) {
@@ -1104,7 +1104,7 @@ var KlinePopup = (function() {
         // 重置分时按钮
         var minBtn = document.getElementById('klBtnMinute');
         if (minBtn) { minBtn.style.background = '#1a1a2e'; minBtn.style.color = '#8b8b9e'; }
-        _ensureDOM();
+        _updateWatchlistBtn();
         document.getElementById('klName').textContent = (name || code);
         document.getElementById('klCode').textContent = '(' + code + ') ' + getStockType(code, market);
         document.getElementById('klPrice').textContent = '';
