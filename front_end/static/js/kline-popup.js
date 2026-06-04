@@ -148,10 +148,19 @@ var KlinePopup = (function() {
     function _loadMinuteChart() {
         var chartEl = document.getElementById('klChart');
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
+
+        var cached = _getCachedMinute();
+        if (cached) {
+            try { _renderMinute(cached.times, cached.prices, cached.volumes || [], cached.amounts || [], cached.preClose || 0); }
+            catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
+            return;
+        }
+
         fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket))
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (!d.success || !d.data.times || d.data.times.length === 0) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无分时数据</div>'; return; }
+                _setCachedMinute(d.data);
                 try { _renderMinute(d.data.times, d.data.prices, d.data.volumes || [], d.data.amounts || [], d.data.preClose || 0); }
                 catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             })
@@ -195,7 +204,7 @@ var KlinePopup = (function() {
         } catch(e) {}
     }
 
-    // 关闭弹窗时：开盘期间只清K线，商誉保留（变化慢，一天一次够用）
+    // 关闭弹窗时：开盘期间清K线+分时+行情+量比，商誉保留
     function _maybeClearCurrentKlines() {
         if (typeof isInTradingHours === 'function' && isInTradingHours()) {
             try {
@@ -204,6 +213,10 @@ var KlinePopup = (function() {
                     delete all[_stockCode].day;
                     delete all[_stockCode].week;
                     delete all[_stockCode].month;
+                    delete all[_stockCode].minute;
+                    delete all[_stockCode].fiveday;
+                    delete all[_stockCode].extra;
+                    delete all[_stockCode].quotes;
                 }
                 all._date = new Date().toISOString().slice(0, 10);
                 _saveAllKlineCache(all);
@@ -221,6 +234,62 @@ var KlinePopup = (function() {
         var all = _getAllKlineCache();
         if (!all[_stockCode]) all[_stockCode] = {};
         all[_stockCode].goodwill = data;
+        all._date = new Date().toISOString().slice(0, 10);
+        _saveAllKlineCache(all);
+    }
+
+    // 量比/委比缓存
+    function _getCachedExtra() {
+        var all = _getAllKlineCache();
+        var stock = all[_stockCode];
+        return (stock && stock.extra) ? stock.extra : null;
+    }
+    function _setCachedExtra(data) {
+        var all = _getAllKlineCache();
+        if (!all[_stockCode]) all[_stockCode] = {};
+        all[_stockCode].extra = data;
+        all._date = new Date().toISOString().slice(0, 10);
+        _saveAllKlineCache(all);
+    }
+
+    // 行情缓存
+    function _getCachedQuotes() {
+        var all = _getAllKlineCache();
+        var stock = all[_stockCode];
+        return (stock && stock.quotes) ? stock.quotes : null;
+    }
+    function _setCachedQuotes(data) {
+        var all = _getAllKlineCache();
+        if (!all[_stockCode]) all[_stockCode] = {};
+        all[_stockCode].quotes = data;
+        all._date = new Date().toISOString().slice(0, 10);
+        _saveAllKlineCache(all);
+    }
+
+    // 分时数据缓存
+    function _getCachedMinute() {
+        var all = _getAllKlineCache();
+        var stock = all[_stockCode];
+        return (stock && stock.minute) ? stock.minute : null;
+    }
+    function _setCachedMinute(data) {
+        var all = _getAllKlineCache();
+        if (!all[_stockCode]) all[_stockCode] = {};
+        all[_stockCode].minute = data;
+        all._date = new Date().toISOString().slice(0, 10);
+        _saveAllKlineCache(all);
+    }
+
+    // 五日分时缓存
+    function _getCachedFiveDay() {
+        var all = _getAllKlineCache();
+        var stock = all[_stockCode];
+        return (stock && stock.fiveday) ? stock.fiveday : null;
+    }
+    function _setCachedFiveDay(data) {
+        var all = _getAllKlineCache();
+        if (!all[_stockCode]) all[_stockCode] = {};
+        all[_stockCode].fiveday = data;
         all._date = new Date().toISOString().slice(0, 10);
         _saveAllKlineCache(all);
     }
@@ -259,12 +328,22 @@ var KlinePopup = (function() {
         if (_fiveDayTimer) { clearInterval(_fiveDayTimer); _fiveDayTimer = null; }
         var chartEl = document.getElementById('klChart');
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">加载中...</div>';
+
+        var cached = _getCachedFiveDay();
+        if (cached) {
+            _fiveDayRaw = cached;
+            _fiveDayPreClose = cached.preClose || 0;
+            try { _renderFiveDayMinute(); } catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;">渲染失败: ' + e.message + '</div>'; }
+            return;
+        }
+
         fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&days=5')
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (!d.success || !d.data.times || d.data.times.length === 0) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">暂无数据</div>'; return; }
                 _fiveDayRaw = d.data;
                 _fiveDayPreClose = d.data.preClose || 0;
+                _setCachedFiveDay(d.data);
                 try { _renderFiveDayMinute(); } catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;">渲染失败: ' + e.message + '</div>'; }
             })
             .catch(function() { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;">请求失败</div>'; });
@@ -985,10 +1064,17 @@ var KlinePopup = (function() {
 
         // 并行请求行情 + K线 + 商誉质押 + 量比委比
         var secid = encodeURIComponent(market + '.' + code);
-        var pQuote = fetch('/api/stock-quotes?secids=' + secid)
-            .then(function(r) { return r.json(); })
-            .then(function(d) { return (d.success && d.data[market + '.' + code]) || null; })
-            .catch(function() { return null; });
+        var cachedQt = _getCachedQuotes();
+        var pQuote = cachedQt
+            ? Promise.resolve(cachedQt)
+            : fetch('/api/stock-quotes?secids=' + secid)
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var qt = (d.success && d.data[market + '.' + code]) || null;
+                    if (qt) _setCachedQuotes(qt);
+                    return qt;
+                })
+                .catch(function() { return null; });
 
         var pKline;
         var cachedDay = _getCachedKlines('day');
@@ -1013,10 +1099,17 @@ var KlinePopup = (function() {
                 })
                 .catch(function() { return null; });
 
-        var pExtra = fetch('/api/stock-extra?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
-            .then(function(r) { return r.json(); })
-            .then(function(d) { return (d.success ? d.data : null); })
-            .catch(function() { return null; });
+        var cachedEt = _getCachedExtra();
+        var pExtra = cachedEt
+            ? Promise.resolve(cachedEt)
+            : fetch('/api/stock-extra?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var et = (d.success ? d.data : null);
+                    if (et) _setCachedExtra(et);
+                    return et;
+                })
+                .catch(function() { return null; });
 
         Promise.all([pQuote, pKline, pGoodwill, pExtra]).then(function(results) {
             var quote = results[0] || {};
