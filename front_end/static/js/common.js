@@ -4,8 +4,12 @@
 function clearAllCaches() {
     try {
         localStorage.removeItem('kl_cache');
+        localStorage.removeItem('stockCache');
         localStorage.removeItem('watchlistCache');
     } catch(e) {}
+    // 刷新页面上的列表（从已空的缓存重新加载）
+    try { loadPickedStocks(); } catch(e) {}
+    try { loadWatchlistStocks(); } catch(e) {}
 }
 
 // ---- 各市场交易时间判断 ----

@@ -13,6 +13,7 @@ from services.market_data import (
 from services.search import search_stock as do_search
 from services.finance import get_goodwill
 from services.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
+from services.watchlist import get_all, add, remove as wl_remove
 
 app = Flask(__name__, template_folder='../front_end/templates', static_folder='../front_end/static')
 CORS(app)
@@ -83,6 +84,31 @@ def goodwill():
 @app.route('/api/search-stock')
 def search_stock():
     return jsonify(do_search(request.args.get('q', '')))
+
+
+# ==================== 自选股 ====================
+
+@app.route('/api/watchlist', methods=['GET'])
+def watchlist_get():
+    rows = get_all()
+    return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1]} for r in rows]})
+
+@app.route('/api/watchlist', methods=['POST'])
+def watchlist_add():
+    code = request.form.get('code', '').strip()
+    market = request.form.get('market', '').strip()
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    add(code, market)
+    return jsonify({'success': True})
+
+@app.route('/api/watchlist/<code>', methods=['DELETE'])
+def watchlist_remove(code):
+    market = request.args.get('market', '')
+    if not market:
+        return jsonify({'success': False, 'error': '缺少 market 参数'})
+    wl_remove(code, market)
+    return jsonify({'success': True})
 
 @app.route('/api/stock-quotes')
 def stock_quotes():

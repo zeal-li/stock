@@ -124,8 +124,8 @@ function loadPickedStocks() {
             localStorage.removeItem('financeCache');
         }
         pickedStocks = stocks;
+        renderPicked();
         if (pickedStocks.length > 0) {
-            renderPicked();
             refreshPickedQuotes();
             refreshGoodwill();
         }
@@ -310,34 +310,44 @@ function watchlistSaveCache() {
     localStorage.setItem('watchlistCache', JSON.stringify({ date: watchlistGetToday(), stocks: stocks }));
 }
 
-function watchlistLoadCache() {
-    try {
-        var raw = JSON.parse(localStorage.getItem('watchlistCache') || '{}');
-        if (raw.date !== watchlistGetToday()) return null;
-        return raw;
-    } catch(e) { return null; }
-}
-
 function loadWatchlistStocks() {
-    try {
-        var stocks = null;
-        var raw = JSON.parse(localStorage.getItem('watchlistCache') || 'null');
-        if (raw && raw.stocks) {
-            var expired = raw.date !== watchlistGetToday();
-            stocks = raw.stocks.map(function(s) { return createStock(s.code, s.code, s.market, (!expired && s.gw !== undefined && s.pld !== undefined) ? { gw: s.gw, pld: s.pld } : null); });
-        }
-        watchlistStocks = stocks || [];
-        if (watchlistStocks.length > 0) {
-            watchlistRender();
-            refreshWatchlistQuotes();
-            refreshWatchlistGoodwill();
-        }
-    } catch(e) { console.log('恢复自选股失败:', e); }
+    // 优先从 localStorage 恢复
+    var stocks = null;
+    var raw = JSON.parse(localStorage.getItem('watchlistCache') || 'null');
+    if (raw && raw.stocks) {
+        var expired = raw.date !== watchlistGetToday();
+        stocks = raw.stocks.map(function(s) { return createStock(s.code, s.code, s.market, (!expired && s.gw !== undefined && s.pld !== undefined) ? { gw: s.gw, pld: s.pld } : null); });
+    }
+    watchlistStocks = stocks || [];
+    watchlistRender();
+    if (watchlistStocks.length > 0) {
+        refreshWatchlistQuotes();
+        refreshWatchlistGoodwill();
+    }
+    // 异步从数据库同步（换电脑后首次用）
+    if (!stocks) {
+        fetch('/api/watchlist')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.success || !data.data.length) return;
+                watchlistStocks = data.data.map(function(s) { return createStock(s.code, s.code, s.market); });
+                watchlistSaveCache();
+                if (watchlistStocks.length > 0) {
+                    watchlistRender();
+                    refreshWatchlistQuotes();
+                    refreshWatchlistGoodwill();
+                }
+            })
+            .catch(function() {});
+    }
 }
 
 // ---- 增删 ----
 async function watchlistPickStock(code, market) {
     if (watchlistStocks.find(function(s) { return s.code === code; })) return;
+    // 异步持久化到数据库
+    fetch('/api/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market) })
+        .catch(function() {});
     watchlistStocks.push(createStock(code, code, market));
     watchlistSaveCache();
     watchlistRender();
@@ -345,7 +355,10 @@ async function watchlistPickStock(code, market) {
     refreshWatchlistGoodwill();
 }
 
-function watchlistRemoveStock(code) {
+function watchlistRemoveStock(code, market) {
+    // 异步从数据库删除
+    fetch('/api/watchlist/' + encodeURIComponent(code) + '?market=' + encodeURIComponent(market), { method: 'DELETE' })
+        .catch(function() {});
     watchlistStocks = watchlistStocks.filter(function(s) { return s.code !== code; });
     watchlistSaveCache();
     watchlistRender();
@@ -379,16 +392,6 @@ async function refreshWatchlistQuotes() {
 }
 
 async function refreshWatchlistGoodwill() {
-    var cache = watchlistLoadCache();
-    if (cache && cache.stocks) {
-        var gwMap = {};
-        cache.stocks.forEach(function(s) { gwMap[s.code] = { gw: s.gw, pld: s.pld }; });
-        var hitCount = 0;
-        watchlistStocks.forEach(function(s) {
-            if (gwMap[s.code] && gwMap[s.code].gw !== undefined) { s.goodwill = gwMap[s.code]; hitCount++; }
-        });
-        if (hitCount > 0) watchlistUpdateGoodwill();
-    }
     var needCodes = watchlistStocks.filter(function(s) { return !s.goodwill; }).map(function(s) { return s.code; });
     if (needCodes.length === 0) return;
     try {
@@ -424,7 +427,7 @@ function watchlistRender() {
             '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
             '<td class="cell-pepb"><span style="color:#ddd;">' + s.pe + '/' + s.pb + '</span></td>' +
             '<td class="cell-gw"><span style="color:#ddd;">' + (s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-') + '</span></td>' +
-            '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="watchlistRemoveStock(\'' + s.code + '\')">&times;</span></td>' +
+            '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="watchlistRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
         '</tr>';
     });
     html += '</tbody></table></div>';
