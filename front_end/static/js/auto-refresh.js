@@ -1,16 +1,5 @@
 // ==================== 自动刷新 ====================
 
-// 自动刷新：开盘期间每10秒更新实时数据
-function isInTradingHours() {
-    const now = new Date();
-    const day = now.getDay(); // 0=周日, 6=周六
-    // 周六日不开市
-    if (day === 0 || day === 6) return false;
-    const t = now.getHours() * 60 + now.getMinutes();
-    return (t >= 555 && t <= 695) || (t >= 775 && t <= 905);
-    // 09:15-11:35, 12:55-15:05
-}
-
 var _lastMinuteRefresh = 0;  // 上次分时/资金流刷新的时间戳（ms）
 var _lastMarginDate = '';     // 上次融资融券刷新的日期
 

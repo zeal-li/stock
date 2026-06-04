@@ -28,43 +28,6 @@ var KlinePopup = (function() {
     var _maVals = null;  // {ma5, ma10, ma20, ma60}
     var _bbVals = null;  // {up, mid, lo}
 
-    // ---- 各市场交易时间判断 ----
-    // market: '0','1','2','90'=A股, '116'=港股, '106'=美股
-    function _isMarketTradingTime(market) {
-        if (market === '106') {
-            // 美股：美东时间 9:30-16:00，周一至周五
-            var now = new Date();
-            var year = now.getUTCFullYear();
-            // 夏令时：3月第二个周日 2:00 AM ET → 7:00 UTC
-            var mar1 = new Date(Date.UTC(year, 2, 1));
-            var dstStartDay = 7 + (7 - mar1.getUTCDay()); // 第二个周日（7~14）
-            if (dstStartDay > 14) dstStartDay -= 7;
-            var dstStart = Date.UTC(year, 2, dstStartDay, 7, 0, 0);
-            // 冬令时：11月第一个周日 2:00 AM ET → 6:00 UTC
-            var nov1 = new Date(Date.UTC(year, 10, 1));
-            var dstEndDay = 7 - nov1.getUTCDay(); // 第一个周日（1~7）
-            if (dstEndDay <= 0) dstEndDay += 7;
-            var dstEnd = Date.UTC(year, 10, dstEndDay, 6, 0, 0);
-            var isDST = now.getTime() >= dstStart && now.getTime() < dstEnd;
-            var offset = isDST ? -4 : -5; // ET = UTC + offset
-            var et = new Date(now.getTime() + offset * 3600000);
-            var etDay = et.getUTCDay();
-            if (etDay === 0 || etDay === 6) return false;
-            var etMin = et.getUTCHours() * 60 + et.getUTCMinutes();
-            return etMin >= 570 && etMin <= 960; // 9:30=570, 16:00=960
-        }
-        if (market === '116') {
-            // 港股：HKT 9:30-12:00, 13:00-16:00，周一至周五
-            var now = new Date();
-            if (now.getDay() === 0 || now.getDay() === 6) return false;
-            var hkMin = now.getHours() * 60 + now.getMinutes();
-            return (hkMin >= 570 && hkMin <= 720) || (hkMin >= 780 && hkMin <= 960);
-        }
-        // A股：复用全局 isInTradingHours
-        if (typeof isInTradingHours === 'function') return isInTradingHours();
-        return false;
-    }
-
     // ---- 指标计算 ----
     function _calcSMA(data, period) {
         var r = [];
@@ -188,7 +151,7 @@ var KlinePopup = (function() {
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
 
         var cached = _getCachedMinute();
-        if (cached && !_isMarketTradingTime(_stockMarket)) {
+        if (cached && !isMarketTradingTime(_stockMarket)) {
             try { _renderMinute(cached.times, cached.prices, cached.volumes || [], cached.amounts || [], cached.preClose || 0); }
             catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             return;
@@ -244,7 +207,7 @@ var KlinePopup = (function() {
 
     // 关闭弹窗时：开盘期间清K线+分时+行情+量比，商誉保留
     function _maybeClearCurrentKlines() {
-        if (_isMarketTradingTime(_stockMarket)) {
+        if (isMarketTradingTime(_stockMarket)) {
             try {
                 var all = _getAllKlineCache();
                 if (all[_stockCode]) {
@@ -368,7 +331,7 @@ var KlinePopup = (function() {
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">加载中...</div>';
 
         var cached = _getCachedFiveDay();
-        if (cached && !_isMarketTradingTime(_stockMarket)) {
+        if (cached && !isMarketTradingTime(_stockMarket)) {
             _fiveDayRaw = cached;
             _fiveDayPreClose = cached.preClose || 0;
             try { _renderFiveDayMinute(); } catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;">渲染失败: ' + e.message + '</div>'; }
@@ -623,7 +586,7 @@ var KlinePopup = (function() {
 
     function _refreshFiveDayData() {
         if (_currentPeriod !== '5day' || !_fiveDayAreaSeries) return;
-        if (!_isMarketTradingTime(_stockMarket)) return;
+        if (!isMarketTradingTime(_stockMarket)) return;
         fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&days=5')
             .then(function(r) { return r.json(); })
             .then(function(d) {
@@ -774,7 +737,7 @@ var KlinePopup = (function() {
 
     function _refreshMinuteData() {
         if (!_isMinute || !_minuteSeries) return;
-        if (!_isMarketTradingTime(_stockMarket)) return;
+        if (!isMarketTradingTime(_stockMarket)) return;
         fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket))
             .then(function(r) { return r.json(); })
             .then(function(d) {
@@ -833,7 +796,7 @@ var KlinePopup = (function() {
 
     // 定时刷新头部行情（最新价/涨跌幅/成交量等），所有模式共用
     function _refreshHeaderData() {
-        if (!_isMarketTradingTime(_stockMarket)) return;
+        if (!isMarketTradingTime(_stockMarket)) return;
         var market = _stockMarket, code = _stockCode;
         var secid = encodeURIComponent(market + '.' + code);
         var pQuote = fetch('/api/stock-quotes?secids=' + secid)
