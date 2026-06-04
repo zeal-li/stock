@@ -577,6 +577,25 @@ var KlinePopup = (function() {
             requestAnimationFrame(function() { _drawDayBounds(); });
         });
         _observer.observe(el);
+
+        // 交易时段每10s刷新五日图
+        if (_fiveDayTimer) clearInterval(_fiveDayTimer);
+        _fiveDayTimer = setInterval(_refreshFiveDayData, 10000);
+    }
+
+    function _refreshFiveDayData() {
+        if (_currentPeriod !== '5day' || !_fiveDayAreaSeries) return;
+        if (typeof isInTradingHours === 'function' && !isInTradingHours()) return;
+        fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&days=5')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.success || !d.data.times || d.data.times.length === 0) return;
+                _fiveDayRaw = d.data;
+                _fiveDayPreClose = d.data.preClose || 0;
+                _setCachedFiveDay(d.data);
+                try { _renderFiveDayMinute(); } catch(e) {}
+            })
+            .catch(function() {});
     }
 
     function _renderMinute(times, prices, volumes, amounts, preClose) {
