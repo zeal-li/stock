@@ -32,6 +32,10 @@ def _cache_set(key, val):
 
 _MAJOR_INDICES_KEY = 'major_indices'
 _MARKET_BREADTH_KEY = 'market_breadth'
+_SH_MINUTE_KEY = 'sh_minute'
+_FUND_FLOW_KEY = 'fund_flow'
+_TURNOVER_MINUTE_KEY = 'turnover_minute'
+_MARGIN_KEY = 'margin_trading'
 
 def _is_trading_time():
     """判断当前是否在A股交易时段（周一至周五 09:15-11:35, 12:55-15:05）"""
@@ -95,46 +99,13 @@ def _fetch_and_cache_breadth():
     return False
 
 
-def _background_poller():
-    """后台线程：启动时立即抓取一次，之后在交易时段每5秒自动抓取"""
-    # 启动时立即抓取一次
-    _fetch_and_cache_major_indices()
-    _fetch_and_cache_breadth()
-
-    while True:
-        time.sleep(5)
-        try:
-            if _is_trading_time():
-                _fetch_and_cache_major_indices()
-                _fetch_and_cache_breadth()
-        except Exception:
-            pass
-
-
-def start_major_indices_poller():
-    """启动指数行情后台轮询线程（由 app.py 调用）"""
-    t = threading.Thread(target=_background_poller, daemon=True, name='major-indices-poller')
-    t.start()
-
-
-def get_major_indices():
-    """上证指数实时行情（数据由后台轮询线程自动更新，此处仅读缓存）"""
-    if _MAJOR_INDICES_KEY in _cache:
-        return _cache[_MAJOR_INDICES_KEY][0]
-    return {'success': False, 'error': '暂无指数数据'}
-
-
-def get_sh000001_minute_data():
-    """上证指数分时走势"""
-    cache_key = 'sh_minute'
-    cached = _cached(cache_key, ttl=5)
-    if cached is not None:
-        return cached
+def _fetch_and_cache_sh_minute():
+    """抓取上证分时走势并写入缓存"""
     try:
         url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get?secid=1.000001&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': '*/*', 'Referer': 'https://www.eastmoney.com/'}
-        response = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-        data = response.json()
+        r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        data = r.json()
         if data.get('rc') == 0 and data.get('data'):
             sd = data['data']
             trends = sd.get('trends', [])
@@ -162,19 +133,15 @@ def get_sh000001_minute_data():
                     'times': times, 'prices': prices,
                 }
             }
-            _cache_set(cache_key, result)
-            return result
-    except Exception:
-        pass
-    return {'success': False, 'error': '获取分时数据失败'}
+            _cache[_SH_MINUTE_KEY] = (result, time.time())
+            return True
+    except Exception as e:
+        print(f"[sh-minute poller] fetch error: {e}")
+    return False
 
 
-def get_market_fund_flow():
-    """大盘资金净流入分时（东财push2delay，沪深两市合计）"""
-    cache_key = 'fund_flow'
-    cached = _cached(cache_key, ttl=5)
-    if cached is not None:
-        return cached
+def _fetch_and_cache_fund_flow():
+    """抓取大盘资金净流入分时并写入缓存（沪深两市合计）"""
     try:
         url = "https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get"
         headers = {
@@ -207,14 +174,11 @@ def get_market_fund_flow():
         sh_data = _fetch('1.000001')
         sz_data = _fetch('0.399001')
 
-        # 合并两个市场：收集所有时间点
         all_times = sorted(set(list(sh_data.keys()) + list(sz_data.keys())))
         if not all_times:
-            return {'success': False, 'error': 'No fund flow data'}
+            return False
 
-        # 过滤盘前数据
         all_times = [t for t in all_times if t >= '09:30']
-
         flows, flows_mid, flows_small = [], [], []
         for t in all_times:
             sh = sh_data.get(t, {'flow': 0, 'mid': 0, 'small': 0})
@@ -237,10 +201,220 @@ def get_market_fund_flow():
                 'flows_mid': flows_mid, 'flows_small': flows_small
             }
         }
-        _cache_set(cache_key, result)
-        return result
+        _cache[_FUND_FLOW_KEY] = (result, time.time())
+        return True
     except Exception as e:
-        return {'success': False, 'error': str(e)}
+        print(f"[fund-flow poller] fetch error: {e}")
+    return False
+
+
+def _fetch_and_cache_turnover():
+    """抓取成交额分时数据并写入缓存"""
+    try:
+        url = "https://dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data?chart_key=turnover_minute"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.10jqka.com.cn/',
+            'Accept': 'application/json, text/plain, */*',
+        }
+        r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        data = r.json()
+        if data.get('status_code') != 0:
+            return False
+        chart_data = data.get('data', {}).get('charts', {})
+        header = chart_data.get('header', [])
+        point_list = chart_data.get('point_list', [])
+        if not point_list:
+            return False
+
+        day_groups = {}
+        for point in point_list:
+            if len(point) >= 3 and point[1] is not None and point[2] is not None:
+                dt = datetime.datetime.fromtimestamp(point[0] // 1000)
+                date_key = dt.strftime('%Y-%m-%d')
+                day_groups.setdefault(date_key, []).append((dt, point[1] / 1e8, point[2] / 1e8))
+
+        if not day_groups:
+            return False
+        latest_day = sorted(day_groups.keys())[-1]
+        filtered_points = day_groups[latest_day]
+        times, turnovers, predict_turnovers = [], [], []
+        for dt, t, pt in filtered_points:
+            times.append(dt.strftime('%H:%M'))
+            turnovers.append(t)
+            predict_turnovers.append(pt)
+
+        header_info = {}
+        for h in header:
+            header_info[h['key']] = h['val']
+
+        result = {
+            'success': True,
+            'data': {
+                'times': times,
+                'turnovers': turnovers,
+                'predict_turnovers': predict_turnovers,
+                'header': header_info
+            }
+        }
+        _cache[_TURNOVER_MINUTE_KEY] = (result, time.time())
+        return True
+    except Exception as e:
+        print(f"[turnover poller] fetch error: {e}")
+    return False
+
+
+def _fetch_and_cache_margin():
+    """抓取融资融券沪深两市数据并写入缓存（供图表+风险指数共用）"""
+    try:
+        import akshare as ak
+        end_date = datetime.date.today().strftime('%Y%m%d')
+        start_date = (datetime.date.today() - datetime.timedelta(days=60)).strftime('%Y%m%d')
+
+        def _get_df(func, *args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_sse = pool.submit(_get_df, ak.stock_margin_sse, start_date=start_date, end_date=end_date)
+            fut_szse = pool.submit(_get_df, ak.stock_margin_szse, start_date=start_date, end_date=end_date)
+            sse_df = fut_sse.result()
+            szse_df = fut_szse.result()
+
+        # 沪深两市按日期合并
+        combined = {}
+        for df in [sse_df, szse_df]:
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    d = str(row['信用交易日期'])
+                    rz_val = float(row.get('融资余额', 0) or 0) / 1e8
+                    rq_val = float(row.get('融券余量金额', 0) or 0) / 1e8
+                    total_val = float(row.get('融资融券余额', 0) or 0) / 1e8
+                    buy_val = float(row.get('融资买入额', 0) or 0) / 1e8
+                    if d not in combined:
+                        combined[d] = [rz_val, rq_val, total_val, buy_val]
+                    else:
+                        combined[d][0] += rz_val
+                        combined[d][1] += rq_val
+                        combined[d][2] += total_val
+                        combined[d][3] += buy_val
+
+        if not combined:
+            return False
+
+        # -- 图表数据 --
+        sorted_dates = sorted(combined.keys())
+        dates, rz_balances, rq_balances, total_balances, buy_amounts = [], [], [], [], []
+        for d in sorted_dates:
+            fmt_d = d[:4] + '-' + d[4:6] + '-' + d[6:8]
+            dates.append(fmt_d[-5:])
+            rz_balances.append(round(combined[d][0], 2))
+            rq_balances.append(round(combined[d][1], 2))
+            total_balances.append(round(combined[d][2], 2))
+            buy_amounts.append(round(combined[d][3], 2))
+
+        latest = combined[sorted_dates[-1]]
+
+        # -- 风险指数融资因子 --
+        fin_data = {}
+        if len(sorted_dates) >= 2:
+            latest_total = latest[2]
+            latest_buy = latest[3]
+
+            if len(sorted_dates) >= 6:
+                t5_total = combined[sorted_dates[-6]][2]
+                fin_data['fin_bal_5d'] = round((latest_total - t5_total) / t5_total * 100, 2) if t5_total else 0
+
+            if len(sorted_dates) >= 11:
+                t10_total = combined[sorted_dates[-11]][2]
+                fin_data['fin_bal_10d'] = round((latest_total - t10_total) / t10_total * 100, 2) if t10_total else 0
+
+            if len(sorted_dates) >= 21:
+                recent_buys = [combined[d][3] for d in sorted_dates[-21:]]
+                avg_20d = sum(recent_buys) / len(recent_buys) if recent_buys else 0
+                fin_data['fin_buy_heat'] = round((latest_buy - avg_20d) / avg_20d * 100, 2) if avg_20d else 0
+
+        result = {
+            'success': True,
+            'data': {
+                'dates': dates, 'rz_balances': rz_balances, 'rq_balances': rq_balances,
+                'total_balances': total_balances, 'buy_amounts': buy_amounts,
+                'latest_date': dates[-1] if dates else '',
+                'latest_rz': round(latest[0], 2),
+                'latest_rq': round(latest[1], 2),
+                'latest_total': round(latest[2], 2),
+                'fin_bal_5d': fin_data.get('fin_bal_5d', 0.0),
+                'fin_bal_10d': fin_data.get('fin_bal_10d', 0.0),
+                'fin_buy_heat': fin_data.get('fin_buy_heat', 0.0),
+            }
+        }
+        _cache[_MARGIN_KEY] = (result, datetime.date.today().strftime('%Y-%m-%d'))
+        return True
+    except Exception as e:
+        print(f"[margin poller] fetch error: {e}")
+    return False
+
+
+def _background_poller():
+    """后台线程：启动时立即抓取，之后交易时段按不同频率自动抓取"""
+    # 启动时立即抓取一次
+    _fetch_and_cache_major_indices()
+    _fetch_and_cache_breadth()
+    _fetch_and_cache_sh_minute()
+    _fetch_and_cache_fund_flow()
+    _fetch_and_cache_turnover()
+    _fetch_and_cache_margin()
+
+    _loop_count = 0
+    while True:
+        time.sleep(5)
+        _loop_count += 1
+        try:
+            if _is_trading_time():
+                _fetch_and_cache_major_indices()   # 每 5s
+                _fetch_and_cache_breadth()          # 每 5s
+                if _loop_count % 12 == 0:           # 每 60s（12×5s）
+                    _fetch_and_cache_sh_minute()
+                    _fetch_and_cache_fund_flow()
+                    _fetch_and_cache_turnover()
+                    # 融资融券：每天只抓一次（跨天后自动更新）
+                    _today_str = datetime.date.today().strftime('%Y-%m-%d')
+                    _cached_margin = _cache.get(_MARGIN_KEY)
+                    if not _cached_margin or _cached_margin[1] != _today_str:
+                        _fetch_and_cache_margin()
+        except Exception:
+            pass
+
+
+def start_major_indices_poller():
+    """启动指数行情后台轮询线程（由 app.py 调用）"""
+    t = threading.Thread(target=_background_poller, daemon=True, name='major-indices-poller')
+    t.start()
+
+
+def get_major_indices():
+    """上证指数实时行情（数据由后台轮询线程自动更新，此处仅读缓存）"""
+    if _MAJOR_INDICES_KEY in _cache:
+        return _cache[_MAJOR_INDICES_KEY][0]
+    return {'success': False, 'error': '暂无指数数据'}
+
+
+def get_sh000001_minute_data():
+    """上证指数分时走势（数据由后台轮询线程每分钟更新，此处仅读缓存）"""
+    cached = _cache.get(_SH_MINUTE_KEY)
+    if cached:
+        return cached[0]
+    return {'success': False, 'error': '暂无分时数据'}
+
+
+def get_market_fund_flow():
+    """大盘资金净流入分时（数据由后台轮询线程每分钟更新，此处仅读缓存）"""
+    cached = _cache.get(_FUND_FLOW_KEY)
+    if cached:
+        return cached[0]
+    return {'success': False, 'error': '暂无资金流数据'}
 
 
 def get_fear_index():
@@ -526,63 +700,16 @@ def get_risk_index():
 # ---- 风险指数辅助函数 ----
 
 def _fetch_margin():
-    """获取融资融券数据（akshare 爬虫，并行调用沪深两市）"""
-    result = {}
-    try:
-        import akshare as ak
-        end_date = datetime.date.today().strftime('%Y%m%d')
-        start_date = (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y%m%d')
-
-        def _get_df(func, *args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except Exception:
-                return None
-
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            fut_sse = pool.submit(_get_df, ak.stock_margin_sse, start_date=start_date, end_date=end_date)
-            fut_szse = pool.submit(_get_df, ak.stock_margin_szse, start_date=start_date, end_date=end_date)
-            sse_df = fut_sse.result()
-            szse_df = fut_szse.result()
-
-        combined = {}
-        for df in [sse_df, szse_df]:
-            if df is not None and not df.empty:
-                for _, row in df.iterrows():
-                    d = str(row['信用交易日期'])
-                    rz_val = float(row.get('融资余额', 0) or 0)
-                    rq_val = float(row.get('融券余量金额', 0) or 0)
-                    buy_val = float(row.get('融资买入额', 0) or 0)
-                    if d not in combined:
-                        combined[d] = [rz_val, rq_val, buy_val]
-                    else:
-                        combined[d][0] += rz_val
-                        combined[d][1] += rq_val
-                        combined[d][2] += buy_val
-
-        dates = sorted(combined.keys())
-        if len(dates) >= 2:
-            latest = combined[dates[-1]]
-            latest_total = latest[0] + latest[1]
-            latest_buy = latest[2]
-
-            if len(dates) >= 6:
-                t5 = combined[dates[-6]]
-                total_5d = t5[0] + t5[1]
-                result['fin_bal_5d'] = round((latest_total - total_5d) / total_5d * 100, 2) if total_5d else 0
-
-            if len(dates) >= 11:
-                t10 = combined[dates[-11]]
-                total_10d = t10[0] + t10[1]
-                result['fin_bal_10d'] = round((latest_total - total_10d) / total_10d * 100, 2) if total_10d else 0
-
-            if len(dates) >= 21:
-                recent_buys = [combined[d][2] for d in dates[-21:]]
-                avg_20d = sum(recent_buys) / len(recent_buys) if recent_buys else 0
-                result['fin_buy_heat'] = round((latest_buy - avg_20d) / avg_20d * 100, 2) if avg_20d else 0
-    except Exception:
-        pass
-    return result
+    """获取融资因子数据（从后台融资融券缓存读取，不发起网络请求）"""
+    cached = _cache.get(_MARGIN_KEY)
+    if cached and cached[0].get('success'):
+        d = cached[0]['data']
+        return {
+            'fin_bal_5d': d.get('fin_bal_5d', 0.0),
+            'fin_bal_10d': d.get('fin_bal_10d', 0.0),
+            'fin_buy_heat': d.get('fin_buy_heat', 0.0),
+        }
+    return {}
 
 
 def _fetch_daily_closes(symbol):
@@ -657,35 +784,8 @@ def _calc_trend(sh_c, sz_c):
 
 
 def get_margin_trading():
-    """融资融券：沪市每日数据"""
-    try:
-        import akshare as ak
-        end = datetime.date.today().strftime('%Y%m%d')
-        start = (datetime.date.today() - datetime.timedelta(days=60)).strftime('%Y%m%d')
-        df = ak.stock_margin_sse(start_date=start, end_date=end)
-        if df is None or df.empty:
-            return {'success': False, 'error': 'No data'}
-
-        dates, rz, rq, total, buys = [], [], [], [], []
-        for _, row in df.iterrows():
-            d = str(row['信用交易日期'])
-            d = d[:4] + '-' + d[4:6] + '-' + d[6:8]
-            dates.insert(0, d[-5:])
-            rz.insert(0, round(float(row['融资余额']) / 1e8, 2))
-            rq.insert(0, round(float(row['融券余量金额']) / 1e8, 2))
-            total.insert(0, round(float(row['融资融券余额']) / 1e8, 2))
-            buys.insert(0, round(float(row['融资买入额']) / 1e8, 2))
-
-        latest = df.iloc[0]
-        return {
-            'success': True,
-            'data': {
-                'dates': dates, 'rz_balances': rz, 'rq_balances': rq, 'total_balances': total, 'buy_amounts': buys,
-                'latest_date': dates[-1] if dates else '',
-                'latest_rz': round(float(latest['融资余额']) / 1e8, 2),
-                'latest_rq': round(float(latest['融券余量金额']) / 1e8, 2),
-                'latest_total': round(float(latest['融资融券余额']) / 1e8, 2),
-            }
-        }
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
+    """融资融券：沪市每日数据（数据由后台轮询线程每日更新，此处仅读缓存）"""
+    cached = _cache.get(_MARGIN_KEY)
+    if cached:
+        return cached[0]
+    return {'success': False, 'error': '暂无融资融券数据'}

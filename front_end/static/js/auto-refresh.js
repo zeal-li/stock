@@ -11,6 +11,8 @@ function isInTradingHours() {
     // 09:00-11:40, 12:50-15:30
 }
 
+var _lastMinuteRefresh = 0;  // 上次分时/资金流刷新的时间戳（ms）
+
 async function refreshRealtimeData() {
     if (!isInTradingHours()) return;
 
@@ -43,6 +45,8 @@ async function refreshRealtimeData() {
             }
             }
 
+            var _doMinuteRefresh = Date.now() - _lastMinuteRefresh >= 60000;
+            if (_doMinuteRefresh) {
             const minRes = await fetch('/api/sh000001-minute');
             const minData = await minRes.json();
             if (minuteChart && minData.success && minData.data.times && fullMinuteSlots.length > 0) {
@@ -60,7 +64,9 @@ async function refreshRealtimeData() {
                 minuteChart.data.datasets[0].backgroundColor = (ctx => { const g = ctx.chart.ctx.createLinearGradient(0,0,0,180); g.addColorStop(0, isUp2 ? 'rgba(233,69,96,0.2)' : 'rgba(74,222,128,0.2)'); g.addColorStop(1, 'rgba(26,26,46,0)'); return g; });
                 minuteChart.update('none');
             }
+            }
 
+            if (_doMinuteRefresh) {
             const turnoverRes = await fetch('/api/turnover-minute');
             const turnoverData = await turnoverRes.json();
             if (turnoverData.success && turnoverData.data.header && turnoverData.data.header.turnover) {
@@ -77,7 +83,9 @@ async function refreshRealtimeData() {
                     elChange.style.color = tChange >= 0 ? '#e94560' : '#4ade80';
                 }
             }
+            }
 
+            if (_doMinuteRefresh) {
             const flowRes = await fetch('/api/market-fund-flow');
             const flowData = await flowRes.json();
             if (turnoverChart && flowData.success && flowData.data.times && fullFlowSlots.length > 0) {
@@ -101,6 +109,8 @@ async function refreshRealtimeData() {
                     elFlow.style.color = totalFlow >= 0 ? '#e94560' : '#4ade80';
                 }
             }
+            }
+            if (_doMinuteRefresh) _lastMinuteRefresh = Date.now();
 
             const fearRes = await fetch('/api/fear-index');
             const fearData = await fearRes.json();
