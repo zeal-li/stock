@@ -145,9 +145,8 @@ def stock_quotes():
         url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
         params = {
             'fltt': 2, 'invt': 2,
-            # f9=动态市盈率(原PE), f115=市盈率TTM(滚动市盈率,同花顺默认), f162=静态市盈率
-            # f15=最高, f16=最低, f17=今开, f18=昨收, f38=总股本, f39=流通股本
-            'fields': 'f2,f3,f4,f5,f6,f7,f8,f9,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f38,f39,f115,f162',
+            # f115=市盈率TTM(滚动市盈率), f15=最高, f16=最低, f17=今开, f18=昨收, f38=总股本, f39=流通股本
+            'fields': 'f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f38,f39,f115',
             'secids': secids,
             'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
         }
@@ -163,8 +162,8 @@ def stock_quotes():
             if row.get('f12'):
                 # ETF 价格/涨跌额显示三位小数
                 is_etf = _is_etf(row.get('f12'), row.get('f13'))
-                # PE TTM(滚动市盈率)优先,更稳定,与同花顺一致;若没有则用动态市盈率(f9)
-                pe = row.get('f115')  # 只取 TTM
+                # 只取滚动市盈率TTM(f115)，没有则显示-
+                pe = row.get('f115')
                 result[key] = {
                     'name': row.get('f14', ''),
                     'price': _fmt(row.get('f2'), is_etf),

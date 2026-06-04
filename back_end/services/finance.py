@@ -10,7 +10,7 @@ HEADERS = {
 
 
 def _get_goodwill_rate(code):
-    """获取单只股票最新商誉率（商誉/净资产 %）"""
+    """获取单只股票最新商誉率（商誉/净资产 %），失败返回 None"""
     prefix = 'SH' if code.startswith(('6', '9')) else 'SZ'
     symbol = f"{prefix}{code}"
     try:
@@ -21,7 +21,7 @@ def _get_goodwill_rate(code):
         )
         dates = (r.json().get('data') or [])
         if not dates:
-            return 0
+            return None
         latest_date = dates[0]['REPORT_DATE'].split(' ')[0]
 
         r = requests.get(
@@ -32,19 +32,19 @@ def _get_goodwill_rate(code):
         )
         rows = (r.json().get('data') or [])
         if not rows:
-            return 0
+            return None
         row = rows[0]
         goodwill = float(row.get('GOODWILL') or 0)
         total_equity = float(row.get('TOTAL_EQUITY') or 0)
         if total_equity:
             return round(goodwill / total_equity * 100, 2)
-        return 0
+        return None
     except Exception:
-        return 0
+        return None
 
 
 def _get_pledge_rate(code):
-    """获取单只股票最新质押比例（%）"""
+    """获取单只股票最新质押比例（%），失败返回 None"""
     try:
         r = requests.get(
             "https://datacenter-web.eastmoney.com/api/data/v1/get",
@@ -63,10 +63,10 @@ def _get_pledge_rate(code):
         data = r.json()
         rows = (data.get('result') or {}).get('data') or []
         if not rows:
-            return 0
+            return None
         return round(float(rows[0].get('PLEDGE_RATIO', 0)), 2)
     except Exception:
-        return 0
+        return None
 
 
 def _get_ratios(code):
@@ -90,5 +90,5 @@ def get_goodwill(codes):
             try:
                 result[code] = future.result()
             except Exception:
-                result[code] = {'gw': 0, 'pld': 0}
+                result[code] = {'gw': None, 'pld': None}
     return result

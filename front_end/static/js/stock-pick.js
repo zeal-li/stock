@@ -206,7 +206,7 @@ async function refreshPickedQuotes() {
                     s.float_cap = q.float_cap || '-';
                 }
             }
-            renderPicked();
+            updatePickedPrices();  // 仅更新价格列，不重建整个表格
         }
     } catch(e) { console.log('报价刷新失败:', e); }
 }
@@ -223,7 +223,7 @@ async function refreshGoodwill() {
                 s.goodwill = gwMap[s.code]; hitCount++;
             }
         }
-        if (hitCount > 0) renderPicked();
+        if (hitCount > 0) updatePickedGoodwill();
     }
 
     // 只请求未缓存的
@@ -240,16 +240,28 @@ async function refreshGoodwill() {
                 }
             }
             saveCache();
-            renderPicked();
+            updatePickedGoodwill();
         }
     } catch(e) { console.log('商誉/质押加载失败:', e); }
 }
 
 function _fmtRate(v) {
-    if (v == null || v === '' || v === '-' || v === 0) return '-';
+    if (v == null || v === '') return '-';  // null=无数据，显示-
     const n = parseFloat(v);
-    if (isNaN(n) || n === 0) return '-';
-    return n.toFixed(2) + '%';
+    if (isNaN(n)) return '-';
+    return n.toFixed(2) + '%';  // 0 也正常显示 0.00%
+}
+
+function _chgColor(chg) {
+    return (chg || '').startsWith('+') || parseFloat(chg) > 0 ? '#e94560' : (chg || '').startsWith('-') || parseFloat(chg) < 0 ? '#4ade80' : '#888';
+}
+
+function _chgText(chg, pct) {
+    return (chg !== '-' && pct !== '-') ? `${chg} (${pct})` : chg;
+}
+
+function _pairText(a, b) {
+    return a !== '-' && b !== '-' ? a + '/' + b : a;
 }
 
 function renderPicked() {
@@ -258,26 +270,57 @@ function renderPicked() {
     let html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>PE(TTM)/PB</th><th>商誉率/质押率</th><th></th></tr></thead><tbody>';
     pickedStocks.forEach(s => {
         const type = getStockType(s.code, s.market);
-        const chg = s.change || '-';
-        const pct = s.pct || '-';
-        const isUp = chg.startsWith('+') || parseFloat(chg) > 0;
-        const isDown = chg.startsWith('-') || parseFloat(chg) < 0;
-        const color = isUp ? '#e94560' : isDown ? '#4ade80' : '#888';
-        const chgText = (chg !== '-' && pct !== '-') ? `${chg} (${pct})` : chg;
-        html += `<tr>
+        const color = _chgColor(s.change);
+        const chgText = _chgText(s.change, s.pct);
+        html += `<tr data-code="${s.code}">
             <td><span style="color:#888;">${s.code}</span></td>
             <td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open('${s.code}','${s.market}','${s.name}')">${s.name}</span></td>
             <td><span style="color:#555;">${type}</span></td>
-            <td><span style="color:${color};font-weight:bold;">${s.price}</span></td>
-            <td><span style="color:${color};">${chgText}</span></td>
-            <td><span style="color:#ddd;">${s.volume !== '-' && s.amount !== '-' ? s.volume + '/' + s.amount : s.volume}</span></td>
-            <td><span style="color:#ddd;">${s.total_cap !== '-' && s.float_cap !== '-' ? s.total_cap + '/' + s.float_cap : s.total_cap}</span></td>
-            <td><span style="color:#ddd;">${s.turnover !== '-' && s.amplitude !== '-' ? s.turnover + '/' + s.amplitude : s.turnover}</span></td>
-            <td><span style="color:#ddd;">${s.pe + '/' + s.pb}</span></td>
-            <td><span style="color:#ddd;">${s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-'}</span></td>
+            <td class="cell-price"><span style="color:${color};font-weight:bold;">${s.price}</span></td>
+            <td class="cell-chg"><span style="color:${color};">${chgText}</span></td>
+            <td class="cell-vol"><span style="color:#ddd;">${_pairText(s.volume, s.amount)}</span></td>
+            <td class="cell-cap"><span style="color:#ddd;">${_pairText(s.total_cap, s.float_cap)}</span></td>
+            <td class="cell-to"><span style="color:#ddd;">${_pairText(s.turnover, s.amplitude)}</span></td>
+            <td class="cell-pepb"><span style="color:#ddd;">${s.pe + '/' + s.pb}</span></td>
+            <td class="cell-gw"><span style="color:#ddd;">${s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-'}</span></td>
             <td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="removePicked('${s.code}')">&times;</span></td>
         </tr>`;
     });
     html += '</tbody></table></div>';
     div.innerHTML = html;
+}
+
+// 增量更新：仅刷新价格相关列（避免全量 innerHTML 重建，消除闪烁）
+function updatePickedPrices() {
+    pickedStocks.forEach(s => {
+        const row = document.querySelector(`tr[data-code="${s.code}"]`);
+        if (!row) return;
+        // 名称（首次获取后更新）
+        const nameEl = row.cells[1] && row.cells[1].querySelector('span');
+        if (nameEl && s.name !== '-' && nameEl.textContent !== s.name) nameEl.textContent = s.name;
+        // 价格 + 涨跌
+        const color = _chgColor(s.change);
+        _setCell(row, 'cell-price', s.price, color);
+        _setCell(row, 'cell-chg', _chgText(s.change, s.pct), color);
+        // 成交/市值/换手/PE
+        _setCell(row, 'cell-vol', _pairText(s.volume, s.amount), '#ddd');
+        _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
+        _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
+        _setCell(row, 'cell-pepb', s.pe + '/' + s.pb, '#ddd');
+    });
+}
+
+// 增量更新：仅刷新商誉/质押列
+function updatePickedGoodwill() {
+    pickedStocks.forEach(s => {
+        const row = document.querySelector(`tr[data-code="${s.code}"]`);
+        _setCell(row, 'cell-gw', s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-', '#ddd');
+    });
+}
+
+function _setCell(row, cls, text, color) {
+    const td = row && row.querySelector('.' + cls);
+    if (!td) return;
+    const span = td.querySelector('span');
+    if (span) { span.textContent = text; span.style.color = color; }
 }

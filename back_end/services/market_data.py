@@ -359,36 +359,25 @@ def _fetch_and_cache_margin():
 
 
 def _fetch_and_cache_daily_closes():
-    """抓取沪深指数30天日K收盘价并写入缓存（push2his 需走系统代理）"""
-    import os as _os3
-    _old_no = _os3.environ.pop('no_proxy', None)
-    _old_NO = _os3.environ.pop('NO_PROXY', None)
+    """抓取沪深指数30天日K收盘价并写入缓存（使用腾讯接口）"""
     try:
         result = {}
         for symbol in ['sh000001', 'sz399001']:
-            code = '0.' + symbol[2:] if symbol.startswith('sz') else '1.' + symbol[2:]
-            today = datetime.date.today().strftime('%Y%m%d')
-            ago = (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y%m%d')
-            url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-            params = {
-                'secid': code,
-                'fields1': 'f1,f2,f3,f4,f5,f6',
-                'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
-                'klt': 101, 'fqt': 0,
-                'beg': ago, 'end': today,
-                'ut': _EM_UT,
-            }
-            r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10)
-            klines = (r.json().get('data') or {}).get('klines') or []
-            closes = [float(k.split(',')[2]) for k in klines if len(k.split(',')) >= 3]
+            param_val = f"{symbol},day,,,30,qfq"
+            r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+                params={'param': param_val},
+                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
+                timeout=10, proxies=REQUEST_PROXIES,
+            )
+            jd = r.json()
+            jd_data = (jd.get('data') or {}).get(symbol, {})
+            day_rows = jd_data.get('day') or jd_data.get('qfqday') or []
+            closes = [float(row[2]) for row in day_rows if len(row) >= 3]
             result[symbol] = closes
         _cache[_DAILY_CLOSES_KEY] = (result, datetime.date.today().strftime('%Y-%m-%d'))
         return True
     except Exception as e:
         print(f"[daily-closes poller] fetch error: {e}")
-    finally:
-        if _old_no is not None: _os3.environ['no_proxy'] = _old_no
-        if _old_NO is not None: _os3.environ['NO_PROXY'] = _old_NO
     return False
 
 
