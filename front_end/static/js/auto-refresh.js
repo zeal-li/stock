@@ -12,6 +12,7 @@ function isInTradingHours() {
 }
 
 var _lastMinuteRefresh = 0;  // 上次分时/资金流刷新的时间戳（ms）
+var _lastMarginDate = '';     // 上次融资融券刷新的日期
 
 async function refreshRealtimeData() {
     if (!isInTradingHours()) return;
@@ -111,6 +112,22 @@ async function refreshRealtimeData() {
             }
             }
             if (_doMinuteRefresh) _lastMinuteRefresh = Date.now();
+
+            // 融资融券：每天刷新一次
+            var _todayStr = new Date().toISOString().slice(0, 10);
+            if (_todayStr !== _lastMarginDate) {
+                _lastMarginDate = _todayStr;
+                const marginRes = await fetch('/api/margin-trading');
+                const marginData = await marginRes.json();
+                if (marginChart && marginData.success && marginData.data.dates) {
+                    marginChart.data.labels = marginData.data.dates;
+                    marginChart.data.datasets[0].data = marginData.data.total_balances;
+                    marginChart.data.datasets[1].data = marginData.data.rz_balances;
+                    marginChart.data.datasets[2].data = marginData.data.rq_balances;
+                    marginChart.data.datasets[3].data = marginData.data.buy_amounts;
+                    marginChart.update('none');
+                }
+            }
 
             const fearRes = await fetch('/api/fear-index');
             const fearData = await fearRes.json();

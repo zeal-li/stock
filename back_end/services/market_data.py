@@ -36,6 +36,7 @@ _SH_MINUTE_KEY = 'sh_minute'
 _FUND_FLOW_KEY = 'fund_flow'
 _TURNOVER_MINUTE_KEY = 'turnover_minute'
 _MARGIN_KEY = 'margin_trading'
+_DAILY_CLOSES_KEY = 'daily_closes'
 
 def _is_trading_time():
     """判断当前是否在A股交易时段（周一至周五 09:15-11:35, 12:55-15:05）"""
@@ -357,6 +358,40 @@ def _fetch_and_cache_margin():
     return False
 
 
+def _fetch_and_cache_daily_closes():
+    """抓取沪深指数30天日K收盘价并写入缓存（push2his 需走系统代理）"""
+    import os as _os3
+    _old_no = _os3.environ.pop('no_proxy', None)
+    _old_NO = _os3.environ.pop('NO_PROXY', None)
+    try:
+        result = {}
+        for symbol in ['sh000001', 'sz399001']:
+            code = '0.' + symbol[2:] if symbol.startswith('sz') else '1.' + symbol[2:]
+            today = datetime.date.today().strftime('%Y%m%d')
+            ago = (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y%m%d')
+            url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            params = {
+                'secid': code,
+                'fields1': 'f1,f2,f3,f4,f5,f6',
+                'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+                'klt': 101, 'fqt': 0,
+                'beg': ago, 'end': today,
+                'ut': _EM_UT,
+            }
+            r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10)
+            klines = (r.json().get('data') or {}).get('klines') or []
+            closes = [float(k.split(',')[2]) for k in klines if len(k.split(',')) >= 3]
+            result[symbol] = closes
+        _cache[_DAILY_CLOSES_KEY] = (result, datetime.date.today().strftime('%Y-%m-%d'))
+        return True
+    except Exception as e:
+        print(f"[daily-closes poller] fetch error: {e}")
+    finally:
+        if _old_no is not None: _os3.environ['no_proxy'] = _old_no
+        if _old_NO is not None: _os3.environ['NO_PROXY'] = _old_NO
+    return False
+
+
 def _background_poller():
     """后台线程：启动时立即抓取，之后交易时段按不同频率自动抓取"""
     # 启动时立即抓取一次
@@ -366,6 +401,7 @@ def _background_poller():
     _fetch_and_cache_fund_flow()
     _fetch_and_cache_turnover()
     _fetch_and_cache_margin()
+    _fetch_and_cache_daily_closes()
 
     _loop_count = 0
     while True:
@@ -379,11 +415,14 @@ def _background_poller():
                     _fetch_and_cache_sh_minute()
                     _fetch_and_cache_fund_flow()
                     _fetch_and_cache_turnover()
-                    # 融资融券：每天只抓一次（跨天后自动更新）
+                    # 融资融券+日K：每天只抓一次（跨天后自动更新）
                     _today_str = datetime.date.today().strftime('%Y-%m-%d')
                     _cached_margin = _cache.get(_MARGIN_KEY)
                     if not _cached_margin or _cached_margin[1] != _today_str:
                         _fetch_and_cache_margin()
+                    _cached_closes = _cache.get(_DAILY_CLOSES_KEY)
+                    if not _cached_closes or _cached_closes[1] != _today_str:
+                        _fetch_and_cache_daily_closes()
         except Exception:
             pass
 
@@ -410,7 +449,11 @@ def get_sh000001_minute_data():
 
 
 def get_market_fund_flow():
-    """大盘资金净流入分时（数据由后台轮询线程每分钟更新，此处仅读缓存）"""
+    """大盘资金净流入分时（优先读缓存，缓存空时同步抓取）"""
+    cached = _cache.get(_FUND_FLOW_KEY)
+    if cached:
+        return cached[0]
+    _fetch_and_cache_fund_flow()
     cached = _cache.get(_FUND_FLOW_KEY)
     if cached:
         return cached[0]
@@ -575,19 +618,14 @@ def _fetch_idx_changes():
 
 
 def _fetch_sz_intraday():
-    """东财获取深证成指日内涨跌"""
-    try:
-        url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get?secid=0.399001&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1"
-        r = requests.get(url, headers=_EM_HEADERS, timeout=8, proxies=REQUEST_PROXIES)
-        data = r.json()
-        if data.get('rc') == 0:
-            sd = data['data']
-            prices = [float(t.split(',')[1]) for t in sd.get('trends', []) if len(t.split(',')) >= 2 and t.split(',')[0].split(' ')[-1] >= '09:30']
-            pre = sd.get('preClose', 0)
-            if prices and pre:
-                return round((prices[-1] - pre) / pre * 100, 2)
-    except Exception:
-        pass
+    """获取深证成指日内涨跌（从大盘行情缓存读取）"""
+    major_cached = _cache.get(_MAJOR_INDICES_KEY)
+    if major_cached and major_cached[0].get('success') and len(major_cached[0]['data']) > 1:
+        chg_str = major_cached[0]['data'][1].get('change', '0%')
+        try:
+            return float(chg_str.replace('%', ''))
+        except (ValueError, AttributeError):
+            pass
     return 0.0
 
 
@@ -713,27 +751,11 @@ def _fetch_margin():
 
 
 def _fetch_daily_closes(symbol):
-    """东财获取日线收盘价"""
-    try:
-        code = '1.' + symbol[2:]  # sh000001 → 1.000001, sz399001 → 0.399001
-        if symbol.startswith('sz'):
-            code = '0.' + symbol[2:]
-        today = datetime.date.today().strftime('%Y%m%d')
-        ago = (datetime.date.today() - datetime.timedelta(days=30)).strftime('%Y%m%d')
-        url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-        params = {
-            'secid': code,
-            'fields1': 'f1,f2,f3,f4,f5,f6',
-            'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
-            'klt': 101, 'fqt': 0,
-            'beg': ago, 'end': today,
-            'ut': _EM_UT,
-        }
-        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=8, proxies=REQUEST_PROXIES)
-        klines = (r.json().get('data') or {}).get('klines') or []
-        return [float(k.split(',')[2]) for k in klines if len(k.split(',')) >= 3]
-    except Exception:
-        return []
+    """获取日线收盘价（从后台缓存读取，不发起网络请求）"""
+    cached = _cache.get(_DAILY_CLOSES_KEY)
+    if cached:
+        return cached[0].get(symbol, [])
+    return []
 
 
 def _calc_trend(sh_c, sz_c):
