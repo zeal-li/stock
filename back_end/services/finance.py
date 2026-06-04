@@ -7,6 +7,10 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     'Referer': 'https://emweb.securities.eastmoney.com/',
 }
+PLEDGE_HEADERS = {
+    'User-Agent': HEADERS['User-Agent'],
+    'Referer': 'https://data.eastmoney.com/',
+}
 
 
 def _get_goodwill_rate(code):
@@ -43,52 +47,62 @@ def _get_goodwill_rate(code):
         return None
 
 
-def _get_pledge_rate(code):
-    """获取单只股票最新质押比例（%），失败返回 None"""
+def _get_pledge_rates(codes):
+    """批量获取质押率，一次请求查全部股票"""
+    if not codes:
+        return {}
     try:
+        # 用 IN 语法批量查询
+        code_list = ','.join(f'"{c}"' for c in codes)
         r = requests.get(
             "https://datacenter-web.eastmoney.com/api/data/v1/get",
             params={
                 "reportName": "RPT_CSDC_LIST",
-                "columns": "PLEDGE_RATIO",
-                "filter": f'(SECURITY_CODE="{code}")',
-                "pageSize": 1,
+                "columns": "SECURITY_CODE,PLEDGE_RATIO",
+                "filter": f'(SECURITY_CODE in ({code_list}))',
+                "pageSize": len(codes),
                 "sortColumns": "TRADE_DATE",
                 "sortTypes": "-1",
             },
-            headers={'User-Agent': HEADERS['User-Agent'],
-                     'Referer': 'https://data.eastmoney.com/'},
-            timeout=10, proxies=REQUEST_PROXIES,
+            headers=PLEDGE_HEADERS, timeout=10, proxies=REQUEST_PROXIES,
         )
         data = r.json()
         rows = (data.get('result') or {}).get('data') or []
-        if not rows:
-            return None
-        return round(float(rows[0].get('PLEDGE_RATIO', 0)), 2)
+        result = {}
+        for row in rows:
+            code = row.get('SECURITY_CODE', '')
+            rate = row.get('PLEDGE_RATIO')
+            if code and rate is not None:
+                result[code] = round(float(rate), 2)
+        return result
     except Exception:
-        return None
-
-
-def _get_ratios(code):
-    """获取单只股票的商誉率和质押率（并行内部两请求）"""
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        f_gw = pool.submit(_get_goodwill_rate, code)
-        f_pl = pool.submit(_get_pledge_rate, code)
-        return {
-            'gw': f_gw.result(),
-            'pld': f_pl.result(),
-        }
+        return {}
 
 
 def get_goodwill(codes):
-    """批量获取商誉率+质押率，5线程并行"""
-    result = {}
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(_get_ratios, code): code for code in codes}
+    """批量获取商誉率+质押率：商誉逐股并行，质押批量一次查"""
+    if not codes:
+        return {}
+
+    # 并行请求所有商誉率
+    gw_map = {}
+    with ThreadPoolExecutor(max_workers=min(len(codes), 10)) as pool:
+        futures = {pool.submit(_get_goodwill_rate, c): c for c in codes}
         for future in as_completed(futures):
             code = futures[future]
             try:
-                result[code] = future.result()
+                gw_map[code] = future.result()
             except Exception:
-                result[code] = {'gw': None, 'pld': None}
+                gw_map[code] = None
+
+    # 批量请求质押率
+    pl_map = _get_pledge_rates(codes)
+
+    # 合并结果
+    result = {}
+    for code in codes:
+        result[code] = {
+            'gw': gw_map.get(code),
+            'pld': pl_map.get(code),
+        }
     return result

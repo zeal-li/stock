@@ -125,27 +125,31 @@ function loadCache() {
     } catch(e) { return null; }
 }
 
-function loadPickedStocks() {
-    try {
-        // 优先读取新版统一缓存
-        let stocks = null;
-        const raw = JSON.parse(localStorage.getItem('stockCache') || 'null');
-        if (raw && raw.stocks) {
-            const expired = raw.date !== getToday(); // 跨天→财务数据失效，但股票列表保留
-            stocks = raw.stocks.map(s => ({
-        code: s.code, name: s.code, market: s.market,
+// 股票对象工厂（默认值均为 '-'）
+function createStock(code, name, market, goodwill) {
+    return { code, name, market, goodwill: goodwill || null,
         price: '-', pct: '-', change: '-', pe: '-', pb: '-',
         high: '-', low: '-', open: '-', pre_close: '-',
         total_shares: '-', float_shares: '-',
         turnover: '-', amplitude: '-', volume: '-', amount: '-',
         total_cap: '-', float_cap: '-',
-        goodwill: (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null,
-    }));
+    };
+}
+
+function loadPickedStocks() {
+    try {
+        let stocks = null;
+        const raw = JSON.parse(localStorage.getItem('stockCache') || 'null');
+        if (raw && raw.stocks) {
+            const expired = raw.date !== getToday();
+            stocks = raw.stocks.map(s => createStock(s.code, s.code, s.market,
+                (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null
+            ));
         }
         // 兼容旧格式
         if (!stocks) {
             const saved = JSON.parse(localStorage.getItem('pickedStocks') || '[]');
-            stocks = saved.map(s => ({ code: s.code, name: s.code, market: s.market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', high: '-', low: '-', open: '-', pre_close: '-', total_shares: '-', float_shares: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null }));
+            stocks = saved.map(s => createStock(s.code, s.code, s.market));
             localStorage.removeItem('pickedStocks');
             localStorage.removeItem('financeCache');
         }
@@ -160,7 +164,7 @@ function loadPickedStocks() {
 
 async function pickStock(code, name, market) {
     if (pickedStocks.find(s => s.code === code)) return;
-    pickedStocks.push({ code, name, market, price: '-', pct: '-', change: '-', pe: '-', pb: '-', high: '-', low: '-', open: '-', pre_close: '-', total_shares: '-', float_shares: '-', turnover: '-', amplitude: '-', volume: '-', amount: '-', total_cap: '-', float_cap: '-', goodwill: null });
+    pickedStocks.push(createStock(code, name, market));
     saveCache();
     document.getElementById('searchInput').value = '';
     document.getElementById('searchResults').innerHTML = '';

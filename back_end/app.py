@@ -12,6 +12,7 @@ from services.market_data import (
 )
 from services.search import search_stock as do_search
 from services.finance import get_goodwill
+from services.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
 
 app = Flask(__name__, template_folder='../front_end/templates', static_folder='../front_end/static')
 CORS(app)
@@ -83,58 +84,6 @@ def goodwill():
 def search_stock():
     return jsonify(do_search(request.args.get('q', '')))
 
-def _is_etf(code, market):
-    """判断是否为ETF（沪市51xxxx，深市15xxxx）"""
-    c = str(code) if code else ''
-    m = str(market) if market else ''
-    if m in ('1', '2') and c[:2] == '51':
-        return True
-    if m == '0' and c[:2] == '15':
-        return True
-    return False
-
-def _fmt(v, is_etf=False):
-    if v is None or v == '-' or v == '': return '-'
-    try: return f"{float(v):.3f}" if is_etf else f"{float(v):.2f}"
-    except: return str(v)
-
-def _fmt_pct(v):
-    if v is None or v == '-' or v == '': return '-'
-    try: return f"{float(v):.2f}%"
-    except: return str(v)
-
-def _fmt_volume(v, market=None):
-    if v is None or v == '-' or v == '': return '-'
-    try:
-        v = float(v)
-        market = str(market) if market is not None else ''
-        # A股(沪0/1,深0,北90)成交量单位是手，1手=100股；港股美股等已是股
-        if market in ('0', '1', '2', '90'):
-            v *= 100
-        if v >= 1e8: return f"{v/1e8:.2f}亿股"
-        if v >= 1e4: return f"{v/1e4:.2f}万股"
-        return f"{v:.0f}股"
-    except: return str(v)
-
-def _fmt_amount(v):
-    if v is None or v == '-' or v == '': return '-'
-    try:
-        v = float(v)
-        if v >= 1e8: return f"{v/1e8:.2f}亿"
-        if v >= 1e4: return f"{v/1e4:.2f}万"
-        return f"{v:.0f}"
-    except: return str(v)
-
-def _fmt_cap(v):
-    if v is None or v == '-' or v == '': return '-'
-    try:
-        v = float(v)
-        if v >= 1e12: return f"{v/1e12:.2f}万亿"
-        if v >= 1e8: return f"{v/1e8:.2f}亿"
-        return f"{v/1e4:.2f}万"
-    except: return str(v)
-
-
 @app.route('/api/stock-quotes')
 def stock_quotes():
     """批量获取股票实时行情"""
@@ -161,30 +110,30 @@ def stock_quotes():
             key = f"{row.get('f13', '')}.{row.get('f12', '')}"
             if row.get('f12'):
                 # ETF 价格/涨跌额显示三位小数
-                is_etf = _is_etf(row.get('f12'), row.get('f13'))
+                etf = is_etf(row.get('f12'), row.get('f13'))
                 # 只取滚动市盈率TTM(f115)，没有则显示-
                 pe = row.get('f115')
                 result[key] = {
                     'name': row.get('f14', ''),
-                    'price': _fmt(row.get('f2'), is_etf),
-                    'pct': _fmt_pct(row.get('f3')),
-                    'change': _fmt(row.get('f4'), is_etf),
-                    'volume': _fmt_volume(row.get('f5'), row.get('f13')),
-                    'amount': _fmt_amount(row.get('f6')),
+                    'price': fmt(row.get('f2'), etf),
+                    'pct': fmt_pct(row.get('f3')),
+                    'change': fmt(row.get('f4'), etf),
+                    'volume': fmt_volume(row.get('f5'), row.get('f13')),
+                    'amount': fmt_amount(row.get('f6')),
                     'amount_raw': row.get('f6'),
-                    'amplitude': _fmt_pct(row.get('f7')),
-                    'turnover': _fmt_pct(row.get('f8')),
+                    'amplitude': fmt_pct(row.get('f7')),
+                    'turnover': fmt_pct(row.get('f8')),
                     'turnover_raw': row.get('f8'),
-                    'pe': _fmt(pe),
-                    'pb': _fmt(row.get('f23')),
-                    'high': _fmt(row.get('f15'), is_etf),
-                    'low': _fmt(row.get('f16'), is_etf),
-                    'open': _fmt(row.get('f17'), is_etf),
-                    'pre_close': _fmt(row.get('f18'), is_etf),
-                    'total_cap': _fmt_cap(row.get('f20')),
-                    'float_cap': _fmt_cap(row.get('f21')),
-                    'total_shares': _fmt_cap(row.get('f38')),
-                    'float_shares': _fmt_cap(row.get('f39')),
+                    'pe': fmt(pe),
+                    'pb': fmt(row.get('f23')),
+                    'high': fmt(row.get('f15'), etf),
+                    'low': fmt(row.get('f16'), etf),
+                    'open': fmt(row.get('f17'), etf),
+                    'pre_close': fmt(row.get('f18'), etf),
+                    'total_cap': fmt_cap(row.get('f20')),
+                    'float_cap': fmt_cap(row.get('f21')),
+                    'total_shares': fmt_cap(row.get('f38')),
+                    'float_shares': fmt_cap(row.get('f39')),
                 }
         return jsonify({'success': True, 'data': result})
     except Exception as e:
