@@ -2,7 +2,10 @@
 
 // 清除所有本地缓存数据
 function clearAllCaches() {
-    try { localStorage.removeItem('kl_cache'); } catch(e) {}
+    try {
+        localStorage.removeItem('kl_cache');
+        localStorage.removeItem('watchlistCache');
+    } catch(e) {}
 }
 
 // ---- 各市场交易时间判断 ----

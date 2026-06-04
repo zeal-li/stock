@@ -70,7 +70,10 @@ var KlinePopup = (function() {
                         '<span id="klPrice" style="font-size:14px;"></span>' +
                         '<span id="klChange" style="font-size:13px;"></span>' +
                     '</div>' +
+                    '<div style="display:flex;align-items:center;gap:10px;">' +
+                    '<span id="klWatchlistBtn" style="cursor:pointer;font-size:13px;padding:0 6px;line-height:1;white-space:nowrap;" onclick="KlinePopup._toggleWatchlist()"></span>' +
                     '<span style="color:#666;font-size:20px;cursor:pointer;padding:0 6px;line-height:1;" onclick="KlinePopup.close()">✕</span>' +
+                    '</div>' +
                 '</div>' +
                 '<div id="klParams" style="padding:6px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:11px;color:#8b8b9e;">加载中...</div>' +
                 '<div id="klPeriodBar" style="display:none;padding:4px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;align-items:center;gap:6px;font-size:11px;color:#8b8b9e;">' +
@@ -1075,12 +1078,21 @@ var KlinePopup = (function() {
         return 0.10;
     }
 
+    function _updateWatchlistBtn() {
+        var btn = document.getElementById('klWatchlistBtn');
+        if (!btn) return;
+        var inList = (typeof watchlistStocks !== 'undefined') && watchlistStocks.some(function(s) { return s.code === _stockCode; });
+        btn.textContent = inList ? '🗑 删自选' : '⭐ 加自选';
+        btn.style.color = inList ? '#e94560' : '#fbbf24';
+    }
+
     function open(code, market, name, extra) {
         extra = extra || {};
         _stockCode = code;
         _stockMarket = market;
         _clearAllKlineCache();  // 跨天清全部K线缓存
         _currentPeriod = 'day';
+        _updateWatchlistBtn();
         _isMinute = false;
         // 重置周期按钮样式
         var pBtns = document.querySelectorAll('#klPeriodBar button[data-p]');
@@ -1213,5 +1225,5 @@ var KlinePopup = (function() {
         if (bar) bar.style.display = 'none';
     }
 
-    return { open: open, close: close, _switchIndicator: _switchIndicator, _toggleMinute: _toggleMinute, _switchPeriod: _switchPeriod };
+    return { open: open, close: close, _switchIndicator: _switchIndicator, _toggleMinute: _toggleMinute, _switchPeriod: _switchPeriod, _toggleWatchlist: function() { if (typeof watchlistStocks === 'undefined' || typeof watchlistPickStock !== 'function') return; var found = watchlistStocks.find(function(s) { return s.code === _stockCode; }); if (found) { watchlistRemoveStock(_stockCode); } else { watchlistPickStock(_stockCode, _stockMarket); } _updateWatchlistBtn(); }, _updateWatchlistBtn: _updateWatchlistBtn };
 })();

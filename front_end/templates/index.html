@@ -48,7 +48,7 @@
                     <h1 class="page-title">⭐ 自选股</h1>
                 </div>
                 <div class="index-card" style="padding:30px;">
-                    <div style="text-align:center; color:#666; padding:40px;">功能开发中...</div>
+                    <div id="watchlistStocks" style="margin-top:8px;"></div>
                 </div>
             </div>
 
@@ -118,6 +118,7 @@
     <script>
         loadAllData();
         loadPickedStocks();
+        loadWatchlistStocks();
         setInterval(refreshRealtimeData, 10000);
     </script>
 </body>

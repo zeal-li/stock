@@ -298,3 +298,158 @@ function _setCell(row, cls, text, color) {
     const span = td.querySelector('span');
     if (span) { span.textContent = text; span.style.color = color; }
 }
+
+// ==================== 自选股 ====================
+
+var watchlistStocks = [];
+
+function watchlistGetToday() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+
+function watchlistSaveCache() {
+    var stocks = watchlistStocks.map(function(s) { return { code: s.code, market: s.market, gw: s.goodwill ? s.goodwill.gw : undefined, pld: s.goodwill ? s.goodwill.pld : undefined }; });
+    localStorage.setItem('watchlistCache', JSON.stringify({ date: watchlistGetToday(), stocks: stocks }));
+}
+
+function watchlistLoadCache() {
+    try {
+        var raw = JSON.parse(localStorage.getItem('watchlistCache') || '{}');
+        if (raw.date !== watchlistGetToday()) return null;
+        return raw;
+    } catch(e) { return null; }
+}
+
+function loadWatchlistStocks() {
+    try {
+        var stocks = null;
+        var raw = JSON.parse(localStorage.getItem('watchlistCache') || 'null');
+        if (raw && raw.stocks) {
+            var expired = raw.date !== watchlistGetToday();
+            stocks = raw.stocks.map(function(s) { return createStock(s.code, s.code, s.market, (!expired && s.gw !== undefined && s.pld !== undefined) ? { gw: s.gw, pld: s.pld } : null); });
+        }
+        watchlistStocks = stocks || [];
+        if (watchlistStocks.length > 0) {
+            watchlistRender();
+            refreshWatchlistQuotes();
+            refreshWatchlistGoodwill();
+        }
+    } catch(e) { console.log('恢复自选股失败:', e); }
+}
+
+// ---- 增删 ----
+async function watchlistPickStock(code, market) {
+    if (watchlistStocks.find(function(s) { return s.code === code; })) return;
+    watchlistStocks.push(createStock(code, code, market));
+    watchlistSaveCache();
+    watchlistRender();
+    refreshWatchlistQuotes();
+    refreshWatchlistGoodwill();
+}
+
+function watchlistRemoveStock(code) {
+    watchlistStocks = watchlistStocks.filter(function(s) { return s.code !== code; });
+    watchlistSaveCache();
+    watchlistRender();
+}
+
+// ---- 行情刷新 ----
+async function refreshWatchlistQuotes() {
+    if (watchlistStocks.length === 0) return;
+    var secids = watchlistStocks.map(function(s) { return s.market + '.' + s.code; }).join(',');
+    try {
+        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(secids));
+        var data = await res.json();
+        if (data.success) {
+            watchlistStocks.forEach(function(s) {
+                var q = data.data[s.market + '.' + s.code];
+                if (q) {
+                    if (q.name) s.name = q.name;
+                    s.price = q.price || '-'; s.pct = q.pct || '-'; s.change = q.change || '-';
+                    s.pe = q.pe || '-'; s.pb = q.pb || '-';
+                    s.high = q.high || '-'; s.low = q.low || '-'; s.open = q.open || '-';
+                    s.pre_close = q.pre_close || '-';
+                    s.total_shares = q.total_shares || '-'; s.float_shares = q.float_shares || '-';
+                    s.amplitude = q.amplitude || '-'; s.turnover = q.turnover || '-';
+                    s.volume = q.volume || '-'; s.amount = q.amount || '-';
+                    s.total_cap = q.total_cap || '-'; s.float_cap = q.float_cap || '-';
+                }
+            });
+            watchlistUpdatePrices();
+        }
+    } catch(e) { console.log('自选股报价刷新失败:', e); }
+}
+
+async function refreshWatchlistGoodwill() {
+    var cache = watchlistLoadCache();
+    if (cache && cache.stocks) {
+        var gwMap = {};
+        cache.stocks.forEach(function(s) { gwMap[s.code] = { gw: s.gw, pld: s.pld }; });
+        var hitCount = 0;
+        watchlistStocks.forEach(function(s) {
+            if (gwMap[s.code] && gwMap[s.code].gw !== undefined) { s.goodwill = gwMap[s.code]; hitCount++; }
+        });
+        if (hitCount > 0) watchlistUpdateGoodwill();
+    }
+    var needCodes = watchlistStocks.filter(function(s) { return !s.goodwill; }).map(function(s) { return s.code; });
+    if (needCodes.length === 0) return;
+    try {
+        var res = await fetch('/api/goodwill?codes=' + encodeURIComponent(needCodes.join(',')));
+        var data = await res.json();
+        if (data.success) {
+            watchlistStocks.forEach(function(s) {
+                if (data.data[s.code]) { s.goodwill = data.data[s.code]; }
+            });
+            watchlistSaveCache();
+            watchlistUpdateGoodwill();
+        }
+    } catch(e) { console.log('自选股商誉/质押加载失败:', e); }
+}
+
+// ---- 渲染 ----
+function watchlistRender() {
+    var div = document.getElementById('watchlistStocks');
+    if (watchlistStocks.length === 0) { div.innerHTML = ''; return; }
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>PE(TTM)/PB</th><th>商誉率/质押率</th><th></th></tr></thead><tbody>';
+    watchlistStocks.forEach(function(s) {
+        var type = getStockType(s.code, s.market);
+        var color = _chgColor(s.change);
+        var chgText = _chgText(s.change, s.pct);
+        html += '<tr data-wcode="' + s.code + '">' +
+            '<td><span style="color:#888;">' + s.code + '</span></td>' +
+            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + s.market + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
+            '<td><span style="color:#555;">' + type + '</span></td>' +
+            '<td class="cell-price"><span style="color:' + color + ';font-weight:bold;">' + s.price + '</span></td>' +
+            '<td class="cell-chg"><span style="color:' + color + ';">' + chgText + '</span></td>' +
+            '<td class="cell-vol"><span style="color:#ddd;">' + _pairText(s.volume, s.amount) + '</span></td>' +
+            '<td class="cell-cap"><span style="color:#ddd;">' + _pairText(s.total_cap, s.float_cap) + '</span></td>' +
+            '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
+            '<td class="cell-pepb"><span style="color:#ddd;">' + s.pe + '/' + s.pb + '</span></td>' +
+            '<td class="cell-gw"><span style="color:#ddd;">' + (s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-') + '</span></td>' +
+            '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="watchlistRemoveStock(\'' + s.code + '\')">&times;</span></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    div.innerHTML = html;
+}
+
+function watchlistUpdatePrices() {
+    watchlistStocks.forEach(function(s) {
+        var row = document.querySelector('tr[data-wcode="' + s.code + '"]');
+        if (!row) return;
+        var nameEl = row.cells[1] && row.cells[1].querySelector('span');
+        if (nameEl && s.name !== '-' && nameEl.textContent !== s.name) { nameEl.textContent = s.name; nameEl.setAttribute('onclick', "KlinePopup.open('" + s.code + "','" + s.market + "','" + s.name + "')"); }
+        var color = _chgColor(s.change);
+        _setCell(row, 'cell-price', s.price, color);
+        _setCell(row, 'cell-chg', _chgText(s.change, s.pct), color);
+        _setCell(row, 'cell-vol', _pairText(s.volume, s.amount), '#ddd');
+        _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
+        _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
+        _setCell(row, 'cell-pepb', s.pe + '/' + s.pb, '#ddd');
+    });
+}
+
+function watchlistUpdateGoodwill() {
+    watchlistStocks.forEach(function(s) {
+        var row = document.querySelector('tr[data-wcode="' + s.code + '"]');
+        _setCell(row, 'cell-gw', s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-', '#ddd');
+    });
+}
