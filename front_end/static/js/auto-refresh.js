@@ -7,8 +7,8 @@ function isInTradingHours() {
     // 周六日不开市
     if (day === 0 || day === 6) return false;
     const t = now.getHours() * 60 + now.getMinutes();
-    return (t >= 540 && t <= 700) || (t >= 770 && t <= 930);
-    // 09:00-11:40, 12:50-15:30
+    return (t >= 555 && t <= 695) || (t >= 775 && t <= 905);
+    // 09:15-11:35, 12:55-15:05
 }
 
 var _lastMinuteRefresh = 0;  // 上次分时/资金流刷新的时间戳（ms）
@@ -182,8 +182,8 @@ async function refreshRealtimeData() {
         }
     } catch(e) { console.log('Auto refresh error:', e); }
 
-    // ---- 始终刷新：选股列表行情 ----
-    refreshPickedQuotes();
+    // ---- 选股页：刷新行情（仅选股页 + 交易时段） ----
+    if (currentNavPage === 'stock-pick') refreshPickedQuotes();
 }
 
 // 工具：按 id 更新文本，值为 null 时显示 '--'
