@@ -560,6 +560,7 @@ var KlinePopup = (function() {
 
     function _refreshMinuteData() {
         if (!_isMinute || !_minuteSeries) return;
+        if (typeof isInTradingHours === 'function' && !isInTradingHours()) return;
         fetch('/api/stock-minute?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket))
             .then(function(r) { return r.json(); })
             .then(function(d) {
