@@ -12,6 +12,7 @@ var KlinePopup = (function() {
     var _currentPeriod = 'day';  // day | week | month
     var _isMinute = false;       // 是否分时模式
     var _minuteTimer = null;
+    var _headerTimer = null;     // 头部行情刷新定时器
     var _minuteSeries = null;    // 分时面积图引用
     var _minuteAvgLine = null;   // 均价线引用
     var _minuteVolSeries = null; // 成交量柱引用
@@ -580,7 +581,7 @@ var KlinePopup = (function() {
 
         // 交易时段每10s刷新五日图
         if (_fiveDayTimer) clearInterval(_fiveDayTimer);
-        _fiveDayTimer = setInterval(_refreshFiveDayData, 10000);
+        _fiveDayTimer = setInterval(_refreshFiveDayData, 60000);
     }
 
     function _refreshFiveDayData() {
@@ -731,7 +732,7 @@ var KlinePopup = (function() {
 
         // 10秒刷新
         if (_minuteTimer) clearInterval(_minuteTimer);
-        _minuteTimer = setInterval(_refreshMinuteData, 10000);
+        _minuteTimer = setInterval(_refreshMinuteData, 60000);
     }
 
     function _refreshMinuteData() {
@@ -791,6 +792,31 @@ var KlinePopup = (function() {
                 }
             })
             .catch(function() {});
+    }
+
+    // 定时刷新头部行情（最新价/涨跌幅/成交量等），所有模式共用
+    function _refreshHeaderData() {
+        if (typeof isInTradingHours === 'function' && !isInTradingHours()) return;
+        var market = _stockMarket, code = _stockCode;
+        var secid = encodeURIComponent(market + '.' + code);
+        var pQuote = fetch('/api/stock-quotes?secids=' + secid)
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return (d.success && d.data[market + '.' + code]) || null; })
+            .catch(function() { return null; });
+        var pExtra = fetch('/api/stock-extra?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return (d.success ? d.data : null); })
+            .catch(function() { return null; });
+        Promise.all([pQuote, pExtra]).then(function(results) {
+            var quote = results[0];
+            if (!quote) return;
+            var extra = results[1];
+            if (extra) { quote.volume_ratio = extra.volume_ratio; quote.bid_ratio = extra.bid_ratio; }
+            // 合并缓存中的商誉
+            var cachedGw = _getCachedGoodwill();
+            if (cachedGw) quote.goodwill = cachedGw;
+            try { _fillHeader(quote); } catch(e) {}
+        });
     }
 
     // ---- 指标切换 ----
@@ -1158,11 +1184,15 @@ var KlinePopup = (function() {
             }
             document.getElementById('klPeriodBar').style.display = 'flex';
             document.getElementById('klIndBar').style.display = _klinesData ? 'flex' : 'none';
+            // 启动头部行情定时刷新
+            if (_headerTimer) clearInterval(_headerTimer);
+            _headerTimer = setInterval(_refreshHeaderData, 10000);
         });
     }
 
     function close() {
         _maybeClearCurrentKlines();
+        if (_headerTimer) { clearInterval(_headerTimer); _headerTimer = null; }
         if (_observer) { _observer.disconnect(); _observer = null; }
         if (_chart) { _chart.remove(); _chart = null; _series = null; _volSeries = null; }
         if (_overlay) _overlay.style.display = 'none';
