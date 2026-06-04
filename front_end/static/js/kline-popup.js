@@ -158,9 +158,84 @@ var KlinePopup = (function() {
             .catch(function() { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">请求失败</div>'; });
     }
 
+    // ---- K线数据缓存（localStorage，总结构体 kl_cache） ----
+    var KL_CACHE_KEY = 'kl_cache';
+
+    function _getAllKlineCache() {
+        try {
+            var raw = localStorage.getItem(KL_CACHE_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch(e) {}
+        return {};
+    }
+    function _saveAllKlineCache(cache) {
+        try { localStorage.setItem(KL_CACHE_KEY, JSON.stringify(cache)); } catch(e) {}
+    }
+    function _getCachedKlines(period) {
+        var all = _getAllKlineCache();
+        var stock = all[_stockCode];
+        return (stock && stock[period] && stock[period].length > 0) ? stock[period] : null;
+    }
+    function _setCachedKlines(period, data) {
+        var all = _getAllKlineCache();
+        if (!all[_stockCode]) all[_stockCode] = {};
+        all[_stockCode][period] = data;
+        _saveAllKlineCache(all);
+    }
+
+    // 跨天：删整个 kl_cache
+    function _clearAllKlineCache() {
+        try {
+            var today = new Date().toISOString().slice(0, 10);
+            var all = _getAllKlineCache();
+            if (all._date !== today) {
+                localStorage.removeItem(KL_CACHE_KEY);
+            }
+        } catch(e) {}
+    }
+
+    // 关闭弹窗时：开盘期间只清K线，商誉保留（变化慢，一天一次够用）
+    function _maybeClearCurrentKlines() {
+        if (typeof isInTradingHours === 'function' && isInTradingHours()) {
+            try {
+                var all = _getAllKlineCache();
+                if (all[_stockCode]) {
+                    delete all[_stockCode].day;
+                    delete all[_stockCode].week;
+                    delete all[_stockCode].month;
+                }
+                all._date = new Date().toISOString().slice(0, 10);
+                _saveAllKlineCache(all);
+            } catch(e) {}
+        }
+    }
+
+    // 商誉/质押缓存
+    function _getCachedGoodwill() {
+        var all = _getAllKlineCache();
+        var stock = all[_stockCode];
+        return (stock && stock.goodwill) ? stock.goodwill : null;
+    }
+    function _setCachedGoodwill(data) {
+        var all = _getAllKlineCache();
+        if (!all[_stockCode]) all[_stockCode] = {};
+        all[_stockCode].goodwill = data;
+        _saveAllKlineCache(all);
+    }
+
     function _loadKlineChart() {
         var chartEl = document.getElementById('klChart');
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
+
+        // 先查缓存
+        var cached = _getCachedKlines(_currentPeriod);
+        if (cached) {
+            _klinesData = cached;
+            try { _renderChart({klines: _klinesData}); var sel2 = document.getElementById('klIndSelect'); if (sel2) sel2.value = _indicatorMode; _updateIndVals(); }
+            catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
+            return;
+        }
+
         fetch('/api/stock-kline?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&period=' + _currentPeriod)
             .then(function(r) { return r.json(); })
             .then(function(kdata) {
@@ -169,6 +244,7 @@ var KlinePopup = (function() {
                     return;
                 }
                 _klinesData = kdata.data.klines;
+                _setCachedKlines(_currentPeriod, _klinesData);
                 try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _updateIndVals(); }
                 catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             })
@@ -877,6 +953,7 @@ var KlinePopup = (function() {
         extra = extra || {};
         _stockCode = code;
         _stockMarket = market;
+        _clearAllKlineCache();  // 跨天清全部K线缓存
         _currentPeriod = 'day';
         _isMinute = false;
         // 重置周期按钮样式
@@ -911,14 +988,28 @@ var KlinePopup = (function() {
             .then(function(d) { return (d.success && d.data[market + '.' + code]) || null; })
             .catch(function() { return null; });
 
-        var pKline = fetch('/api/stock-kline?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
-            .then(function(r) { return r.json(); })
-            .catch(function() { return { success: false }; });
+        var pKline;
+        var cachedDay = _getCachedKlines('day');
+        if (cachedDay) {
+            pKline = Promise.resolve({ success: true, data: { klines: cachedDay } });
+        } else {
+            pKline = fetch('/api/stock-kline?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
+                .then(function(r) { return r.json(); })
+                .then(function(kd) { if (kd.success && kd.data && kd.data.klines) _setCachedKlines('day', kd.data.klines); return kd; })
+                .catch(function() { return { success: false }; });
+        }
 
-        var pGoodwill = fetch('/api/goodwill?codes=' + encodeURIComponent(code))
-            .then(function(r) { return r.json(); })
-            .then(function(d) { return (d.success && d.data[code]) || null; })
-            .catch(function() { return null; });
+        var cachedGw = _getCachedGoodwill();
+        var pGoodwill = cachedGw
+            ? Promise.resolve(cachedGw)
+            : fetch('/api/goodwill?codes=' + encodeURIComponent(code))
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var gw = (d.success && d.data[code]) || null;
+                    if (gw) _setCachedGoodwill(gw);
+                    return gw;
+                })
+                .catch(function() { return null; });
 
         var pExtra = fetch('/api/stock-extra?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
             .then(function(r) { return r.json(); })
@@ -959,6 +1050,7 @@ var KlinePopup = (function() {
     }
 
     function close() {
+        _maybeClearCurrentKlines();
         if (_observer) { _observer.disconnect(); _observer = null; }
         if (_chart) { _chart.remove(); _chart = null; _series = null; _volSeries = null; }
         if (_overlay) _overlay.style.display = 'none';
