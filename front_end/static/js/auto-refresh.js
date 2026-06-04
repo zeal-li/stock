@@ -129,6 +129,7 @@ async function refreshRealtimeData() {
                 }
             }
 
+            if (_doMinuteRefresh) {
             const fearRes = await fetch('/api/fear-index');
             const fearData = await fearRes.json();
             if (fearData.success && fearData.data) {
@@ -152,7 +153,9 @@ async function refreshRealtimeData() {
                 const bDiv = document.getElementById('marketBreadth');
                 if (bDiv) bDiv.innerHTML = `涨<span style="color:#e94560;">${fd.rise}</span> 跌<span style="color:#4ade80;">${fd.fall}</span> 平<span style="color:#888;">${fd.flat}</span>`;
             }
+            }  // _doMinuteRefresh
 
+            if (_doMinuteRefresh) {
             const riskRes = await fetch('/api/risk-index');
             const riskData = await riskRes.json();
             if (riskData.success && riskData.data) {
@@ -175,6 +178,7 @@ async function refreshRealtimeData() {
                 _setText('risk-panic-score', rd.panic_score_in, v => v.toFixed(1) + '分');
                 _setText('risk-limit-score', rd.limit_score_in, v => v.toFixed(1) + '分');
             }
+            }  // _doMinuteRefresh
         }
     } catch(e) { console.log('Auto refresh error:', e); }
 

@@ -410,8 +410,8 @@ def _background_poller():
         try:
             if _is_trading_time():
                 _fetch_and_cache_major_indices()   # 每 5s
-                _fetch_and_cache_breadth()          # 每 5s
                 if _loop_count % 12 == 0:           # 每 60s（12×5s）
+                    _fetch_and_cache_breadth()
                     _fetch_and_cache_sh_minute()
                     _fetch_and_cache_fund_flow()
                     _fetch_and_cache_turnover()
@@ -463,7 +463,7 @@ def get_market_fund_flow():
 def get_fear_index():
     """市场恐慌指数：指数走势+日内分时+涨跌面+资金流 多因子加权 0-100"""
     cache_key = 'fear_index'
-    cached = _cached(cache_key)
+    cached = _cached(cache_key, 60)
     if cached is not None:
         return cached
 
@@ -640,7 +640,7 @@ def _fetch_breadth():
 def get_risk_index():
     """市场风险指数：融资杠杆+指数趋势+情绪面+涨跌结构 多因子加权 0-100"""
     cache_key = 'risk_index'
-    cached = _cached(cache_key)
+    cached = _cached(cache_key, 60)
     if cached is not None:
         return cached
 
