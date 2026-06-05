@@ -167,44 +167,63 @@
         });
 
         // ---- 技术选股 ----
+        var _techPollTimer = null;
+        function _techRenderTable(data) {
+            var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>价格</th><th>评分</th><th>通道上轨</th><th>通道下轨</th><th>位置%</th><th>通道宽%</th><th>量比</th></tr></thead><tbody>';
+            data.forEach(function(s) {
+                var d = s.detail || {};
+                var mk = String(s.code).match(/^(6|9)/) ? '1' : '0';
+                html += '<tr>' +
+                    '<td><span style="color:#888;">' + s.code + '</span></td>' +
+                    '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + mk + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
+                    '<td><span style="color:#ddd;">' + s.price + '</span></td>' +
+                    '<td><span style="color:#fbbf24;font-weight:bold;">' + s.score + '</span></td>' +
+                    '<td><span style="color:#ef5350;">' + d.upper + '</span></td>' +
+                    '<td><span style="color:#26a69a;">' + d.lower + '</span></td>' +
+                    '<td><span style="color:#ddd;">' + d.pos + '%</span></td>' +
+                    '<td><span style="color:#ddd;">' + d.channel_width_pct + '%</span></td>' +
+                    '<td><span style="color:#ddd;">' + d.vol_ratio + '</span></td>' +
+                '</tr>';
+            });
+            html += '</tbody></table></div>';
+            document.getElementById('techScreenResult').innerHTML = html;
+        }
         async function runTechScreen(type) {
             var status = document.getElementById('techScreenStatus');
-            var result = document.getElementById('techScreenResult');
             var btn = document.getElementById('techScreenBtn');
-            status.textContent = '正在扫描上升通道...';
+            if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
+            status.textContent = '启动扫描...';
             status.style.color = '#fbbf24';
             btn.disabled = true;
-            result.innerHTML = '';
             try {
-                var res = await fetch('/api/technical/ascending-channel');
+                var res = await fetch('/api/technical/ascending-channel', { method: 'POST' });
                 var data = await res.json();
-                if (!data.success) { status.textContent = data.error || '扫描失败'; status.style.color = '#e94560'; return; }
-                status.textContent = '共找到 ' + data.data.length + ' 只股票';
-                status.style.color = '#4ade80';
-                if (data.data.length === 0) return;
-                var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>价格</th><th>评分</th><th>通道上轨</th><th>通道下轨</th><th>位置%</th><th>通道宽%</th><th>量比</th></tr></thead><tbody>';
-                data.data.forEach(function(s) {
-                    var d = s.detail || {};
-                    var mk = String(s.code).match(/^(6|9)/) ? '1' : '0';
-                    html += '<tr>' +
-                        '<td><span style="color:#888;">' + s.code + '</span></td>' +
-                        '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + mk + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
-                        '<td><span style="color:#ddd;">' + s.price + '</span></td>' +
-                        '<td><span style="color:#fbbf24;font-weight:bold;">' + s.score + '</span></td>' +
-                        '<td><span style="color:#ef5350;">' + d.upper + '</span></td>' +
-                        '<td><span style="color:#26a69a;">' + d.lower + '</span></td>' +
-                        '<td><span style="color:#ddd;">' + d.pos + '%</span></td>' +
-                        '<td><span style="color:#ddd;">' + d.channel_width_pct + '%</span></td>' +
-                        '<td><span style="color:#ddd;">' + d.vol_ratio + '</span></td>' +
-                    '</tr>';
-                });
-                html += '</tbody></table></div>';
-                result.innerHTML = html;
+                if (!data.success) { status.textContent = data.error; status.style.color = '#e94560'; btn.disabled = false; return; }
+                _techPollTimer = setInterval(async function() {
+                    try {
+                        var pr = await fetch('/api/technical/ascending-channel/status');
+                        var pd = await pr.json();
+                        if (pd.running) {
+                            status.textContent = '扫描中... ' + pd.done + '/' + pd.total + ' | 已找到 ' + pd.results.length + ' 只';
+                        } else {
+                            clearInterval(_techPollTimer); _techPollTimer = null;
+                            status.textContent = '共找到 ' + pd.results.length + ' 只股票';
+                            status.style.color = '#4ade80';
+                            btn.disabled = false;
+                            if (pd.results.length > 0) _techRenderTable(pd.results);
+                        }
+                    } catch(e) {
+                        clearInterval(_techPollTimer); _techPollTimer = null;
+                        status.textContent = '状态查询出错';
+                        status.style.color = '#e94560';
+                        btn.disabled = false;
+                    }
+                }, 2000);
             } catch(e) {
                 status.textContent = '扫描出错: ' + e.message;
                 status.style.color = '#e94560';
+                btn.disabled = false;
             }
-            btn.disabled = false;
         }
 
     </script>

@@ -1,4 +1,5 @@
 """技术选股 — 上升通道本地扫描计算"""
+import os, json
 import requests
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -16,7 +17,7 @@ def _prefix(code):
 
 
 def _fetch_kline(code):
-    """获取单只股票日K线（前复权，最近120天），失败返回 None"""
+    """获取单只股票日K线 + 名称，失败返回 None"""
     try:
         p = _prefix(code)
         r = requests.get(
@@ -25,7 +26,9 @@ def _fetch_kline(code):
             headers=TX_HEADERS, timeout=8, proxies=REQUEST_PROXIES,
         )
         jd = r.json()
-        rows = (jd.get('data') or {}).get(f"{p}{code}", {}).get('day') or jd.get('data', {}).get(f"{p}{code}", {}).get('qfqday') or []
+        stock_data = (jd.get('data') or {}).get(f"{p}{code}", {})
+        name = stock_data.get('qt', {}).get(f"{p}{code}", [None])[1] or ''
+        rows = stock_data.get('day') or stock_data.get('qfqday') or []
         klines = []
         for row in rows:
             if len(row) >= 6:
@@ -34,7 +37,7 @@ def _fetch_kline(code):
                     'high': float(row[3]), 'low': float(row[4]),
                     'volume': float(row[5]),
                 })
-        return klines if klines else None
+        return (name, klines) if klines else None
     except Exception:
         return None
 
@@ -134,72 +137,108 @@ def _calc_ascending_channel(klines, lookback=60):
 
 
 def _get_stock_list():
-    """获取全市场A股股票列表（东方财富 clist，分页拉取全部）"""
-    all_stocks = []
-    page = 1
-    url = "https://push2.eastmoney.com/api/qt/clist/get"
-    params_base = {
-        'pn': 1, 'pz': 2000,
-        'po': 1, 'np': 1,
-        'fltt': 2, 'invt': 2,
-        'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',  # 深A+创业+沪A+科创
-        'fields': 'f2,f12,f14',
-        'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-    }
+    """获取A股股票列表：优先东财API，失败回退本地JSON"""
+    # 优先：东财 clist（返回名称+价格）
     try:
+        url = "https://push2.eastmoney.com/api/qt/clist/get"
+        params = {
+            'pn': 1, 'pz': 100, 'po': 1, 'np': 1,
+            'fltt': 2, 'invt': 2,
+            'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
+            'fields': 'f2,f12,f14',
+            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+        }
+        all_stocks = []
+        page = 1
         while True:
-            params_base['pn'] = page
-            r = requests.get(url, params=params_base, headers={'User-Agent': UA, 'Referer': 'https://data.eastmoney.com/'}, timeout=10, proxies=REQUEST_PROXIES)
+            params['pn'] = page
+            r = requests.get(url, params=params, headers={
+                'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/',
+            }, timeout=10, proxies=REQUEST_PROXIES)
             data = r.json().get('data') or {}
             diff = data.get('diff') or []
-            if not diff:
-                break
+            if not diff: break
             for row in diff:
                 if row.get('f12'):
                     all_stocks.append((row.get('f12', ''), row.get('f14', ''), row.get('f2', '')))
-            total = data.get('total', 0)
-            if page * 2000 >= total:
-                break
+            if page * 100 >= data.get('total', 0): break
             page += 1
-        return all_stocks
+        if all_stocks:
+            return all_stocks
     except Exception:
-        return all_stocks
+        pass
+
+    # 回退：本地JSON（exe模式下）
+    dir_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    json_path = os.path.join(dir_path, 'data', 'stock_codes.json')
+    try:
+        codes = json.load(open(json_path, 'r', encoding='utf-8'))
+        return [(c, c, '') for c in codes]
+    except Exception:
+        return []
 
 
-def run_ascending_channel(max_workers=30):
-    """扫描上升通道股，返回匹配列表"""
-    stocks = _get_stock_list()
-    if not stocks:
-        return {'success': False, 'error': '无法获取股票列表', 'data': []}
+import threading
+_scan_state = {'running': False, 'total': 0, 'done': 0, 'results': []}
 
-    results = []
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {}
-        for code, name, price in stocks:
-            futures[pool.submit(_scan_one, code, name, price)] = (code, name, price)
+def run_ascending_channel_async(max_workers=30):
+    """异步启动扫描，立即返回"""
+    if _scan_state['running']:
+        return {'success': False, 'error': '扫描进行中'}
+    _scan_state['running'] = True
+    _scan_state['done'] = 0
+    _scan_state['results'] = []
+    threading.Thread(target=_do_scan, args=(max_workers,), daemon=True).start()
+    return {'success': True, 'message': '扫描已启动'}
 
-        for future in as_completed(futures):
-            try:
-                r = future.result()
-                if r:
-                    results.append(r)
-            except Exception:
-                pass
+def get_scan_status():
+    """获取扫描进度"""
+    return {
+        'running': _scan_state['running'],
+        'total': _scan_state['total'],
+        'done': _scan_state['done'],
+        'results': sorted(_scan_state['results'], key=lambda x: x['score'], reverse=True),
+    }
 
-    results.sort(key=lambda x: x['score'], reverse=True)
-    return {'success': True, 'data': results}
+def _do_scan(max_workers):
+    global _scan_state
+    try:
+        stocks = _get_stock_list()
+        if not stocks:
+            _scan_state['running'] = False
+            return
+        _scan_state['total'] = len(stocks)
+        results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {}
+            for code, name, price in stocks:
+                futures[pool.submit(_scan_one, code, name, price)] = (code, name, price)
+            for future in as_completed(futures):
+                try:
+                    r = future.result()
+                    if r:
+                        results.append(r)
+                except Exception:
+                    pass
+                _scan_state['done'] += 1
+                _scan_state['results'] = list(results)
+        _scan_state['results'] = list(results)
+    finally:
+        _scan_state['running'] = False
 
 
 def _scan_one(code, name, price):
     """扫描单只股票"""
-    klines = _fetch_kline(code)
-    if not klines:
+    result = _fetch_kline(code)
+    if not result:
         return None
+    stock_name, klines = result
     score, detail = _calc_ascending_channel(klines)
     if score <= 0:
         return None
     return {
-        'code': code, 'name': name,
+        'code': code,
+        'name': stock_name or name,
         'price': price if price else (klines[-1]['close'] if klines else ''),
         'score': score,
         'detail': detail,

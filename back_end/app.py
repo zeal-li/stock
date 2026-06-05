@@ -12,7 +12,7 @@ from services.market_data import (
 )
 from services.search import search_stock as do_search
 from services.finance import get_goodwill
-from services.technical_screen import run_ascending_channel
+from services.technical_screen import run_ascending_channel_async, get_scan_status
 from services.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
 from services.watchlist import get_all, add, remove as wl_remove
 
@@ -481,10 +481,16 @@ def stock_kline():
 
 # ==================== 技术选股 ====================
 
-@app.route('/api/technical/ascending-channel')
-def technical_ascending_channel():
-    result = run_ascending_channel()
+@app.route('/api/technical/ascending-channel', methods=['POST'])
+def technical_ascending_channel_start():
+    """启动扫描"""
+    result = run_ascending_channel_async()
     return jsonify(result)
+
+@app.route('/api/technical/ascending-channel/status')
+def technical_ascending_channel_status():
+    """查询扫描进度"""
+    return jsonify(get_scan_status())
 
 
 # ==================== 启动 ====================
