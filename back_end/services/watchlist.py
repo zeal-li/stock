@@ -1,8 +1,12 @@
 """自选股 SQLite 持久化存储"""
 import sqlite3
 import os
+import sys as _sys
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'watchlist.db')
+if getattr(_sys, 'frozen', False):
+    DB_PATH = os.path.join(os.path.dirname(_sys.executable), 'data', 'watchlist.db')
+else:
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'watchlist.db')
 
 
 def _ensure_db():

@@ -16,7 +16,13 @@ from services.technical_screen import run_ascending_channel
 from services.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
 from services.watchlist import get_all, add, remove as wl_remove
 
-app = Flask(__name__, template_folder='../front_end/templates', static_folder='../front_end/static')
+import sys as _sys, os as _os
+if getattr(_sys, 'frozen', False):
+    # PyInstaller exe 模式
+    base = _sys._MEIPASS
+    app = Flask(__name__, template_folder=_os.path.join(base, 'front_end', 'templates'), static_folder=_os.path.join(base, 'front_end', 'static'))
+else:
+    app = Flask(__name__, template_folder='../front_end/templates', static_folder='../front_end/static')
 CORS(app)
 
 
