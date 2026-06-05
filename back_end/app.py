@@ -507,4 +507,6 @@ def market_db_status():
 
 if __name__ == '__main__':
     start_major_indices_poller()  # 启动后台指数行情轮询
+    from market_db.sync import start_startup_sync
+    start_startup_sync()           # 后台增量更新 SQLite 已有股票的 K 线
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)

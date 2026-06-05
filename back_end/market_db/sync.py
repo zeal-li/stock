@@ -1,4 +1,4 @@
-"""全市场数据同步 — 启动加载股票列表，K 线按需从界面触发"""
+"""全市场数据同步 — 启动时增量更新已有股票，K 线按需分段拉取"""
 import datetime
 import threading
 import time
@@ -18,7 +18,7 @@ SEGMENTS = {
 
 
 def _fetch_stock_list():
-    """从 akshare 获取 A 股 + ETF 列表"""
+    """从 akshare 获取 A 股 + ETF 列表并写入数据库"""
     import akshare as ak
     try:
         df = ak.stock_info_a_code_name()
@@ -33,33 +33,18 @@ def _fetch_stock_list():
             else: market = '0'
             rows.append((code, market, name))
         stocks_save(rows)
-        print(f"[market_db] 股票列表已更新：{len(rows)} 只")
+        return len(rows)
     except Exception as e:
         print(f"[market_db] 股票列表获取失败: {e}")
-
-
-def init_stock_list():
-    """启动时初始化股票列表（仅列表，不同步 K 线）"""
-    if stock_count() == 0:
-        _fetch_stock_list()
-    stocks = stocks_all()
-    if stocks:
-        etf = sum(1 for s in stocks if s[0].startswith(('15', '16', '51')))
-        print(f"[market_db] 股票列表就绪：{len(stocks)} 只（A股 {len(stocks)-etf}，ETF {etf}）")
-
-
-# ---- 按市场分段同步 K 线 ----
-
-_sync_state = {'running': False, 'label': '', 'total': 0, 'done': 0, 'errors': 0}
+        return 0
 
 
 def _fetch_kline(code, market, period, start_date, end_date):
-    """从 akshare 获取单只股票 K 线数据（带重试）"""
+    """从 akshare 获取单只股票 K 线"""
     import akshare as ak
     for attempt in range(3):
         try:
-            symbol = code
-            df = ak.stock_zh_a_hist(symbol=symbol, period=period,
+            df = ak.stock_zh_a_hist(symbol=code, period=period,
                                     start_date=start_date, end_date=end_date, adjust="qfq")
             if df is None or df.empty:
                 return []
@@ -79,20 +64,98 @@ def _fetch_kline(code, market, period, start_date, end_date):
 
 
 def _sync_one_stock(code, market, periods=('daily',)):
-    """同步一只股票指定周期的 K 线数据"""
+    """增量同步单只股票 K 线（只拉缺失日期）"""
     today = datetime.date.today()
     for period in periods:
         latest = kline_latest_date(code, market, period)
         if latest:
             last_date = datetime.date.fromisoformat(latest)
-            if last_date >= today: continue
+            if last_date >= today:
+                continue
             start = (last_date + datetime.timedelta(days=1)).strftime('%Y%m%d')
         else:
+            # 数据库里没有这只股票的 K 线 → 全量拉
             start = '19900101'
         end = today.strftime('%Y%m%d')
         rows = _fetch_kline(code, market, period, start, end)
         if rows:
             klines_insert(rows)
+
+
+# ---- 启动时增量同步线程 ----
+
+def _startup_sync_worker():
+    """启动时遍历已有股票，增量更新日K/周K/月K"""
+    stocks = stocks_all()
+    if not stocks:
+        print("[market_db] 股票列表为空，跳过增量同步")
+        return
+
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    print(f"[market_db] 开始增量更新（{len(stocks)} 只，目标日期 {today}）...")
+    t0 = time.time()
+
+    # 检查是否有需要更新的股票
+    need_update = []
+    for code, market, _ in stocks:
+        latest = kline_latest_date(code, market, 'daily')
+        if not latest or latest < today:
+            need_update.append((code, market))
+
+    if not need_update:
+        print(f"[market_db] 所有股票数据已是最新，跳过")
+        return
+
+    print(f"[market_db] {len(need_update)}/{len(stocks)} 只需更新")
+    total = len(need_update)
+    done = 0
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = {pool.submit(_sync_one_stock, s[0], s[1], ('daily',)): s for s in need_update}
+        for fut in as_completed(futs):
+            try:
+                fut.result()
+            except Exception:
+                pass
+            done += 1
+            if done % 200 == 0 or done == total:
+                print(f"[market_db] 增量进度 {done}/{total}")
+
+    # 周K/月K也增量一下
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = {pool.submit(_sync_one_stock, s[0], s[1], ('weekly', 'monthly')): s for s in need_update}
+        for fut in as_completed(futs):
+            try:
+                fut.result()
+            except Exception:
+                pass
+            done += 1
+            if done % 200 == 0 or done == total:
+                print(f"[market_db] 周月K进度 {done - total}/{total}")
+
+    elapsed = time.time() - t0
+    print(f"[market_db] 增量更新完成，耗时 {elapsed:.0f}s（{len(need_update)} 只）")
+
+
+def init_stock_list():
+    """启动时初始化股票列表（仅列表，不同步 K 线）"""
+    if stock_count() == 0:
+        n = _fetch_stock_list()
+        print(f"[market_db] 首次初始化股票列表：{n} 只")
+    else:
+        n = stock_count()
+        print(f"[market_db] 股票列表就绪：{n} 只")
+
+
+def start_startup_sync():
+    """启动时增量更新已有股票的 K 线（后台线程）"""
+    t = threading.Thread(target=_startup_sync_worker, daemon=True, name='market-db-startup')
+    t.start()
+
+
+# ---- 按市场分段同步 K 线 ----
+
+_sync_state = {'running': False, 'label': '', 'total': 0, 'done': 0, 'errors': 0}
 
 
 def _run_segment_sync(seg_key):
@@ -101,7 +164,6 @@ def _run_segment_sync(seg_key):
     prefix = seg['prefix']
     all_stocks = stocks_all()
     if not all_stocks:
-        # 股票列表为空，先拉一次
         _fetch_stock_list()
         all_stocks = stocks_all()
     stocks = [s for s in all_stocks if s[0].startswith(prefix)]
@@ -111,8 +173,7 @@ def _run_segment_sync(seg_key):
 
     _sync_state.update({'running': True, 'label': seg['label'], 'total': len(stocks), 'done': 0, 'errors': 0})
 
-    # 日K
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futs = {pool.submit(_sync_one_stock, s[0], s[1], ('daily',)): s for s in stocks}
         for fut in as_completed(futs):
             try:
@@ -121,15 +182,14 @@ def _run_segment_sync(seg_key):
                 _sync_state['errors'] += 1
             _sync_state['done'] += 1
 
-    # 周K/月K
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futs = {pool.submit(_sync_one_stock, s[0], s[1], ('weekly', 'monthly')): s for s in stocks}
         for fut in as_completed(futs):
             try:
                 fut.result()
             except Exception:
                 _sync_state['errors'] += 1
-            _sync_state['done'] += len(stocks)  # hack: done counts both phases
+            _sync_state['done'] += len(stocks)
 
     _sync_state['running'] = False
 
