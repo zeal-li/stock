@@ -459,9 +459,12 @@ async function loadIndexWithChart() {
             })
             .catch(err => console.log('风险指数加载失败:', err));
 
-        fetch('/api/sh000001-minute')
-            .then(res => res.json())
-            .then(minuteResult => {
+        Promise.all([
+            fetch('/api/sh000001-minute').then(res => res.json()),
+            fetch('/api/turnover-minute').then(res => res.json())
+        ]).then(results => {
+                const minuteResult = results[0];
+                const turnoverResult = results[1];
                 const minuteLoading = document.getElementById('minuteLoading');
                 if (minuteResult.success && minuteResult.data.times && minuteResult.data.prices && minuteResult.data.times.length > 0) {
                     fullMinuteSlots = generateFlowSlots();
@@ -476,6 +479,19 @@ async function loadIndexWithChart() {
                     const yMin = preClose - maxDev;
                     const yMax = preClose + maxDev;
 
+                    // 成交额数据（计算每分钟增量，用于柱状图）
+                    var volData = new Array(fullMinuteSlots.length).fill(0);
+                    if (turnoverResult.success && turnoverResult.data.times && turnoverResult.data.turnovers) {
+                        var rawVols = mapAndFill(fullMinuteSlots, turnoverResult.data.times, turnoverResult.data.turnovers);
+                        var lastVal = 0;
+                        for (var vi = 0; vi < rawVols.length; vi++) {
+                            if (rawVols[vi] != null && rawVols[vi] > 0) {
+                                volData[vi] = Math.max(0, rawVols[vi] - lastVal);
+                                lastVal = rawVols[vi];
+                            }
+                        }
+                    }
+
                     const ctxMinute = document.getElementById('minuteChart').getContext('2d');
                     if (minuteChart) minuteChart.destroy();
 
@@ -483,11 +499,14 @@ async function loadIndexWithChart() {
                     gradient.addColorStop(0, gradientColor);
                     gradient.addColorStop(1, 'rgba(26, 26, 46, 0)');
 
+                    var maxVol = volData.reduce(function(a, b) { return Math.max(a, b || 0); }, 0) * 1.3 || 1;
+
                     minuteChart = new Chart(ctxMinute, {
                         type: 'line',
                         data: {
                             labels: times,
                             datasets: [{
+                                type: 'line',
                                 data: prices,
                                 borderColor: lineColor,
                                 backgroundColor: gradient,
@@ -495,8 +514,10 @@ async function loadIndexWithChart() {
                                 fill: true,
                                 tension: 0.1,
                                 pointRadius: 0,
-                                pointHoverRadius: 4
+                                pointHoverRadius: 4,
+                                yAxisID: 'y'
                             }, {
+                                type: 'line',
                                 data: Array(times.length).fill(preClose),
                                 borderColor: '#888888',
                                 borderWidth: 1,
@@ -504,7 +525,17 @@ async function loadIndexWithChart() {
                                 pointRadius: 0,
                                 pointHoverRadius: 0,
                                 fill: false,
-                                order: 1
+                                order: 1,
+                                yAxisID: 'y'
+                            }, {
+                                type: 'bar',
+                                data: volData,
+                                backgroundColor: 'rgba(251, 191, 36, 0.3)',
+                                hoverBackgroundColor: 'rgba(251, 191, 36, 0.5)',
+                                borderWidth: 0,
+                                borderSkipped: false,
+                                yAxisID: 'y1',
+                                order: 2
                             }]
                         },
                         options: {
@@ -515,9 +546,13 @@ async function loadIndexWithChart() {
                                 legend: { display: false },
                                 tooltip: {
                                     mode: 'index', intersect: false,
+                                    filter: function(item) { return item.datasetIndex !== 1; },
                                     callbacks: {
                                         label: function(ctx) {
-                                            if (ctx.datasetIndex === 1) return '';
+                                            if (ctx.datasetIndex === 2) {
+                                                var v = ctx.raw || 0;
+                                                return '成交额: ' + v.toFixed(2) + '亿';
+                                            }
                                             const price = ctx.raw;
                                             const preClose = minuteResult.data.preClose || 0;
                                             const change = price - preClose;
@@ -533,7 +568,8 @@ async function loadIndexWithChart() {
                             },
                             scales: {
                                 x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { const label = this.getLabelForValue(value); if (!label) return ''; if (label === '11:30') return ''; if (label === '09:30' || label === '13:00' || label === '15:00') return label; const parts = label.split(':'); const h = parseInt(parts[0]); const min = parseInt(parts[1]); if (h < 12) return ((min + 30) % 20 === 0) ? label : ''; else return (min % 20 === 0) ? label : ''; } } },
-                                y: { min: yMin, max: yMax, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', callback: v => v.toFixed(0) }, afterFit: function(scale) { scale.width = 65; } }
+                                y: { min: yMin, max: yMax, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', callback: v => v.toFixed(0) }, afterFit: function(scale) { scale.width = 65; }, position: 'left' },
+                                y1: { min: 0, max: maxVol, grid: { display: false }, ticks: { color: 'rgba(251,191,36,0.6)', callback: v => v.toFixed(0) + '亿', font: { size: 9 } }, position: 'right' }
                             },
                             interaction: { mode: 'nearest', axis: 'x', intersect: false }
                         },

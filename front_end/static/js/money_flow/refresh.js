@@ -37,8 +37,12 @@ async function refreshRealtimeData() {
 
             var _doMinuteRefresh = Date.now() - _lastMinuteRefresh >= 60000;
             if (_doMinuteRefresh) {
-            const minRes = await fetch('/api/sh000001-minute');
+            const [minRes, turnoverRes] = await Promise.all([
+                fetch('/api/sh000001-minute'),
+                fetch('/api/turnover-minute')
+            ]);
             const minData = await minRes.json();
+            const turnoverData = await turnoverRes.json();
             if (minuteChart && minData.success && minData.data.times && fullMinuteSlots.length > 0) {
                 minuteChart.data.datasets[0].data = mapAndFill(fullMinuteSlots, minData.data.times, minData.data.prices);
                 minuteChart.data.datasets[1].data = Array(fullMinuteSlots.length).fill(minData.data.preClose);
@@ -48,6 +52,21 @@ async function refreshRealtimeData() {
                 mMaxDev = Math.max(mMaxDev * 1.15, mPreClose * 0.005);
                 minuteChart.options.scales.y.min = mPreClose - mMaxDev;
                 minuteChart.options.scales.y.max = mPreClose + mMaxDev;
+                // 更新成交额柱子
+                if (turnoverData.success && turnoverData.data.times && turnoverData.data.turnovers) {
+                    var rawVols = mapAndFill(fullMinuteSlots, turnoverData.data.times, turnoverData.data.turnovers);
+                    var volData = new Array(fullMinuteSlots.length).fill(0);
+                    var lastVal = 0;
+                    for (var vi = 0; vi < rawVols.length; vi++) {
+                        if (rawVols[vi] != null && rawVols[vi] > 0) {
+                            volData[vi] = Math.max(0, rawVols[vi] - lastVal);
+                            lastVal = rawVols[vi];
+                        }
+                    }
+                    minuteChart.data.datasets[2].data = volData;
+                    var maxVol = volData.reduce(function(a, b) { return Math.max(a, b || 0); }, 0) * 1.3 || 1;
+                    minuteChart.options.scales.y1.max = maxVol;
+                }
                 const isUp2 = parseFloat(minData.data.change) >= 0;
                 const lc = isUp2 ? '#e94560' : '#4ade80';
                 minuteChart.data.datasets[0].borderColor = lc;
