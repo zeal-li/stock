@@ -12,6 +12,7 @@ from services.market_data import (
 )
 from services.search import search_stock as do_search
 from services.finance import get_goodwill
+from services.technical_screen import run_ascending_channel
 from services.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
 from services.watchlist import get_all, add, remove as wl_remove
 
@@ -471,6 +472,14 @@ def stock_kline():
         return jsonify({'success': True, 'data': {'name': code, 'code': code, 'market': market, 'klines': rows}})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+# ==================== 技术选股 ====================
+
+@app.route('/api/technical/ascending-channel')
+def technical_ascending_channel():
+    result = run_ascending_channel()
+    return jsonify(result)
+
 
 # ==================== 启动 ====================
 
