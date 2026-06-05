@@ -28,31 +28,6 @@ var KlinePopup = (function() {
     var _maVals = null;  // {ma5, ma10, ma20, ma60}
     var _bbVals = null;  // {up, mid, lo}
 
-    // ---- 指标计算 ----
-    function _calcSMA(data, period) {
-        var r = [];
-        for (var i = period - 1; i < data.length; i++) {
-            var s = 0;
-            for (var j = i - period + 1; j <= i; j++) s += data[j].close;
-            r.push({ time: data[i].time, value: s / period });
-        }
-        return r;
-    }
-    function _calcBB(data) {
-        var ma20 = _calcSMA(data, 20), up = [], mid = [], lo = [];
-        for (var i = 0; i < ma20.length; i++) {
-            var m = ma20[i];
-            mid.push({ time: m.time, value: m.value });
-            var idx = i + 19; // 在原始 data 中的索引
-            var s = 0, n = 0;
-            for (var j = Math.max(0, idx - 19); j <= idx; j++) { s += Math.pow(data[j].close - m.value, 2); n++; }
-            var std = Math.sqrt(s / n);
-            up.push({ time: m.time, value: m.value + 2 * std });
-            lo.push({ time: m.time, value: m.value - 2 * std });
-        }
-        return { up: up, mid: mid, lo: lo };
-    }
-
     // ---- 创建弹窗 DOM ----
     function _ensureDOM() {
         if (_overlay) return;
@@ -306,7 +281,7 @@ var KlinePopup = (function() {
         var cached = _getCachedKlines(_currentPeriod);
         if (cached) {
             _klinesData = cached;
-            try { _renderChart({klines: _klinesData}); var sel2 = document.getElementById('klIndSelect'); if (sel2) sel2.value = _indicatorMode; _updateIndVals(); }
+            try { _renderChart({klines: _klinesData}); var sel2 = document.getElementById('klIndSelect'); if (sel2) sel2.value = _indicatorMode; _switchIndicator(_indicatorMode); }
             catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             return;
         }
@@ -320,7 +295,7 @@ var KlinePopup = (function() {
                 }
                 _klinesData = kdata.data.klines;
                 _setCachedKlines(_currentPeriod, _klinesData);
-                try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _updateIndVals(); }
+                try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _switchIndicator(_indicatorMode); }
                 catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             })
             .catch(function() { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">请求失败</div>'; });
@@ -355,234 +330,13 @@ var KlinePopup = (function() {
 
     function _renderFiveDayMinute() {
         var el = document.getElementById('klChart');
-        el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
-
-        var raw = _fiveDayRaw;
-        var times = raw.times, prices = raw.prices, volumes = raw.volumes || [], amounts = raw.amounts || [];
-        var isHK = _stockMarket === '116', isUS = _stockMarket === '106';
-        var _isOverseas5D = isHK || isUS;  // 港股/美股五日模式
-
-        if (_isOverseas5D) {
-            // 港股/美股：直接用 Yahoo Finance 返回的实际数据点
-            var _allSlots = [];
-            var _tsToDate = {};
-            var _dayBasePrice = {};
-            var _sortedDates = [];
-            var _seenDates = {};
-            for (var i = 0; i < times.length; i++) {
-                if (prices[i] == null) continue;
-                var parts = times[i].split(' ');
-                var date = parts[0], time = parts[1];
-                var dp = date.split('-'), tp = time.split(':');
-                var ts = Date.UTC(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2]),
-                                  parseInt(tp[0]), parseInt(tp[1])) / 1000;
-                if (!_seenDates[date]) {
-                    _sortedDates.push(date);
-                    _seenDates[date] = true;
-                    _dayBasePrice[date] = prices[i];
-                }
-                _tsToDate[ts] = date;
-                _allSlots.push({ ts: ts, price: prices[i], vol: volumes[i] || 0, amt: amounts[i] || 0 });
-            }
-            if (_sortedDates.length === 0) { el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">无数据</div>'; return; }
-            var allSlots = _allSlots, tsToDate = _tsToDate, dayBasePrice = _dayBasePrice, sortedDates = _sortedDates;
-        } else {
-            // A股：按日期分组原始数据，生成标准5分钟槽位
-            var daySlots = {};
-            for (var i = 0; i < times.length; i++) {
-                if (prices[i] == null) continue;
-                var p = times[i].split(' ');
-                if (!daySlots[p[0]]) daySlots[p[0]] = {};
-                daySlots[p[0]][p[1]] = { price: prices[i], vol: volumes[i] || 0, amt: amounts[i] || 0 };
-            }
-            var sortedDates = Object.keys(daySlots).sort();
-            if (sortedDates.length === 0) { el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">无数据</div>'; return; }
-
-            var allSlots = [];
-            var tsToDate = {};
-            var dayBasePrice = {};
-
-            for (var di = 0; di < sortedDates.length; di++) {
-                var ds = sortedDates[di];
-                var dp = ds.split('-');
-                var base = new Date(parseInt(dp[0]), parseInt(dp[1]) - 1, parseInt(dp[2])).getTime() / 1000;
-                var slots = daySlots[ds];
-                // 上午 09:35 ~ 11:30（5分钟K线实际数据起止时间）
-                for (var t = base + 34500; t <= base + 41400; t += 300) {
-                    var d2 = new Date(t * 1000);
-                    var tk = String(d2.getHours()).padStart(2,'0') + ':' + String(d2.getMinutes()).padStart(2,'0');
-                    var s2 = slots[tk];
-                    tsToDate[t] = ds;
-                    allSlots.push({ ts: t, price: s2 ? s2.price : null, vol: s2 ? s2.vol : 0, amt: s2 ? s2.amt : 0 });
-                }
-                // 下午 13:05 ~ 15:00（5分钟K线实际数据起止时间）
-                for (var t = base + 47100; t <= base + 54000; t += 300) {
-                    var d2 = new Date(t * 1000);
-                    var tk = String(d2.getHours()).padStart(2,'0') + ':' + String(d2.getMinutes()).padStart(2,'0');
-                    var s2 = slots[tk];
-                    tsToDate[t] = ds;
-                    allSlots.push({ ts: t, price: s2 ? s2.price : null, vol: s2 ? s2.vol : 0, amt: s2 ? s2.amt : 0 });
-                }
-            }
-
-            // 计算每日基准价（第一个有效价格，用于算涨跌幅）
-            for (var si = 0; si < allSlots.length; si++) {
-                if (allSlots[si].price == null) continue;
-                var dk = tsToDate[allSlots[si].ts];
-                if (dk && !(dk in dayBasePrice)) dayBasePrice[dk] = allSlots[si].price;
-            }
-        }
-
-        // ---- 创建图表 ----
-        _chart = LightweightCharts.createChart(el, {
-            layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
-            grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
-            crosshair: { mode: 1 },
-            rightPriceScale: { borderColor: '#2a2a4e', scaleMargins: { top: 0.08, bottom: 0.28 } },
-            handleScroll: false,
-            handleScale: { axisPressedMouseMove: false, pinch: false, mouseWheel: false },
-            timeScale: {
-                borderColor: '#2a2a4e',
-                tickMarkFormatter: (function() {
-                    var _lastDate = '';
-                    return function(ts) {
-                        var d3 = new Date(ts * 1000);
-                        var label = (d3.getMonth() + 1) + '/' + d3.getDate();
-                        if (label === _lastDate) return '';
-                        _lastDate = label;
-                        return label;
-                    };
-                })(),
-            },
-            width: el.clientWidth, height: el.clientHeight,
-        });
-
-        // ---- 价格面积线 ----
-        var areaData = [];
-        for (var si = 0; si < allSlots.length; si++) {
-            if (allSlots[si].price != null) areaData.push({ time: allSlots[si].ts, value: allSlots[si].price });
-        }
-        var _priceDec = _isOverseas5D ? 3 : 2;
-        var areaSeries = _chart.addAreaSeries({
-            lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)',
-            lineWidth: 1.5, priceLineVisible: false,
-            priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(_priceDec); } }
-        });
-        areaSeries.setData(areaData);
-        _fiveDayAreaSeries = areaSeries;
-
-        // ---- 五日均价线（五日累计均价） ----
-        var avgLineData = [], avgSum = 0, avgCnt = 0;
-        for (var si = 0; si < allSlots.length; si++) {
-            if (allSlots[si].price != null) { avgSum += allSlots[si].price; avgCnt++; }
-            avgLineData.push({ time: allSlots[si].ts, value: avgCnt > 0 ? avgSum / avgCnt : null });
-        }
-        var avgLine = _chart.addLineSeries({ color: '#fbbf24', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-        avgLine.setData(avgLineData);
-
-        // ---- 成交量柱 ----
-        var volSeries = _chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-        _chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.83, bottom: 0 }, visible: false });
-        var vd = [];
-        for (var si = 0; si < allSlots.length; si++) {
-            var s2 = allSlots[si];
-            if (s2.price == null) continue;
-            var up = si > 0 ? (allSlots[si-1].price != null ? s2.price >= allSlots[si-1].price : true) : true;
-            vd.push({ time: s2.ts, value: s2.vol, color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
-        }
-        volSeries.setData(vd);
-        _fiveDayVolSeries = volSeries;
-
-        // ---- 十字线 tooltip ----
-        var firstBase = dayBasePrice[sortedDates[0]] || 0;  // 五日首日基准价
-        var tooltip = document.getElementById('klTooltip');
-        _chart.subscribeCrosshairMove(function(param) {
-            if (!param.time || !param.point) { tooltip.style.display = 'none'; return; }
-            var slot = null, slotIdx = -1;
-            for (var si = 0; si < allSlots.length; si++) { if (allSlots[si].ts === param.time) { slot = allSlots[si]; slotIdx = si; break; } }
-            if (!slot || slot.price == null) { tooltip.style.display = 'none'; return; }
-            var d4 = new Date(param.time * 1000);
-            var weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
-            var ds2 = d4.getFullYear() + '-' + String(d4.getMonth() + 1).padStart(2,'0') + '-' + String(d4.getDate()).padStart(2,'0') + ' ' + weekNames[d4.getDay()];
-            var ts2 = String(d4.getHours()).padStart(2,'0') + ':' + String(d4.getMinutes()).padStart(2,'0');
-            // 五日累计均价
-            var curAvg = avgLineData[slotIdx] ? avgLineData[slotIdx].value : null;
-            // 涨跌幅：相对五日首日第一个价
-            var chgPct = firstBase ? (slot.price - firstBase) / firstBase * 100 : 0;
-            var chgSign = chgPct >= 0 ? '+' : '', chgColor = chgPct >= 0 ? '#ef5350' : '#26a69a';
-            var volStr = slot.vol >= 1e8 ? (slot.vol/1e8).toFixed(2)+'亿' : slot.vol >= 1e4 ? (slot.vol/1e4).toFixed(2)+'万' : String(slot.vol);
-            var amtStr = slot.amt >= 1e8 ? (slot.amt/1e8).toFixed(2)+'亿' : slot.amt >= 1e4 ? (slot.amt/1e4).toFixed(2)+'万' : String(slot.amt);
-            tooltip.innerHTML = '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">'+ds2+' '+ts2+'</div><table style="border-spacing:0;">'+
-                '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">'+slot.price.toFixed(_priceDec)+'</span></td></tr>'+
-                '<tr><td style="color:#888;">均价</td><td><span style="color:#fbbf24;">'+(curAvg != null ? curAvg.toFixed(_priceDec) : '--')+'</span></td></tr>'+
-                '<tr><td style="color:#888;">涨幅</td><td><span style="color:'+chgColor+';">'+chgSign+chgPct.toFixed(2)+'%</span></td></tr>'+
-                '<tr><td style="color:#888;">成交</td><td><span style="color:#ddd;">'+volStr+'</span></td></tr>'+
-                '<tr><td style="color:#888;">成交额</td><td><span style="color:#ddd;">'+amtStr+'</span></td></tr></table>';
-            tooltip.style.display = 'block';
-            var rect = el.getBoundingClientRect();
-            var l = param.point.x + 16, tp = param.point.y - 10;
-            if (l + 120 > rect.width) l = param.point.x - 130;
-            if (tp + 80 > rect.height) tp = rect.height - 90;
-            if (tp < 0) tp = 0;
-            tooltip.style.left = l + 'px'; tooltip.style.top = tp + 'px';
-        });
-
-        // ---- 底部指标栏 ----
-        var lastP = null, lastAvg = null;
-        var firstBase = dayBasePrice[sortedDates[0]] || 0;  // 五日首日基准
-        for (var li = allSlots.length - 1; li >= 0; li--) {
-            if (allSlots[li].price != null) { lastP = allSlots[li].price; break; }
-        }
-        for (var ai = avgLineData.length - 1; ai >= 0; ai--) {
-            if (avgLineData[ai].value != null) { lastAvg = avgLineData[ai].value; break; }
-        }
-        if (lastP != null && firstBase) {
-            var lChg = lastP - firstBase, lChgPct = firstBase ? lChg / firstBase * 100 : 0;
-            var lc = lChg >= 0 ? '#ef5350' : '#26a69a', ls2 = lChg >= 0 ? '+' : '';
-            var m5v = document.getElementById('kl5DayVals');
-            if (m5v) m5v.innerHTML = '<span style="color:#fbbf24;">均价:'+(lastAvg != null ? lastAvg.toFixed(_priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(_priceDec)+'</span> <span style="color:'+lc+';">'+ls2+lChg.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls2+lChgPct.toFixed(2)+'%</span>';
-        }
-
-        _chart.timeScale().fitContent();
-        _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
-
-        // ---- 绘制日间分隔竖虚线 ----
-        function _drawDayBounds() {
-            el.querySelectorAll('.five-day-boundary').forEach(function(b) { b.remove(); });
-            for (var di = 0; di < sortedDates.length - 1; di++) {
-                var dp2 = sortedDates[di].split('-');
-                var dayEndTs;
-                if (_isOverseas5D) {
-                    // 港股/美股：用该日期最后一个数据点的时间
-                    dayEndTs = 0;
-                    for (var si = 0; si < allSlots.length; si++) {
-                        if (tsToDate[allSlots[si].ts] === sortedDates[di] && allSlots[si].ts > dayEndTs) {
-                            dayEndTs = allSlots[si].ts;
-                        }
-                    }
-                } else {
-                    // A股：固定15:00（匹配最后5分钟K线）
-                    dayEndTs = new Date(parseInt(dp2[0]), parseInt(dp2[1]) - 1, parseInt(dp2[2])).getTime() / 1000 + 54000;
-                }
-                if (!dayEndTs) continue;
-                var x = _chart.timeScale().timeToCoordinate(dayEndTs);
-                if (x == null) continue;
-                var line = document.createElement('div');
-                line.className = 'five-day-boundary';
-                line.style.cssText = 'position:absolute;top:0;bottom:28%;left:' + x + 'px;width:0;border-left:1px dashed rgba(160,100,255,0.6);pointer-events:none;z-index:5;';
-                el.appendChild(line);
-            }
-        }
-        requestAnimationFrame(function() { _drawDayBounds(); });
-
         if (_observer) _observer.disconnect();
-        _observer = new ResizeObserver(function() {
-            if (_chart && el.clientWidth > 0) _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
-            requestAnimationFrame(function() { _drawDayBounds(); });
-        });
-        _observer.observe(el);
-
-        // 交易时段每10s刷新五日图
+        var result = KlineFiveDay.render(el, _fiveDayRaw, _stockMarket);
+        if (!result) return;
+        _chart = result.chart;
+        _fiveDayAreaSeries = result.areaSeries;
+        _fiveDayVolSeries = result.volSeries;
+        _observer = result.observer;
         if (_fiveDayTimer) clearInterval(_fiveDayTimer);
         _fiveDayTimer = setInterval(_refreshFiveDayData, 60000);
     }
@@ -604,136 +358,16 @@ var KlinePopup = (function() {
 
     function _renderMinute(times, prices, volumes, amounts, preClose) {
         var el = document.getElementById('klChart');
-        el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
-        var isUS = _stockMarket === '106', isHK = _stockMarket === '116';
-        var today = new Date(); var base = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000;
-        var fullTimes = times.map(function(t) {
-            if (isUS) return new Date(t).getTime() / 1000;
-            var parts = t.split(':'); return base + parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60;
-        });
-        _minutePreClose = preClose;
-
-        var pcts = prices.map(function(p) { return preClose ? ((p - preClose) / preClose * 100) : p; });
-
-        // 填充空数据到整个时段
-        if (isUS) { _minuteFrom = fullTimes[0]; _minuteTo = _minuteFrom + 6.5 * 3600; }
-        else if (isHK) { _minuteFrom = base + 9*3600 + 30*60; _minuteTo = base + 16*3600; }
-        else { _minuteFrom = base + 9*3600 + 30*60; _minuteTo = base + 15*3600; }
-        var allT = [], allP = [], allV = [], allA = [], di = 0;
-        var lunchAStart = base + 11*3600 + 31*60, lunchAEnd = base + 13*3600;
-        var lunchHKStart = base + 12*3600 + 1*60, lunchHKEnd = base + 13*3600;
-        for (var t = _minuteFrom; t <= _minuteTo; t += 60) {
-            // 跳过午休 A股:11:31-13:00  港股:12:01-13:00
-            if (!isUS && ((!isHK && t >= lunchAStart && t <= lunchAEnd) || (isHK && t >= lunchHKStart && t <= lunchHKEnd))) continue;
-            allT.push(t);
-            if (di < fullTimes.length && fullTimes[di] >= t - 30 && fullTimes[di] <= t + 30) {
-                allP.push(pcts[di]); allV.push(volumes[di]); allA.push(amounts[di]); di++;
-            } else { allP.push(null); allV.push(null); allA.push(null); }
-        }
-
-        _chart = LightweightCharts.createChart(el, {
-            layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
-            grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
-            crosshair: { mode: 1 },
-            rightPriceScale: { borderColor: '#2a2a4e', scaleMargins: { top: 0.08, bottom: 0.28 } },
-            handleScroll: { vertTouchDrag: false, horzTouchDrag: false },
-            handleScale: { axisPressedMouseMove: false, pinch: false, mouseWheel: false },
-            timeScale: {
-                borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
-                tickMarkFormatter: function(ts) {
-                    var d = new Date(ts * 1000), h = d.getHours(), m = d.getMinutes();
-                    if (isUS) return (d.getMonth()+1)+'/'+d.getDate()+' '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
-                    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
-                },
-            },
-            width: el.clientWidth, height: el.clientHeight,
-        });
-
-        // 找最后有效数据索引，两条线都只画到那里
-        var lastValidIdx = -1;
-        for (var vi = allP.length - 1; vi >= 0; vi--) { if (allP[vi] != null) { lastValidIdx = vi; break; } }
-
-        // 蓝色面积线
-        var series = _chart.addAreaSeries({ lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)', lineWidth: 1.5, priceLineVisible: false, priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(2) + '%'; } } });
-        _minuteSeries = series;
-        var lineData = []; for (var i = 0; i <= lastValidIdx; i++) lineData.push({ time: allT[i], value: allP[i] });
-        series.setData(lineData);
-
-        // 均价线
-        var avgData = [], avgSum = 0, avgN = 0;
-        for (var i = 0; i <= lastValidIdx; i++) {
-            if (allP[i] != null) { avgSum += prices[Math.min(avgN, prices.length - 1)]; avgN++; }
-            avgData.push({ time: allT[i], value: allP[i] != null ? (avgN > 0 ? (preClose ? ((avgSum / avgN - preClose) / preClose * 100) : (avgSum / avgN)) : null) : null });
-        }
-        var avgLine = _chart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-        avgLine.setData(avgData);
-        _minuteAvgLine = avgLine;
-
-        // 昨收0%线
-        var zLine = _chart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-        zLine.setData([{ time: _minuteFrom, value: 0 }, { time: _minuteTo, value: 0 }]);
-
-        // 成交量柱
-        if (volumes && volumes.length > 0) {
-            var volSeries = _chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-            _chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.83, bottom: 0 }, visible: false });
-            var vd = [];
-            for (var i = 0; i < allT.length; i++) {
-                var up = (i > 0 && allP[i] != null && allP[i-1] != null) ? allP[i] >= allP[i-1] : true;
-                vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
-            }
-            volSeries.setData(vd);
-            _minuteVolSeries = volSeries;
-        }
-
-        // 游标
-        var tooltip = document.getElementById('klTooltip');
-        _chart.subscribeCrosshairMove(function(param) {
-            if (!param.time || !param.point) { tooltip.style.display = 'none'; return; }
-            var idx = -1;
-            for (var i = 0; i < allT.length; i++) { if (allT[i] === param.time) { idx = i; break; } }
-            if (idx < 0 || allP[idx] == null) { tooltip.style.display = 'none'; return; }
-            var rawIdx = 0; for (var ri = 0; ri <= idx; ri++) { if (allP[ri] != null) rawIdx++; } rawIdx--;
-            var d = new Date(param.time * 1000);
-            var ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-            var ts = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-            var pr = prices[rawIdx], vl = volumes[rawIdx] || 0, am = amounts[rawIdx] || 0;
-            var vs = vl >= 1e8 ? (vl/1e8).toFixed(2)+'亿股' : vl >= 1e4 ? (vl/1e4).toFixed(2)+'万股' : vl+'股';
-            var as = am >= 1e8 ? (am/1e8).toFixed(2)+'亿' : am >= 1e4 ? (am/1e4).toFixed(2)+'万' : String(am);
-            var pc = (pr - preClose) / preClose * 100, pcs = pc >= 0 ? '+' : '', pcc = pc >= 0 ? '#ef5350' : '#26a69a';
-            var av = idx < avgData.length ? avgData[idx].value : null;
-            var ap = (av != null && preClose) ? (av * preClose / 100 + preClose) : null;
-            tooltip.innerHTML = '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">'+ds+' '+ts+'</div><table style="border-spacing:0;">'+
-                '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">'+pr.toFixed(2)+'</span></td></tr>'+
-                '<tr><td style="color:#888;">均价</td><td><span style="color:#fbbf24;">'+(ap?ap.toFixed(2):'--')+'</span></td></tr>'+
-                '<tr><td style="color:#888;">涨幅</td><td><span style="color:'+pcc+';">'+pcs+pc.toFixed(2)+'%</span></td></tr>'+
-                '<tr><td style="color:#888;">成交</td><td><span style="color:#ddd;">'+vs+'</span></td></tr>'+
-                '<tr><td style="color:#888;">成交额</td><td><span style="color:#ddd;">'+as+'</span></td></tr></table>';
-            tooltip.style.display = 'block';
-            var rect = el.getBoundingClientRect();
-            var l = param.point.x + 16, tp = param.point.y - 10;
-            if (l + 120 > rect.width) l = param.point.x - 130;
-            if (tp + 60 > rect.height) tp = rect.height - 70;
-            if (tp < 0) tp = 0;
-            tooltip.style.left = l + 'px'; tooltip.style.top = tp + 'px';
-        });
-
-        // 标题栏信息（取最后一个有效数据）
-        var lastP = prices[prices.length - 1], lastAvgV = null;
-        for (var ai = avgData.length - 1; ai >= 0; ai--) { if (avgData[ai].value != null) { lastAvgV = avgData[ai].value; break; } }
-        var lChg = preClose ? lastP - preClose : 0, lChgPct = preClose ? lChg / preClose * 100 : 0;
-        var ls = lChg >= 0 ? '+' : '', lc = lChg >= 0 ? '#ef5350' : '#26a69a';
-        var mv = document.getElementById('klMinuteVals');
-        if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(2):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
-
-        _chart.timeScale().fitContent();
-        _chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
-
         if (_observer) _observer.disconnect();
-        _observer = new ResizeObserver(function() { if (_chart && el.clientWidth > 0) _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); });
-        _observer.observe(el);
-
-        // 10秒刷新
+        _minutePreClose = preClose;
+        var result = KlineMinute.render(el, times, prices, volumes, amounts, preClose, _stockMarket);
+        _chart = result.chart;
+        _minuteSeries = result.series;
+        _minuteAvgLine = result.avgLine;
+        _minuteVolSeries = result.volSeries;
+        _minuteFrom = result.minuteFrom;
+        _minuteTo = result.minuteTo;
+        _observer = result.observer;
         if (_minuteTimer) clearInterval(_minuteTimer);
         _minuteTimer = setInterval(_refreshMinuteData, 60000);
     }
@@ -826,168 +460,28 @@ var KlinePopup = (function() {
     function _switchIndicator(mode) {
         _indicatorMode = mode;
         document.getElementById('klIndSelect').value = mode;
-        for (var i = 0; i < _maLines.length; i++) { if (_maLines[i]) _maLines[i].applyOptions({ visible: mode === 'ma' }); }
-        for (var i = 0; i < _bbLines.length; i++) { if (_bbLines[i]) _bbLines[i].applyOptions({ visible: mode === 'bb' }); }
+        KlineChartUtils.switchIndicator(mode, _maLines, _bbLines);
         _updateIndVals();
     }
     function _updateIndVals() {
         var el = document.getElementById('klIndVals');
-        if (!el) return;
-        if (_indicatorMode === 'ma' && _maVals) {
-            el.innerHTML = '<span style="color:#fbbf24;">MA5:' + _maVals.ma5 + '</span> <span style="color:#60a5fa;">MA10:' + _maVals.ma10 + '</span> <span style="color:#a78bfa;">MA20:' + _maVals.ma20 + '</span> <span style="color:#f472b6;">MA30:' + _maVals.ma30 + '</span> <span style="color:#34d399;">MA60:' + _maVals.ma60 + '</span> <span style="color:#fb923c;">MA120:' + _maVals.ma120 + '</span>';
-        } else if (_indicatorMode === 'bb' && _bbVals) {
-            el.innerHTML = '<span style="color:#ef5350;">UP:' + _bbVals.up + '</span> <span style="color:#60a5fa;">MID:' + _bbVals.mid + '</span> <span style="color:#26a69a;">LOW:' + _bbVals.lo + '</span>';
-        } else {
-            el.innerHTML = '';
-        }
-    }
-
-    // ---- 格式化十字线提示 ----
-    function _tooltipText(k, prevClose) {
-        var chg = prevClose ? (k.close - prevClose) : 0;
-        var chgPct = (prevClose && prevClose !== 0) ? (chg / prevClose * 100) : 0;
-        var sign = chg >= 0 ? '+' : '';
-        var color = chg >= 0 ? '#ef5350' : '#26a69a';
-        var volStr = k.volume >= 1e8 ? (k.volume / 1e8).toFixed(2) + '亿' :
-                     k.volume >= 1e4 ? (k.volume / 1e4).toFixed(2) + '万' : String(k.volume);
-        var amtStr = k.amount ? (k.amount >= 1e8 ? (k.amount / 1e8).toFixed(2) + '亿' : (k.amount / 1e4).toFixed(2) + '万') : '--';
-        var tDec = (_stockCode && (_stockCode.startsWith('51') || _stockCode.startsWith('15'))) ? 3 : 2;
-        var n = function(v) { return '<span style="color:#ddd;">' + v.toFixed(tDec) + '</span>'; };
-        var row = function(l, v, r, rv) {
-            return '<tr><td style="color:#888;padding-right:4px;">' + l + '</td><td>' + v + '</td>' +
-                   '<td style="color:#888;padding:0 4px;">' + r + '</td><td>' + rv + '</td></tr>';
-        };
-        return (
-            '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + k.time + '</div>' +
-            '<table style="border-spacing:0;">' +
-                row('高', '<span style="color:#ef5350;">' + k.high.toFixed(tDec) + '</span>',
-                    '低', '<span style="color:#26a69a;">' + k.low.toFixed(tDec) + '</span>') +
-                row('开', n(k.open), '收', '<span style="color:' + color + ';">' + k.close.toFixed(tDec) + '</span>') +
-                row('涨跌额', '<span style="color:' + color + ';">' + sign + chg.toFixed(tDec) + '</span>',
-                    '涨跌幅', '<span style="color:' + color + ';">' + sign + chgPct.toFixed(2) + '%</span>') +
-                row('量', '<span style="color:#ddd;">' + volStr + '</span>',
-                    '额', '<span style="color:' + (k.amount ? '#ddd' : '#888') + ';">' + amtStr + '</span>') +
-                (k.turnover != null ? row('换手', '<span style="color:#ddd;">' + k.turnover.toFixed(2) + '%</span>', '', '') : '') +
-            '</table>'
-        );
+        if (el) el.innerHTML = KlineChartUtils.getIndHTML(_indicatorMode, _maVals, _bbVals);
     }
 
     // ---- 渲染图表 ----
     function _renderChart(data) {
-        var el = document.getElementById('klChart');
-        el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
-
         _klinesData = data.klines;
-
-        _chart = LightweightCharts.createChart(el, {
-            layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
-            grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
-            crosshair: { mode: 1 },
-            rightPriceScale: { borderColor: '#2a2a4e', scaleMargins: { top: 0.08, bottom: 0.28 } },
-            timeScale: {
-                borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
-                tickMarkFormatter: function(time) {
-                    var y, m, d;
-                    if (typeof time === 'number') {
-                        var dt = new Date(time * 1000);
-                        y = dt.getFullYear(); m = dt.getMonth() + 1; d = dt.getDate();
-                    } else if (time && time.year) {
-                        y = time.year; m = time.month; d = time.day;
-                    } else if (typeof time === 'string') {
-                        return time;
-                    } else {
-                        return '';
-                    }
-                    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-                },
-            },
-            width: el.clientWidth, height: el.clientHeight,
-        });
-
-        _series = _chart.addCandlestickSeries({
-            upColor: '#ef5350', downColor: '#26a69a',
-            borderUpColor: '#ef5350', borderDownColor: '#26a69a',
-            wickUpColor: '#ef5350', wickDownColor: '#26a69a',
-        });
-        _series.setData(data.klines.map(function(k) {
-            return { time: k.time, open: k.open, high: k.high, low: k.low, close: k.close };
-        }));
-
-        _volSeries = _chart.addHistogramSeries({
-            priceFormat: { type: 'volume' }, priceScaleId: 'volume',
-        });
-        _chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.83, bottom: 0 }, visible: false });
-        _volSeries.setData(data.klines.map(function(k) {
-            return { time: k.time, value: k.volume, color: k.close >= k.open ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' };
-        }));
-
-        // ---- 均线 MA5/10/20/30/60/120 ----
-        var maC = ['#fbbf24', '#60a5fa', '#a78bfa', '#f472b6', '#34d399', '#fb923c'];
-        var maP = [5, 10, 20, 30, 60, 120];
-        var maData = [];
-        _maLines = [];
-        for (var mi = 0; mi < maP.length; mi++) {
-            var md = _calcSMA(data.klines, maP[mi]);
-            maData.push(md);
-            var line = _chart.addLineSeries({ color: maC[mi], lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-            line.setData(md);
-            _maLines.push(line);
-        }
-        var lastMA = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
-        _maVals = {
-            ma5: lastMA(maData[0]), ma10: lastMA(maData[1]),
-            ma20: lastMA(maData[2]), ma30: lastMA(maData[3]),
-            ma60: lastMA(maData[4]), ma120: lastMA(maData[5]),
-        };
-
-        // ---- 布林线（默认隐藏）：黄上轨 / 蓝中轨 / 紫下轨 ----
-        _bbLines = [];
-        var bb = _calcBB(data.klines);
-        var lastBB = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
-        _bbVals = { up: lastBB(bb.up), mid: lastBB(bb.mid), lo: lastBB(bb.lo) };
-        [{v: bb.up, d: true, c: '#ef5350'}, {v: bb.mid, d: false, c: '#60a5fa'}, {v: bb.lo, d: true, c: '#26a69a'}].forEach(function(x) {
-            var line = _chart.addLineSeries({ color: x.c, lineWidth: 1, lineStyle: x.d ? 2 : 0, priceLineVisible: false, lastValueVisible: false, visible: false });
-            line.setData(x.v);
-            _bbLines.push(line);
-        });
-
-        // ---- 十字线 tooltip ----
-        var tooltip = document.getElementById('klTooltip');
-        _chart.subscribeCrosshairMove(function(param) {
-            if (!param.time || !param.point || !_klinesData) {
-                tooltip.style.display = 'none';
-                return;
-            }
-            var k = null, idx = -1;
-            var tKey = typeof param.time === 'string' ? param.time :
-                       param.time.year ? param.time.year + '-' + String(param.time.month).padStart(2,'0') + '-' + String(param.time.day).padStart(2,'0') : '';
-            for (var i = 0; i < _klinesData.length; i++) {
-                if (_klinesData[i].time === tKey) { k = _klinesData[i]; idx = i; break; }
-            }
-            if (!k) { tooltip.style.display = 'none'; return; }
-            var prevClose = idx > 0 ? _klinesData[idx - 1].close : null;
-
-            tooltip.innerHTML = _tooltipText(k, prevClose);
-            tooltip.style.display = 'block';
-            var rect = el.getBoundingClientRect();
-            var left = param.point.x + 16;
-            var top = param.point.y - 10;
-            if (left + 160 > rect.width) left = param.point.x - 170;
-            if (top + 180 > rect.height) top = rect.height - 190;
-            if (top < 0) top = 0;
-            tooltip.style.left = left + 'px';
-            tooltip.style.top = top + 'px';
-        });
-
-        _chart.timeScale().fitContent();
-
+        var el = document.getElementById('klChart');
         if (_observer) _observer.disconnect();
-        _observer = new ResizeObserver(function() {
-            if (_chart && el.clientWidth > 0) {
-                _chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
-            }
-        });
-        _observer.observe(el);
+        var result = KlineChartUtils.render(el, _klinesData, _stockCode);
+        _chart = result.chart;
+        _series = result.series;
+        _volSeries = result.volSeries;
+        _maLines = result.maLines;
+        _bbLines = result.bbLines;
+        _maVals = result.maVals;
+        _bbVals = result.bbVals;
+        _observer = result.observer;
     }
 
     // ---- 填充头部信息 ----
@@ -1191,7 +685,7 @@ var KlinePopup = (function() {
             if (!_klinesData) {
                 chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
             } else {
-                try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _updateIndVals(); }
+                try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _switchIndicator(_indicatorMode); }
                 catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             }
             document.getElementById('klPeriodBar').style.display = 'flex';
