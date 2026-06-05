@@ -82,6 +82,18 @@
                     <div id="techScreenStatus" style="color:#888;text-align:center;padding:20px;">点击上方按钮开始扫描</div>
                     <div id="techScreenResult" style="margin-top:8px;"></div>
                 </div>
+                <div class="index-card" style="padding:15px; margin-top:15px;">
+                    <div class="chart-title" style="margin-bottom:10px;">📥 加载市场数据</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+                        <button class="refresh-btn" onclick="syncMarketSegment('sh_main')" style="font-size:11px;padding:4px 10px;">沪市主板</button>
+                        <button class="refresh-btn" onclick="syncMarketSegment('sz_main')" style="font-size:11px;padding:4px 10px;">深市主板</button>
+                        <button class="refresh-btn" onclick="syncMarketSegment('gem')" style="font-size:11px;padding:4px 10px;">创业板</button>
+                        <button class="refresh-btn" onclick="syncMarketSegment('star')" style="font-size:11px;padding:4px 10px;">科创板</button>
+                        <button class="refresh-btn" onclick="syncMarketSegment('sz_etf')" style="font-size:11px;padding:4px 10px;">深市ETF</button>
+                        <button class="refresh-btn" onclick="syncMarketSegment('sh_etf')" style="font-size:11px;padding:4px 10px;">沪市ETF</button>
+                    </div>
+                    <div id="marketSyncStatus" style="color:#888;font-size:12px;">就绪</div>
+                </div>
             </div>
 
             <!-- 解禁列表页面 -->
@@ -223,6 +235,41 @@
                 status.textContent = '扫描出错: ' + e.message;
                 status.style.color = '#e94560';
                 btn.disabled = false;
+            }
+        }
+
+        // ---- 市场数据同步 ----
+        var _marketSyncTimer = null;
+        async function syncMarketSegment(segKey) {
+            var statusEl = document.getElementById('marketSyncStatus');
+            if (_marketSyncTimer) { clearInterval(_marketSyncTimer); _marketSyncTimer = null; }
+            statusEl.textContent = '启动中...'; statusEl.style.color = '#fbbf24';
+            try {
+                var res = await fetch('/api/market-db/sync/' + segKey, { method: 'POST' });
+                var data = await res.json();
+                if (!data.success) { statusEl.textContent = data.error || '已有同步任务运行中'; statusEl.style.color = '#f97316'; return; }
+                _marketSyncTimer = setInterval(async function() {
+                    try {
+                        var sr = await fetch('/api/market-db/status');
+                        var sd = await sr.json();
+                        if (sd.running) {
+                            statusEl.textContent = sd.label + ' 日K: ' + sd.done + '/' + sd.total;
+                            if (sd.errors > 0) statusEl.textContent += ' | 错误: ' + sd.errors;
+                            statusEl.style.color = '#fbbf24';
+                        } else {
+                            clearInterval(_marketSyncTimer); _marketSyncTimer = null;
+                            statusEl.textContent = sd.label + ' 同步完成';
+                            statusEl.style.color = '#4ade80';
+                        }
+                    } catch(e) {
+                        clearInterval(_marketSyncTimer); _marketSyncTimer = null;
+                        statusEl.textContent = '状态查询出错';
+                        statusEl.style.color = '#e94560';
+                    }
+                }, 2000);
+            } catch(e) {
+                statusEl.textContent = '请求失败: ' + e.message;
+                statusEl.style.color = '#e94560';
             }
         }
 

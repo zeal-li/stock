@@ -24,11 +24,15 @@ stock/
 │   │   └── service.py              # 股票搜索 + 行情查询
 │   ├── watchlist/                   # 自选股
 │   │   └── service.py              # SQLite 持久化 + CRUD API
+│   ├── market_db/                    # 全市场股票数据库
+│   │   ├── db.py                    # SQLite 表结构 + CRUD
+│   │   └── sync.py                  # 启动时后台同步（股票列表+日K/周K/月K）
 │   ├── technical_screen/            # 技术选股
 │   │   └── service.py              # 上升通道扫描
 │   ├── data/                        # 数据文件（.gitignore 排除）
 │   │   ├── watchlist.db            # 自选股 SQLite 数据库
-│   │   └── money_flow.db           # 资金流向缓存数据库
+│   │   ├── money_flow.db           # 资金流向缓存数据库
+│   │   └── market.db               # 全市场股票+K线数据库
 │   ├── requirements.txt
 │   ├── start.bat / stop.bat / restart.bat
 ├── front_end/                       # 🎨 前端

@@ -489,8 +489,22 @@ def technical_ascending_channel_status():
     return jsonify(get_scan_status())
 
 
+# ==================== 市场数据库 ====================
+
+@app.route('/api/market-db/sync/<seg_key>', methods=['POST'])
+def market_db_sync(seg_key):
+    from market_db.sync import start_segment_sync
+    ok = start_segment_sync(seg_key)
+    return jsonify({'success': ok, 'error': '' if ok else '已有同步任务运行中或分段无效'})
+
+@app.route('/api/market-db/status')
+def market_db_status():
+    from market_db.sync import get_sync_status
+    return jsonify(get_sync_status())
+
+
 # ==================== 启动 ====================
 
 if __name__ == '__main__':
     start_major_indices_poller()  # 启动后台指数行情轮询
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)
