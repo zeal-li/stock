@@ -1,7 +1,7 @@
 """股票搜索 & 行情查询"""
 import requests
-from . import REQUEST_PROXIES
-from .utils import is_etf
+from common import REQUEST_PROXIES
+from common.utils import is_etf
 
 
 def search_stock(keyword):
@@ -25,7 +25,6 @@ def search_stock(keyword):
         data = r.json()
         quotes = (data.get('QuotationCodeTable') or {}).get('Data') or []
 
-        # 屏蔽未知境外市场（保留 A股/港股/美股/北交所）
         KNOWN_MARKETS = {'0', '1', '2', '3', '90', '106', '116'}
         result = []
         secids = []
@@ -38,7 +37,6 @@ def search_stock(keyword):
                 secids.append(secid)
                 result.append({'code': code, 'name': name, 'market': market, 'secid': secid})
 
-        # 批量获取实时行情
         if secids:
             quotes_data = _fetch_quotes(secids)
             for item in result:
@@ -72,7 +70,6 @@ def _fetch_quotes(secids):
             pct = row.get('f3')
             change = row.get('f4')
             if row.get('f12'):
-                # ETF 价格/涨跌额显示三位小数
                 etf = is_etf(row.get('f12'), row.get('f13'))
                 decimals = 3 if etf else 2
                 result[key] = {
@@ -83,4 +80,3 @@ def _fetch_quotes(secids):
         return result
     except Exception:
         return {}
-

@@ -52,7 +52,6 @@ def _get_pledge_rates(codes):
     if not codes:
         return {}
     try:
-        # 用 IN 语法批量查询
         code_list = ','.join(f'"{c}"' for c in codes)
         r = requests.get(
             "https://datacenter-web.eastmoney.com/api/data/v1/get",
@@ -84,7 +83,6 @@ def get_goodwill(codes):
     if not codes:
         return {}
 
-    # 并行请求所有商誉率
     gw_map = {}
     with ThreadPoolExecutor(max_workers=min(len(codes), 10)) as pool:
         futures = {pool.submit(_get_goodwill_rate, c): c for c in codes}
@@ -95,10 +93,8 @@ def get_goodwill(codes):
             except Exception:
                 gw_map[code] = None
 
-    # 批量请求质押率
     pl_map = _get_pledge_rates(codes)
 
-    # 合并结果
     result = {}
     for code in codes:
         result[code] = {

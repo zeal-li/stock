@@ -13,11 +13,10 @@ def _ensure_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute('CREATE TABLE IF NOT EXISTS watchlist (code TEXT, market TEXT, created_at TEXT, added_price TEXT, PRIMARY KEY (code, market))')
-    # 旧表兼容：添加 added_price 列
     try:
         conn.execute('ALTER TABLE watchlist ADD COLUMN added_price TEXT DEFAULT ""')
     except sqlite3.OperationalError:
-        pass  # 列已存在
+        pass
     conn.commit()
     return conn
 

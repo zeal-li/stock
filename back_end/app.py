@@ -3,18 +3,18 @@ from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 import requests
 
-from services import REQUEST_PROXIES
-from services.money_flow import get_index_minute_data
-from services.market_data import (
-    get_major_indices, get_sh000001_minute_data, get_market_fund_flow,
-    get_fear_index, get_risk_index, get_margin_trading,
-    start_major_indices_poller,
-)
-from services.search import search_stock as do_search
-from services.finance import get_goodwill
-from services.technical_screen import run_ascending_channel_async, get_scan_status
-from services.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
-from services.watchlist import get_all, add, remove as wl_remove
+from common import REQUEST_PROXIES
+from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
+from common.finance import get_goodwill
+from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
+from money_flow.fund_flow import get_market_fund_flow
+from money_flow.fear_index import get_fear_index
+from money_flow.risk_index import get_risk_index
+from money_flow.margin import get_margin_trading
+from money_flow.cache import start_major_indices_poller
+from stock_pick.service import search_stock as do_search
+from watchlist.service import get_all, add, remove as wl_remove
+from technical_screen.service import run_ascending_channel_async, get_scan_status
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
