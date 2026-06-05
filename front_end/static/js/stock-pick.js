@@ -83,6 +83,8 @@ function saveCache() {
         code: s.code, market: s.market,
         gw: s.goodwill ? s.goodwill.gw : undefined,
         pld: s.goodwill ? s.goodwill.pld : undefined,
+        addedDate: s.addedDate || undefined,
+        addedPrice: s.addedPrice || undefined,
     }));
     localStorage.setItem('stockCache', JSON.stringify({ date: getToday(), stocks }));
 }
@@ -95,14 +97,16 @@ function loadCache() {
     } catch(e) { return null; }
 }
 
-// 股票对象工厂（默认值均为 '-'）
-function createStock(code, name, market, goodwill) {
+// 股票对象工厂
+function createStock(code, name, market, goodwill, info) {
+    info = info || {};
     return { code, name, market, goodwill: goodwill || null,
         price: '-', pct: '-', change: '-', pe: '-', pb: '-',
         high: '-', low: '-', open: '-', pre_close: '-',
         total_shares: '-', float_shares: '-',
         turnover: '-', amplitude: '-', volume: '-', amount: '-',
         total_cap: '-', float_cap: '-',
+        addedDate: info.addedDate || '', addedPrice: info.addedPrice || '',
     };
 }
 
@@ -113,7 +117,8 @@ function loadPickedStocks() {
         if (raw && raw.stocks) {
             const expired = raw.date !== getToday();
             stocks = raw.stocks.map(s => createStock(s.code, s.code, s.market,
-                (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null
+                (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null,
+                { addedDate: s.addedDate || '', addedPrice: s.addedPrice || '' }
             ));
         }
         // 兼容旧格式
@@ -238,6 +243,22 @@ function _pairText(a, b) {
     return a !== '-' && b !== '-' ? a + '/' + b : a;
 }
 
+function _joinDays(dateStr) {
+    if (!dateStr) return '-';
+    var d = new Date(), jd = new Date(dateStr);
+    return Math.max(0, Math.floor((d - jd) / 86400000)) + '天';
+}
+
+function _joinChgText(s) {
+    if (!s.addedPrice || s.price === '-') return '-';
+    var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);
+    if (isNaN(ap) || isNaN(cp) || ap === 0) return '-';
+    var pct = (cp - ap) / ap * 100;
+    var color = pct >= 0 ? '#e94560' : '#4ade80';
+    var sign = pct >= 0 ? '+' : '';
+    return '<span style="color:' + color + ';">' + s.addedPrice + ' / ' + sign + pct.toFixed(2) + '%</span>';
+}
+
 function renderPicked() {
     const div = document.getElementById('pickedStocks');
     if (pickedStocks.length === 0) { div.innerHTML = ''; return; }
@@ -306,7 +327,7 @@ var watchlistStocks = [];
 function watchlistGetToday() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 
 function watchlistSaveCache() {
-    var stocks = watchlistStocks.map(function(s) { return { code: s.code, market: s.market, gw: s.goodwill ? s.goodwill.gw : undefined, pld: s.goodwill ? s.goodwill.pld : undefined }; });
+    var stocks = watchlistStocks.map(function(s) { return { code: s.code, market: s.market, gw: s.goodwill ? s.goodwill.gw : undefined, pld: s.goodwill ? s.goodwill.pld : undefined, addedDate: s.addedDate || undefined, addedPrice: s.addedPrice || undefined }; });
     localStorage.setItem('watchlistCache', JSON.stringify({ date: watchlistGetToday(), stocks: stocks }));
 }
 
@@ -316,7 +337,7 @@ function loadWatchlistStocks() {
     var raw = JSON.parse(localStorage.getItem('watchlistCache') || 'null');
     if (raw && raw.stocks) {
         var expired = raw.date !== watchlistGetToday();
-        stocks = raw.stocks.map(function(s) { return createStock(s.code, s.code, s.market, (!expired && s.gw !== undefined && s.pld !== undefined) ? { gw: s.gw, pld: s.pld } : null); });
+        stocks = raw.stocks.map(function(s) { return createStock(s.code, s.code, s.market, (!expired && s.gw !== undefined && s.pld !== undefined) ? { gw: s.gw, pld: s.pld } : null, { addedDate: s.addedDate || '', addedPrice: s.addedPrice || '' }); });
     }
     watchlistStocks = stocks || [];
     watchlistRender();
@@ -330,7 +351,10 @@ function loadWatchlistStocks() {
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!data.success || !data.data.length) return;
-                watchlistStocks = data.data.map(function(s) { return createStock(s.code, s.code, s.market); });
+                watchlistStocks = data.data.map(function(s) {
+                    var ad = s.created_at ? s.created_at.slice(0, 10) : '';
+                    return createStock(s.code, s.code, s.market, null, { addedDate: ad, addedPrice: s.added_price || '' });
+                });
                 watchlistSaveCache();
                 if (watchlistStocks.length > 0) {
                     watchlistRender();
@@ -345,10 +369,23 @@ function loadWatchlistStocks() {
 // ---- 增删 ----
 async function watchlistPickStock(code, market) {
     if (watchlistStocks.find(function(s) { return s.code === code; })) return;
+    // 获取加入时的价格
+    var addPrice = '';
+    try {
+        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(market + '.' + code));
+        var d = await res.json();
+        if (d.success) {
+            var q = d.data[market + '.' + code];
+            if (q && q.price && q.price !== '-') addPrice = q.price;
+        }
+    } catch(e) {}
     // 异步持久化到数据库
-    fetch('/api/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market) })
+    var body = 'code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market);
+    if (addPrice) body += '&added_price=' + encodeURIComponent(addPrice);
+    fetch('/api/watchlist', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
         .catch(function() {});
-    watchlistStocks.push(createStock(code, code, market));
+    var info = { addedDate: watchlistGetToday(), addedPrice: addPrice };
+    watchlistStocks.push(createStock(code, code, market, null, info));
     watchlistSaveCache();
     watchlistRender();
     refreshWatchlistQuotes();
@@ -411,7 +448,7 @@ async function refreshWatchlistGoodwill() {
 function watchlistRender() {
     var div = document.getElementById('watchlistStocks');
     if (watchlistStocks.length === 0) { div.innerHTML = ''; return; }
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>PE(TTM)/PB</th><th>商誉率/质押率</th><th></th></tr></thead><tbody>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>PE(TTM)/PB</th><th>商誉率/质押率</th><th>加选天数</th><th>加选价/涨幅</th><th></th></tr></thead><tbody>';
     watchlistStocks.forEach(function(s) {
         var type = getStockType(s.code, s.market);
         var color = _chgColor(s.change);
@@ -427,6 +464,8 @@ function watchlistRender() {
             '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
             '<td class="cell-pepb"><span style="color:#ddd;">' + s.pe + '/' + s.pb + '</span></td>' +
             '<td class="cell-gw"><span style="color:#ddd;">' + (s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-') + '</span></td>' +
+            '<td class="cell-jd"><span style="color:#ddd;">' + _joinDays(s.addedDate) + '</span></td>' +
+            '<td class="cell-jc">' + _joinChgText(s) + '</td>' +
             '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="watchlistRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
         '</tr>';
     });
@@ -447,6 +486,8 @@ function watchlistUpdatePrices() {
         _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
         _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
         _setCell(row, 'cell-pepb', s.pe + '/' + s.pb, '#ddd');
+        var jdTd = row.querySelector('.cell-jd'); if (jdTd) { var jdSp = jdTd.querySelector('span'); if (jdSp) jdSp.textContent = _joinDays(s.addedDate); }
+        var jcTd = row.querySelector('.cell-jc'); if (jcTd) jcTd.innerHTML = _joinChgText(s);
     });
 }
 

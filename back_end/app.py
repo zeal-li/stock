@@ -91,15 +91,16 @@ def search_stock():
 @app.route('/api/watchlist', methods=['GET'])
 def watchlist_get():
     rows = get_all()
-    return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1]} for r in rows]})
+    return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2], 'added_price': r[3]} for r in rows]})
 
 @app.route('/api/watchlist', methods=['POST'])
 def watchlist_add():
     code = request.form.get('code', '').strip()
     market = request.form.get('market', '').strip()
+    added_price = request.form.get('added_price', '').strip()
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
-    add(code, market)
+    add(code, market, added_price)
     return jsonify({'success': True})
 
 @app.route('/api/watchlist/<code>', methods=['DELETE'])
