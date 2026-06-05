@@ -3,7 +3,7 @@ import datetime
 import time
 import requests
 from common import REQUEST_PROXIES
-from money_flow.cache import _cache, _FUND_FLOW_KEY
+from money_flow.storage import db_set, db_get, _FUND_FLOW_KEY
 
 
 def _fetch_and_cache_fund_flow():
@@ -67,7 +67,7 @@ def _fetch_and_cache_fund_flow():
                 'flows_mid': flows_mid, 'flows_small': flows_small
             }
         }
-        _cache[_FUND_FLOW_KEY] = (result, time.time())
+        db_set(_FUND_FLOW_KEY, result, time.time())
         return True
     except Exception as e:
         print(f"[fund-flow poller] fetch error: {e}")
@@ -76,11 +76,11 @@ def _fetch_and_cache_fund_flow():
 
 def get_market_fund_flow():
     """大盘资金净流入分时（优先读缓存，缓存空时同步抓取）"""
-    cached = _cache.get(_FUND_FLOW_KEY)
-    if cached:
-        return cached[0]
+    row = db_get(_FUND_FLOW_KEY)
+    if row:
+        return row[0]
     _fetch_and_cache_fund_flow()
-    cached = _cache.get(_FUND_FLOW_KEY)
-    if cached:
-        return cached[0]
+    row = db_get(_FUND_FLOW_KEY)
+    if row:
+        return row[0]
     return {'success': False, 'error': '暂无资金流数据'}

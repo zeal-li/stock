@@ -1,7 +1,7 @@
 """市场风险指数"""
 import time
 from concurrent.futures import ThreadPoolExecutor
-from money_flow.cache import _cache, _cache_set, _cached, _MARGIN_KEY, _MARKET_BREADTH_KEY, _DAILY_CLOSES_KEY
+from money_flow.storage import db_get, _cache_set, _cached, _MARGIN_KEY, _MARKET_BREADTH_KEY, _DAILY_CLOSES_KEY
 
 
 def get_risk_index():
@@ -103,7 +103,7 @@ def get_risk_index():
 
 def _fetch_margin():
     """获取融资因子数据（从后台融资融券缓存读取）"""
-    cached = _cache.get(_MARGIN_KEY)
+    cached = db_get(_MARGIN_KEY)
     if cached and cached[0].get('success'):
         d = cached[0]['data']
         return {
@@ -116,7 +116,7 @@ def _fetch_margin():
 
 def _fetch_daily_closes(symbol):
     """获取日线收盘价（从后台缓存读取）"""
-    cached = _cache.get(_DAILY_CLOSES_KEY)
+    cached = db_get(_DAILY_CLOSES_KEY)
     if cached:
         return cached[0].get(symbol, [])
     return []
@@ -124,7 +124,7 @@ def _fetch_daily_closes(symbol):
 
 def _fetch_breadth():
     """获取沪深涨跌家数"""
-    cached = _cache.get(_MARKET_BREADTH_KEY)
+    cached = db_get(_MARKET_BREADTH_KEY)
     if cached:
         return cached[0]
     return 0, 0

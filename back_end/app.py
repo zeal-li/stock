@@ -11,7 +11,7 @@ from money_flow.fund_flow import get_market_fund_flow
 from money_flow.fear_index import get_fear_index
 from money_flow.risk_index import get_risk_index
 from money_flow.margin import get_margin_trading
-from money_flow.cache import start_major_indices_poller
+from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
 from technical_screen.service import run_ascending_channel_async, get_scan_status

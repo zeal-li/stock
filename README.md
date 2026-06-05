@@ -13,7 +13,7 @@ stock/
 │   │   ├── utils.py                 # 格式化函数（fmt/is_etf 等）
 │   │   └── finance.py              # 财务数据（商誉率/质押率）
 │   ├── money_flow/                  # 资金流向
-│   │   ├── cache.py                 # 内存缓存 + 后台轮询线程
+│   │   ├── storage.py               # SQLite 持久化 + 后台轮询线程
 │   │   ├── market.py               # 大盘指数行情 + 分时走势 + 涨跌家数
 │   │   ├── fund_flow.py            # 大盘资金净流入
 │   │   ├── turnover.py             # 成交额分时
@@ -27,7 +27,8 @@ stock/
 │   ├── technical_screen/            # 技术选股
 │   │   └── service.py              # 上升通道扫描
 │   ├── data/                        # 数据文件（.gitignore 排除）
-│   │   └── watchlist.db            # 自选股 SQLite 数据库
+│   │   ├── watchlist.db            # 自选股 SQLite 数据库
+│   │   └── money_flow.db           # 资金流向缓存数据库
 │   ├── requirements.txt
 │   ├── start.bat / stop.bat / restart.bat
 ├── front_end/                       # 🎨 前端
@@ -73,7 +74,7 @@ stock/
 | K 线/分时数据 | localStorage `kl_cache` | 跨天自动清 + 手动清 |
 | 选股列表 | localStorage `stockCache` | 跨天清商誉 + 手动清 |
 | 自选股列表 | localStorage `watchlistCache` + SQLite | localStorage 优先，SQLite 兜底 |
-| 内存缓存 | Python `_cache` 字典 | 后端进程级，5~60s TTL |
+| 资金流数据 | SQLite `money_flow.db` | 启动时检查日期，非当日全量更新；交易时段按频率刷新 |
 
 ## 数据源
 

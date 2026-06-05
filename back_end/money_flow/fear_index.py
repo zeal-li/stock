@@ -3,7 +3,7 @@ import time
 import requests
 from concurrent.futures import ThreadPoolExecutor
 from common import REQUEST_PROXIES
-from money_flow.cache import _cache, _cache_set, _cached, _EM_HEADERS, _EM_UT, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _FUND_FLOW_KEY
+from money_flow.storage import db_get, _cache_set, _cached, _EM_HEADERS, _EM_UT, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _FUND_FLOW_KEY
 from money_flow.market import get_sh000001_minute_data
 from money_flow.fund_flow import get_market_fund_flow
 
@@ -17,7 +17,7 @@ def get_fear_index():
 
     try:
         idx_changes = []
-        major_cached = _cache.get(_MAJOR_INDICES_KEY)
+        major_cached = db_get(_MAJOR_INDICES_KEY)
         if major_cached and major_cached[0].get('success'):
             for item in major_cached[0]['data']:
                 chg_str = item.get('change', '0%')
@@ -156,7 +156,7 @@ def _fetch_idx_changes():
 
 def _fetch_sz_intraday():
     """获取深证成指日内涨跌（从大盘行情缓存读取）"""
-    major_cached = _cache.get(_MAJOR_INDICES_KEY)
+    major_cached = db_get(_MAJOR_INDICES_KEY)
     if major_cached and major_cached[0].get('success') and len(major_cached[0]['data']) > 1:
         chg_str = major_cached[0]['data'][1].get('change', '0%')
         try:
@@ -168,7 +168,7 @@ def _fetch_sz_intraday():
 
 def _fetch_breadth():
     """获取沪深涨跌家数（从后台缓存读取）"""
-    cached = _cache.get(_MARKET_BREADTH_KEY)
+    cached = db_get(_MARKET_BREADTH_KEY)
     if cached:
         return cached[0]
     return 0, 0

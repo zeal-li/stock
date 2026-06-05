@@ -1,8 +1,7 @@
 """融资融券数据"""
 import datetime
-import time
 from concurrent.futures import ThreadPoolExecutor
-from money_flow.cache import _cache, _MARGIN_KEY
+from money_flow.storage import db_set, db_get, _MARGIN_KEY
 
 
 def _fetch_and_cache_margin():
@@ -84,7 +83,7 @@ def _fetch_and_cache_margin():
                 'fin_buy_heat': fin_data.get('fin_buy_heat', 0.0),
             }
         }
-        _cache[_MARGIN_KEY] = (result, datetime.date.today().strftime('%Y-%m-%d'))
+        db_set(_MARGIN_KEY, result, datetime.date.today().strftime('%Y-%m-%d'))
         return True
     except Exception as e:
         print(f"[margin poller] fetch error: {e}")
@@ -93,7 +92,7 @@ def _fetch_and_cache_margin():
 
 def get_margin_trading():
     """融资融券数据（从缓存读取）"""
-    cached = _cache.get(_MARGIN_KEY)
-    if cached:
-        return cached[0]
+    row = db_get(_MARGIN_KEY)
+    if row:
+        return row[0]
     return {'success': False, 'error': '暂无融资融券数据'}

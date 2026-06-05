@@ -3,7 +3,7 @@ import datetime
 import time
 import requests
 from common import REQUEST_PROXIES
-from money_flow.cache import _cache, _TURNOVER_MINUTE_KEY
+from money_flow.storage import db_set, _TURNOVER_MINUTE_KEY
 
 
 def _fetch_and_cache_turnover():
@@ -55,7 +55,7 @@ def _fetch_and_cache_turnover():
                 'header': header_info
             }
         }
-        _cache[_TURNOVER_MINUTE_KEY] = (result, time.time())
+        db_set(_TURNOVER_MINUTE_KEY, result, time.time())
         return True
     except Exception as e:
         print(f"[turnover poller] fetch error: {e}")

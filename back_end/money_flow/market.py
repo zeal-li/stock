@@ -3,7 +3,7 @@ import datetime
 import time
 import requests
 from common import REQUEST_PROXIES
-from money_flow.cache import _cache, _EM_HEADERS, _EM_UT, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY, _DAILY_CLOSES_KEY
+from money_flow.storage import db_set, db_get, db_has, _EM_HEADERS, _EM_UT, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY, _DAILY_CLOSES_KEY
 
 
 def _fetch_and_cache_major_indices():
@@ -34,7 +34,7 @@ def _fetch_and_cache_major_indices():
                     'change_value': f"{'+' if change_val and float(change_val) >= 0 else ''}{float(change_val):.2f}" if change_val is not None else '+0.00',
                 })
             if data:
-                _cache[_MAJOR_INDICES_KEY] = ({'success': True, 'data': data}, time.time())
+                db_set(_MAJOR_INDICES_KEY, {'success': True, 'data': data}, time.time())
                 return True
     except Exception as e:
         print(f"[major-indices poller] fetch error: {e}")
@@ -50,7 +50,7 @@ def _fetch_and_cache_breadth():
         diff = (r.json().get('data') or {}).get('diff') or []
         rise = sum(int(row.get('f104', 0)) for row in diff)
         fall = sum(int(row.get('f105', 0)) for row in diff)
-        _cache[_MARKET_BREADTH_KEY] = ((rise, fall), time.time())
+        db_set(_MARKET_BREADTH_KEY, [rise, fall], time.time())
         return True
     except Exception as e:
         print(f"[breadth poller] fetch error: {e}")
@@ -91,7 +91,7 @@ def _fetch_and_cache_sh_minute():
                     'times': times, 'prices': prices,
                 }
             }
-            _cache[_SH_MINUTE_KEY] = (result, time.time())
+            db_set(_SH_MINUTE_KEY, result, time.time())
             return True
     except Exception as e:
         print(f"[sh-minute poller] fetch error: {e}")
@@ -114,7 +114,7 @@ def _fetch_and_cache_daily_closes():
             day_rows = jd_data.get('day') or jd_data.get('qfqday') or []
             closes = [float(row[2]) for row in day_rows if len(row) >= 3]
             result[symbol] = closes
-        _cache[_DAILY_CLOSES_KEY] = (result, datetime.date.today().strftime('%Y-%m-%d'))
+        db_set(_DAILY_CLOSES_KEY, result, datetime.date.today().strftime('%Y-%m-%d'))
         return True
     except Exception as e:
         print(f"[daily-closes poller] fetch error: {e}")
@@ -123,22 +123,23 @@ def _fetch_and_cache_daily_closes():
 
 def get_major_indices():
     """上证指数实时行情（从缓存读取）"""
-    if _MAJOR_INDICES_KEY in _cache:
-        return _cache[_MAJOR_INDICES_KEY][0]
+    row = db_get(_MAJOR_INDICES_KEY)
+    if row:
+        return row[0]
     return {'success': False, 'error': '暂无指数数据'}
 
 
 def get_sh000001_minute_data():
     """上证指数分时走势（从缓存读取）"""
-    cached = _cache.get(_SH_MINUTE_KEY)
-    if cached:
-        return cached[0]
+    row = db_get(_SH_MINUTE_KEY)
+    if row:
+        return row[0]
     return {'success': False, 'error': '暂无分时数据'}
 
 
 def get_index_minute_data():
     """成交额分时数据（从缓存读取）"""
-    cached = _cache.get(_TURNOVER_MINUTE_KEY)
-    if cached:
-        return cached[0]
+    row = db_get(_TURNOVER_MINUTE_KEY)
+    if row:
+        return row[0]
     return {'success': False, 'error': '暂无成交额数据'}
