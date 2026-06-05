@@ -19,13 +19,33 @@
                     <span class="nav-icon">💰</span>
                     <span>资金流向</span>
                 </div>
+                <div class="nav-item" data-page="watchlist">
+                    <span class="nav-icon">⭐</span>
+                    <span>自选股</span>
+                </div>
                 <div class="nav-item" data-page="stock-pick">
                     <span class="nav-icon">🔍</span>
                     <span>选股</span>
                 </div>
-                <div class="nav-item" data-page="watchlist">
-                    <span class="nav-icon">⭐</span>
-                    <span>自选股</span>
+                <div class="nav-item" data-page="tech-pick">
+                    <span class="nav-icon">📊</span>
+                    <span>技术选股</span>
+                </div>
+                <div class="nav-item" data-page="unlock-list">
+                    <span class="nav-icon">🔓</span>
+                    <span>解禁列表</span>
+                </div>
+                <div class="nav-item" data-page="earnings">
+                    <span class="nav-icon">📋</span>
+                    <span>业绩披露</span>
+                </div>
+                <div class="nav-item" data-page="announce">
+                    <span class="nav-icon">📢</span>
+                    <span>公司公告</span>
+                </div>
+                <div class="nav-item" data-page="abnormal">
+                    <span class="nav-icon">⚡</span>
+                    <span>异动中心</span>
                 </div>
             </div>
         </div>
@@ -50,6 +70,36 @@
                 <div class="index-card" style="padding:30px;">
                     <div id="watchlistStocks" style="margin-top:8px;"></div>
                 </div>
+            </div>
+
+            <!-- 技术选股页面 -->
+            <div id="page-tech-pick" style="display:none;">
+                <div class="page-header"><h1 class="page-title">📊 技术选股</h1></div>
+                <div class="index-card" style="padding:40px;text-align:center;color:#888;">功能开发中...</div>
+            </div>
+
+            <!-- 解禁列表页面 -->
+            <div id="page-unlock-list" style="display:none;">
+                <div class="page-header"><h1 class="page-title">🔓 解禁列表</h1></div>
+                <div class="index-card" style="padding:40px;text-align:center;color:#888;">功能开发中...</div>
+            </div>
+
+            <!-- 业绩披露页面 -->
+            <div id="page-earnings" style="display:none;">
+                <div class="page-header"><h1 class="page-title">📋 业绩披露</h1></div>
+                <div class="index-card" style="padding:40px;text-align:center;color:#888;">功能开发中...</div>
+            </div>
+
+            <!-- 公司公告页面 -->
+            <div id="page-announce" style="display:none;">
+                <div class="page-header"><h1 class="page-title">📢 公司公告</h1></div>
+                <div class="index-card" style="padding:40px;text-align:center;color:#888;">功能开发中...</div>
+            </div>
+
+            <!-- 异动中心页面 -->
+            <div id="page-abnormal" style="display:none;">
+                <div class="page-header"><h1 class="page-title">⚡ 异动中心</h1></div>
+                <div class="index-card" style="padding:40px;text-align:center;color:#888;">功能开发中...</div>
             </div>
 
             <!-- 选股页面 -->
@@ -101,6 +151,11 @@
                 document.getElementById('page-money-flow').style.display = page === 'money-flow' ? 'block' : 'none';
                 document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
                 document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
+                document.getElementById('page-tech-pick').style.display = page === 'tech-pick' ? 'block' : 'none';
+                document.getElementById('page-unlock-list').style.display = page === 'unlock-list' ? 'block' : 'none';
+                document.getElementById('page-earnings').style.display = page === 'earnings' ? 'block' : 'none';
+                document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
+                document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
             });
         });
