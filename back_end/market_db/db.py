@@ -32,10 +32,26 @@ def stock_count():
 
 
 def stocks_save(rows):
-    """rows: [(code, market, name), ...]"""
+    """rows: [(code, market, name), ...] — 全量替换"""
     conn = _conn()
     conn.execute('DELETE FROM stocks')
     conn.executemany('INSERT OR REPLACE INTO stocks (code, market, name) VALUES (?, ?, ?)', rows)
+    conn.commit()
+    conn.close()
+
+
+def stocks_append(rows):
+    """rows: [(code, market, name), ...] — 追加，不删已有"""
+    conn = _conn()
+    conn.executemany('INSERT OR IGNORE INTO stocks (code, market, name) VALUES (?, ?, ?)', rows)
+    conn.commit()
+    conn.close()
+
+
+def stocks_remove(code, market):
+    conn = _conn()
+    conn.execute('DELETE FROM stocks WHERE code=? AND market=?', (code, market))
+    conn.execute('DELETE FROM klines WHERE code=? AND market=?', (code, market))
     conn.commit()
     conn.close()
 
