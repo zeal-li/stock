@@ -4,7 +4,7 @@ from flask_cors import CORS
 import requests
 
 from services import REQUEST_PROXIES
-from services.money_flow import get_index_minute_data, get_turnover_day_data
+from services.money_flow import get_index_minute_data
 from services.market_data import (
     get_major_indices, get_sh000001_minute_data, get_market_fund_flow,
     get_fear_index, get_risk_index, get_margin_trading,
@@ -53,10 +53,6 @@ def index_minute():
 @app.route('/api/turnover-minute')
 def turnover_minute():
     return jsonify(get_index_minute_data())
-
-@app.route('/api/turnover-day')
-def turnover_day():
-    return jsonify(get_turnover_day_data())
 
 
 # ==================== 资金流 & 指数 ====================
