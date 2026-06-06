@@ -14,7 +14,7 @@ from money_flow.margin import get_margin_trading
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
-from technical_screen.service import run_ascending_channel_async, get_scan_status
+from services.technical_screen import run_ascending_channel_async, get_scan_status
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -491,16 +491,18 @@ def technical_ascending_channel_status():
 
 # ==================== 市场数据库 ====================
 
-@app.route('/api/market-db/sync/<seg_key>', methods=['POST'])
-def market_db_sync(seg_key):
-    from market_db.sync import start_segment_sync
-    ok = start_segment_sync(seg_key)
-    return jsonify({'success': ok, 'error': '' if ok else '已有同步任务运行中或分段无效'})
+@app.route('/api/market-db/init/<market>', methods=['POST'])
+def market_db_init(market):
+    from market_db.sync import init_market
+    result = init_market(market)
+    return jsonify(result)
 
 @app.route('/api/market-db/status')
 def market_db_status():
-    from market_db.sync import get_sync_status
-    return jsonify(get_sync_status())
+    from market_db.db import list_stocks_all, detail_info_all
+    list_count = len(list_stocks_all())
+    detail_count = len(detail_info_all())
+    return jsonify({'list_stocks': list_count, 'detail_stocks': detail_count})
 
 
 # ==================== 启动 ====================
@@ -508,5 +510,5 @@ def market_db_status():
 if __name__ == '__main__':
     start_major_indices_poller()  # 启动后台指数行情轮询
     from market_db.sync import start_startup_sync
-    start_startup_sync()           # 后台增量更新 SQLite 已有股票的 K 线
+    start_startup_sync()           # 后台增量更新已有市场的 K 线
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)

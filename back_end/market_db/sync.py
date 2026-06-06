@@ -1,74 +1,126 @@
-"""全市场数据同步 — 启动时增量更新已有股票，K 线按需分段拉取"""
+"""全市场数据同步
+启动时：
+  1. 刷新 stock_list.db：按市场拉取在市的股票列表（有日期判断，同日不重复拉）
+  2. 同步 stock_detail_list.db：遍历已有股票，缺数据全量拉/有数据增量拉
+  3. 清理：detail 里 list 里没有的股票 → 退市，删除
+"""
 import datetime
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from market_db.db import stock_count, stocks_save, stocks_append, stocks_all, kline_latest_date, klines_insert
-
-# 市场分段定义
-SEGMENTS = {
-    'sh_main':    {'label': '沪市主板', 'prefix': ('600', '601', '603', '605')},
-    'sz_main':    {'label': '深市主板', 'prefix': ('000', '001', '002', '003')},
-    'gem':        {'label': '创业板',   'prefix': ('300', '301')},
-    'star':       {'label': '科创板',   'prefix': ('688',)},
-    'sz_etf':     {'label': '深市ETF',  'prefix': ('159', '16')},
-    'sh_etf':     {'label': '沪市ETF',  'prefix': ('51',)},
-}
+from .db import (
+    list_markets, list_replace_market, list_sync_date_get, list_sync_date_set,
+    list_stocks_all,
+    detail_info_all, detail_info_get, detail_info_upsert,
+    detail_klines_insert, detail_remove_stock,
+)
 
 
-def _fetch_stock_list(prefix=None):
-    """从 akshare 获取股票列表，可选按代码前缀过滤。返回 [(code, market, name), ...]"""
+def _today_str():
+    return datetime.date.today().strftime('%Y-%m-%d')
+
+
+# =========== 步骤 1：刷新股票列表 ===========
+
+def _fetch_active_stocks():
+    """从 akshare 获取全市场在市的 A 股 + ETF，返回 [(code, market, name), ...]"""
     import akshare as ak
+
+    all_rows = []
+
+    # —— A 股 ——
+    print("[sync] 获取 A 股列表...")
     try:
-        all_prefixes = ('0', '3', '6', '15', '16', '51') if prefix is None else prefix
-        label = '全量' if prefix is None else ','.join(prefix)
-        is_etf = any(p.startswith(('15', '16', '51')) for p in (prefix or ()))
+        df = ak.stock_zh_a_spot_em()
+    except Exception:
+        try:
+            df = ak.stock_info_a_code_name()
+        except Exception as e:
+            print(f"[sync] A 股列表获取失败: {e}")
+            return None
 
-        if is_etf and prefix:
-            df_etf = ak.fund_etf_spot_em()
-            print(f"[market_db] ETF 原始表头: {list(df_etf.columns)[:5]}, 行数: {len(df_etf)}")
-            code_col = '代码' if '代码' in df_etf.columns else df_etf.columns[0]
-            name_col = '名称' if '名称' in df_etf.columns else df_etf.columns[1]
-            rows = []
-            for _, row in df_etf.iterrows():
-                code = str(row[code_col]).zfill(6)
-                if not code.startswith(prefix): continue
-                name = str(row[name_col])
-                market = '0' if code.startswith(('15', '16')) else '1'
-                rows.append((code, market, name))
+    if df is None or df.empty:
+        print("[sync] A 股列表为空")
+        return None
+
+    for _, row in df.iterrows():
+        code = str(row.get('代码', row.get('code', ''))).zfill(6)
+        name = str(row.get('名称', row.get('name', '')))
+        if not code.isdigit() or len(code) != 6:
+            continue
+        if code.startswith(('15', '16')):
+            market = '0'
+        elif code.startswith('51'):
+            market = '1'
+        elif code.startswith(('6',)):
+            market = '1'
         else:
-            # 普通股票优先用 spot（活跃），失败回退到 info（全量）
-            df = None
-            try:
-                df = ak.stock_zh_a_spot_em()
-            except Exception:
-                pass
-            if df is None or df.empty:
-                df = ak.stock_info_a_code_name()
-            if df is None or df.empty:
-                print("[market_db] akshare 返回空列表")
-                return []
-            rows = []
-            for _, row in df.iterrows():
-                code = str(row.get('代码', row.get('code', ''))).zfill(6)
-                if not code.startswith(all_prefixes): continue
-                name = str(row.get('名称', row.get('name', '')))
-                if code.startswith(('15', '16')): market = '0'
-                elif code.startswith('51'): market = '1'
-                elif code.startswith(('6',)): market = '1'
-                else: market = '0'
-                rows.append((code, market, name))
-        print(f"[market_db] 股票列表({label})：找到 {len(rows)} 只")
-        if rows and prefix is None:
-            stocks_save(rows)
-        elif rows:
-            stocks_append(rows)
-        return rows
-    except Exception as e:
-        print(f"[market_db] 股票列表获取失败: {e}")
-        return []
+            market = '0'
+        all_rows.append((code, market, name))
+    print(f"[sync] A 股: {len(all_rows)} 只")
 
+    # —— ETF ——
+    print("[sync] 获取 ETF 列表...")
+    try:
+        df_etf = ak.fund_etf_spot_em()
+    except Exception as e:
+        print(f"[sync] ETF 列表获取失败: {e}")
+        return all_rows  # ETF 失败不影响 A 股
+
+    etf_count = 0
+    for _, row in df_etf.iterrows():
+        code = str(row.get('代码', row.get('code', ''))).zfill(6)
+        name = str(row.get('名称', row.get('name', '')))
+        if not code.isdigit() or len(code) != 6:
+            continue
+        if code.startswith(('15', '16')):
+            market = '0'
+        elif code.startswith('51'):
+            market = '1'
+        else:
+            continue
+        all_rows.append((code, market, name))
+        etf_count += 1
+    print(f"[sync] ETF: {etf_count} 只，总计 {len(all_rows)} 只")
+    return all_rows
+
+
+def _refresh_stock_list():
+    """刷新 stock_list.db：只更新已存在的市场类型，不新增"""
+    today = _today_str()
+    markets = list_markets()
+
+    if not markets:
+        print("[sync] stock_list.db 为空，跳过列表刷新（需手动初始化市场类型）")
+        return
+
+    # 检查是否所有 market 今天已同步
+    all_synced = all(list_sync_date_get(m) == today for m in markets)
+    if all_synced:
+        print("[sync] 股票列表已是最新（今日已更新），跳过")
+        return
+
+    print("[sync] 获取在市的股票列表...")
+    all_rows = _fetch_active_stocks()
+    if all_rows is None:
+        print("[sync] 获取失败，保留现有列表")
+        return
+
+    # 按 market 分组
+    by_market = {}
+    for code, market, name in all_rows:
+        by_market.setdefault(market, []).append((code, name))
+
+    # 只更新 stock_list.db 中已存在的 market
+    for m in markets:
+        rows = by_market.get(m, [])
+        list_replace_market(m, rows)
+        list_sync_date_set(m, today)
+        print(f"[sync] 市场 {m} 股票列表已更新: {len(rows)} 只")
+
+
+# =========== 步骤 2：同步 K 线 ===========
 
 def _fetch_kline(code, market, period, start_date, end_date):
     """从 akshare 获取单只股票 K 线"""
@@ -94,213 +146,165 @@ def _fetch_kline(code, market, period, start_date, end_date):
     return []
 
 
-def _sync_one_stock(code, market, periods=('daily',)):
-    """增量同步单只股票 K 线（只拉缺失日期）"""
-    today = datetime.date.today()
+def _sync_one_stock(code, market, name, periods=('daily', 'weekly', 'monthly')):
+    """同步单只股票所有周期的 K 线"""
+    today = _today_str()
+    info = detail_info_get(code, market)
+    max_date = info['latest_kline_date'] if info else None
+
+    if max_date and max_date >= today:
+        return  # 今天已是最新，跳过
+
+    all_rows = []
     for period in periods:
-        latest = kline_latest_date(code, market, period)
-        if latest:
-            last_date = datetime.date.fromisoformat(latest)
-            if last_date >= today:
-                continue
-            start = (last_date + datetime.timedelta(days=1)).strftime('%Y%m%d')
+        if max_date and max_date != '':
+            # 增量：从最后一天 + 1 天开始
+            last = datetime.date.fromisoformat(max_date)
+            start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
         else:
-            # 数据库里没有这只股票的 K 线 → 全量拉
+            # 全量
             start = '19900101'
-        end = today.strftime('%Y%m%d')
+        end = today.replace('-', '')
         rows = _fetch_kline(code, market, period, start, end)
-        if rows:
-            klines_insert(rows)
+        for r in rows:
+            all_rows.append(r)
 
-
-# ---- 启动时增量同步线程 ----
-
-def _startup_sync_worker():
-    """启动时遍历已有股票，增量更新日K/周K/月K"""
-    stocks = stocks_all()
-    if not stocks:
-        print("[market_db] 股票列表为空，跳过增量同步")
-        return
-
-    # 0. 清理退市股票：直接调东方财富 API 获取活跃列表
-    try:
-        import requests as _rq
-        active_set = set()
-        # A股活跃列表
-        url = 'https://push2.eastmoney.com/api/qt/clist/get'
-        params = {
-            'pn': 1, 'pz': 6000, 'po': 1, 'np': 1,
-            'fltt': 2, 'invt': 2,
-            'fid': 'f3', 'fs': 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
-            'fields': 'f12',
-            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-        }
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'}
-        r = _rq.get(url, params=params, headers=headers, timeout=30)
-        data = r.json()
-        for item in (data.get('data') or {}).get('diff') or []:
-            active_set.add(str(item['f12']).zfill(6))
-        # ETF活跃列表
-        params['fs'] = 'b:MK0021,b:MK0022,b:MK0023,b:MK0024'
-        r = _rq.get(url, params=params, headers=headers, timeout=30)
-        data = r.json()
-        for item in (data.get('data') or {}).get('diff') or []:
-            active_set.add(str(item['f12']).zfill(6))
-        if active_set:
-            delisted = [s for s in stocks if s[0] not in active_set]
-            if delisted:
-                from market_db.db import stocks_remove
-                for code, market, _ in delisted:
-                    stocks_remove(code, market)
-                print(f"[market_db] 清理退市股票：{len(delisted)} 只")
-                stocks = stocks_all()
-    except Exception as e:
-        print(f"[market_db] 退市检查失败：{e}")
-
-    today = datetime.date.today().strftime('%Y-%m-%d')
-    print(f"[market_db] 开始增量更新（{len(stocks)} 只，目标日期 {today}）...")
-    t0 = time.time()
-
-    # 检查是否有需要更新的股票
-    need_update = []
-    for code, market, _ in stocks:
-        latest = kline_latest_date(code, market, 'daily')
-        if not latest or latest < today:
-            need_update.append((code, market))
-
-    if not need_update:
-        print(f"[market_db] 所有股票数据已是最新，跳过\n")
-        return
-
-    print(f"[market_db] {len(need_update)}/{len(stocks)} 只需更新")
-    total = len(need_update)
-
-    def _progress(done, total, label, t_start):
-        pct = done / total * 100
-        bar_len = 30
-        filled = int(bar_len * done / total)
-        bar = '█' * filled + '░' * (bar_len - filled)
-        elapsed = time.time() - t_start
-        eta = elapsed / done * (total - done) if done > 0 else 0
-        print(f"\r[market_db] {label} [{bar}] {pct:5.1f}% {done}/{total}  已耗时 {elapsed:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
-
-    done = 0
-    _progress(0, total, '日K增量  ', t0)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_sync_one_stock, s[0], s[1], ('daily',)): s for s in need_update}
-        for fut in as_completed(futs):
-            try:
-                fut.result()
-            except Exception:
-                pass
-            done += 1
-            _progress(done, total, '日K增量  ', t0)
-    print()
-
-    # 周K/月K
-    t1 = time.time()
-    done = 0
-    _progress(0, total, '周月K增量', t1)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_sync_one_stock, s[0], s[1], ('weekly', 'monthly')): s for s in need_update}
-        for fut in as_completed(futs):
-            try:
-                fut.result()
-            except Exception:
-                pass
-            done += 1
-            _progress(done, total, '周月K增量', t1)
-    print()
-
-    elapsed = time.time() - t0
-    print(f"[market_db] 增量更新完成，耗时 {elapsed:.0f}s（{len(need_update)} 只）\n")
-
-
-def init_stock_list():
-    """启动时初始化股票列表（仅列表，不同步 K 线）"""
-    if stock_count() == 0:
-        n = _fetch_stock_list()
-        print(f"[market_db] 首次初始化股票列表：{n} 只")
+    if all_rows:
+        detail_klines_insert(all_rows)
+        # 更新 latest_kline_date
+        latest = max(r[3] for r in all_rows)  # date 是第 4 列
     else:
-        n = stock_count()
-        print(f"[market_db] 股票列表就绪：{n} 只")
+        latest = max_date or ''
+
+    detail_info_upsert(code, market, name or code, latest)
+
+
+def _sync_klines():
+    """遍历 stock_list.db，增量同步 K 线到 stock_detail_list.db"""
+    stocks = list_stocks_all()
+    if not stocks:
+        print("[sync] 股票列表为空，跳过 K 线同步")
+        return
+
+    total = len(stocks)
+    print(f"[sync] 开始同步 K 线 ({total} 只，4 线程增量)...")
+
+    t0 = time.time()
+    done = 0
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2]): s for s in stocks}
+        for fut in as_completed(futs):
+            try:
+                fut.result()
+            except Exception:
+                pass
+            done += 1
+            if done % 500 == 0 or done == total:
+                pct = done / total * 100
+                el = time.time() - t0
+                eta = el / done * (total - done) if done > 0 else 0
+                bar = '█' * int(30 * done / total) + '░' * (30 - int(30 * done / total))
+                print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {done}/{total}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
+    print()
+    print(f"[sync] K 线同步完成，耗时 {time.time()-t0:.0f}s")
+
+
+# =========== 步骤 3：清理退市 ===========
+
+def _cleanup_delisted():
+    """detail DB 中在 list DB 里不存在的股票 → 退市，删除"""
+    active = set((s[0], s[1]) for s in list_stocks_all())
+    if not active:
+        print("[sync] 股票列表为空，跳过退市清理")
+        return
+
+    detail_stocks = detail_info_all()
+    delisted = [(s[0], s[1]) for s in detail_stocks if (s[0], s[1]) not in active]
+    if not delisted:
+        print("[sync] 无退市股票")
+        return
+
+    for code, market in delisted:
+        detail_remove_stock(code, market)
+    print(f"[sync] 清理退市股票: {len(delisted)} 只")
+
+
+# =========== 初始化新市场 ===========
+
+def init_market(market):
+    """初始化一个新市场：拉取股票列表 + 全量同步 K 线"""
+    if market in list_markets():
+        print(f"[sync] 市场 {market} 已存在，跳过初始化")
+        return {'success': False, 'error': '市场已存在'}
+
+    print(f"[sync] 初始化新市场: {market}")
+    all_rows = _fetch_active_stocks()
+    if all_rows is None:
+        return {'success': False, 'error': '无法获取股票列表'}
+
+    # 过滤出该市场
+    rows = [(c, n) for c, m, n in all_rows if m == market]
+    if not rows:
+        return {'success': False, 'error': f'市场 {market} 无股票'}
+
+    today = _today_str()
+    list_replace_market(market, rows)
+    list_sync_date_set(market, today)
+    print(f"[sync] 市场 {market} 股票列表已写入: {len(rows)} 只")
+
+    # 立即增量同步 K 线
+    stocks = [(c, market, n) for c, n in rows]
+    print(f"[sync] 开始全量同步 K 线 ({len(stocks)} 只，4 线程)...")
+
+    import time
+    t0 = time.time()
+    done = 0
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2]): s for s in stocks}
+        for fut in as_completed(futs):
+            try: fut.result()
+            except Exception: pass
+            done += 1
+            if done % 500 == 0 or done == len(stocks):
+                pct = done / len(stocks) * 100
+                el = time.time() - t0
+                eta = el / done * (len(stocks) - done) if done > 0 else 0
+                bar = '█' * int(30 * done / len(stocks)) + '░' * (30 - int(30 * done / len(stocks)))
+                print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {done}/{len(stocks)}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
+    print()
+
+    # 清理退市
+    _cleanup_delisted()
+    print(f"[sync] 市场 {market} 初始化完成，耗时 {time.time()-t0:.0f}s")
+    return {'success': True, 'stocks': len(stocks)}
+
+
+# =========== 启动入口 ===========
+
+def _startup_worker():
+    """后台线程执行全量启动同步"""
+    print("[sync] ===== 启动数据同步 =====")
+
+    try:
+        _refresh_stock_list()
+    except RuntimeError as e:
+        print(f"[sync] 致命错误: {e}")
+        return
+
+    _sync_klines()
+    _cleanup_delisted()
+    print("[sync] ===== 同步完成 =====\n")
+
+
+def init_stock_list_only():
+    """首次启动：仅初始化股票列表（不拉 K 线）"""
+    print("[sync] 初始化股票列表...")
+    _refresh_stock_list()
+    print("[sync] 股票列表就绪")
 
 
 def start_startup_sync():
-    """启动时增量更新已有股票的 K 线（后台线程）"""
-    t = threading.Thread(target=_startup_sync_worker, daemon=True, name='market-db-startup')
+    """启动后台同步线程"""
+    t = threading.Thread(target=_startup_worker, daemon=True, name='market-sync')
     t.start()
-
-
-# ---- 按市场分段同步 K 线 ----
-
-_sync_state = {'running': False, 'label': '', 'total': 0, 'done': 0, 'errors': 0}
-
-
-def _run_segment_sync(seg_key):
-    """后台执行一个市场分段的同步"""
-    seg = SEGMENTS[seg_key]
-    prefix = seg['prefix']
-    stocks = [s for s in stocks_all() if s[0].startswith(prefix)]
-    if not stocks:
-        # 该分段还没拉过，先拉取股票列表并追加
-        _fetch_stock_list(prefix)
-        stocks = [s for s in stocks_all() if s[0].startswith(prefix)]
-    if not stocks:
-        _sync_state.update({'running': False, 'done': 0, 'total': 0, 'errors': 0})
-        return
-
-    _sync_state.update({'running': True, 'label': seg['label'], 'total': len(stocks), 'done': 0, 'errors': 0})
-
-    def _mark_progress(d, t, label, start_time):
-        p = d / t * 100 if t else 0
-        bar = '█' * int(30 * d / t) + '░' * (30 - int(30 * d / t)) if t else ''
-        el = time.time() - start_time
-        et = el / d * (t - d) if d > 0 else 0
-        print(f"\r[market_db] {seg['label']} {label} [{bar}] {p:5.1f}% {d}/{t}  {el:.0f}s/{et:.0f}s", end='', flush=True)
-
-    total = len(stocks)
-    t0 = time.time()
-    done = 0
-    _mark_progress(0, total, '日K ', t0)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_sync_one_stock, s[0], s[1], ('daily',)): s for s in stocks}
-        for fut in as_completed(futs):
-            try: fut.result()
-            except Exception: _sync_state['errors'] += 1
-            done += 1
-            _sync_state['done'] = done
-            _mark_progress(done, total, '日K ', t0)
-    print()
-
-    t1 = time.time()
-    done = 0
-    _sync_state['done'] = 0
-    _mark_progress(0, total, '周月K', t1)
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_sync_one_stock, s[0], s[1], ('weekly', 'monthly')): s for s in stocks}
-        for fut in as_completed(futs):
-            try: fut.result()
-            except Exception: _sync_state['errors'] += 1
-            done += 1
-            _sync_state['done'] = done + total
-            _mark_progress(done, total, '周月K', t1)
-    print()
-
-    _sync_state['running'] = False
-
-
-def start_segment_sync(seg_key):
-    """由 API 调用：启动指定市场分段的同步"""
-    if seg_key not in SEGMENTS:
-        return False
-    if _sync_state['running']:
-        return False
-    t = threading.Thread(target=_run_segment_sync, args=(seg_key,), daemon=True)
-    t.start()
-    return True
-
-
-def get_sync_status():
-    """查询同步进度"""
-    return dict(_sync_state)

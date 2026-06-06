@@ -1,105 +1,186 @@
-"""全市场股票数据 SQLite 存储"""
+"""全市场股票数据存储 — 双文件
+    data/stock_list.db      股票列表 + 同步日志
+    data/stock_detail_list.db   K线 + 股票元信息
+"""
 import os
 import sqlite3
-import json
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'market.db')
+_LIST_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_list.db')
+_DETAIL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_detail_list.db')
 
 
-def _conn():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+# ==================== 通用 ====================
+
+def _connect(path, create_sqls):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    conn.execute('''CREATE TABLE IF NOT EXISTS stocks (
-        code TEXT NOT NULL, market TEXT NOT NULL DEFAULT '0', name TEXT,
-        PRIMARY KEY (code, market))''')
-    conn.execute('''CREATE TABLE IF NOT EXISTS klines (
-        code TEXT NOT NULL, market TEXT NOT NULL DEFAULT '0',
-        period TEXT NOT NULL, date TEXT NOT NULL,
-        open REAL, high REAL, low REAL, close REAL, volume REAL, amount REAL,
-        PRIMARY KEY (code, market, period, date))''')
+    for sql in create_sqls if isinstance(create_sqls, list) else [create_sqls]:
+        conn.execute(sql)
     conn.commit()
     return conn
 
 
-# ---- 股票列表 ----
+# ==================== stock_list.db ====================
 
-def stock_count():
-    conn = _conn()
+def _list_conn():
+    return _connect(_LIST_PATH, [
+        '''CREATE TABLE IF NOT EXISTS stocks (
+            code TEXT NOT NULL, market TEXT NOT NULL, name TEXT,
+            PRIMARY KEY (code, market))''',
+        '''CREATE TABLE IF NOT EXISTS sync_log (
+            market TEXT PRIMARY KEY,
+            last_sync_date TEXT)''',
+    ])
+
+
+def list_stock_count():
+    conn = _list_conn()
     n = conn.execute('SELECT COUNT(*) FROM stocks').fetchone()[0]
     conn.close()
     return n
 
-
-def stocks_save(rows):
-    """rows: [(code, market, name), ...] — 全量替换"""
-    conn = _conn()
-    conn.execute('DELETE FROM stocks')
-    conn.executemany('INSERT OR REPLACE INTO stocks (code, market, name) VALUES (?, ?, ?)', rows)
-    conn.commit()
+def list_stocks_by_market():
+    """{market: {code: name}}"""
+    conn = _list_conn()
+    rows = conn.execute('SELECT code, market, name FROM stocks ORDER BY code').fetchall()
     conn.close()
+    result = {}
+    for r in rows:
+        result.setdefault(r['market'], {})[r['code']] = r['name']
+    return result
 
-
-def stocks_append(rows):
-    """rows: [(code, market, name), ...] — 追加，不删已有"""
-    conn = _conn()
-    conn.executemany('INSERT OR IGNORE INTO stocks (code, market, name) VALUES (?, ?, ?)', rows)
-    conn.commit()
+def list_markets():
+    """返回已存在的市场列表"""
+    conn = _list_conn()
+    rows = conn.execute('SELECT DISTINCT market FROM stocks').fetchall()
     conn.close()
+    return [r['market'] for r in rows]
 
-
-def stocks_remove(code, market):
-    conn = _conn()
-    conn.execute('DELETE FROM stocks WHERE code=? AND market=?', (code, market))
-    conn.execute('DELETE FROM klines WHERE code=? AND market=?', (code, market))
-    conn.commit()
-    conn.close()
-
-
-def stocks_all():
-    conn = _conn()
+def list_stocks_all():
+    """[(code, market, name), ...]"""
+    conn = _list_conn()
     rows = conn.execute('SELECT code, market, name FROM stocks ORDER BY code').fetchall()
     conn.close()
     return [(r['code'], r['market'], r['name']) for r in rows]
 
-
-# ---- K 线 ----
-
-def kline_latest_date(code, market, period):
-    conn = _conn()
-    row = conn.execute(
-        'SELECT MAX(date) as d FROM klines WHERE code=? AND market=? AND period=?',
-        (code, market, period)).fetchone()
+def list_replace_market(market, rows):
+    """替换指定市场的股票列表：rows=[(code,name), ...]"""
+    conn = _list_conn()
+    conn.execute('DELETE FROM stocks WHERE market=?', (market,))
+    if rows:
+        conn.executemany('INSERT INTO stocks (code, market, name) VALUES (?, ?, ?)',
+                         [(c, market, n) for c, n in rows])
+    conn.commit()
     conn.close()
-    return row['d'] if row else None
+
+def list_sync_date_get(market):
+    """获取某市场上次同步日期"""
+    conn = _list_conn()
+    r = conn.execute('SELECT last_sync_date FROM sync_log WHERE market=?', (market,)).fetchone()
+    conn.close()
+    return r['last_sync_date'] if r else None
+
+def list_sync_date_set(market, date_str):
+    """设置某市场的同步日期"""
+    conn = _list_conn()
+    conn.execute('INSERT OR REPLACE INTO sync_log (market, last_sync_date) VALUES (?, ?)',
+                 (market, date_str))
+    conn.commit()
+    conn.close()
 
 
-def kline_count(code, market, period):
-    conn = _conn()
-    n = conn.execute(
-        'SELECT COUNT(*) FROM klines WHERE code=? AND market=? AND period=?',
-        (code, market, period)).fetchone()[0]
+# ==================== stock_detail_list.db ====================
+
+def _detail_conn():
+    return _connect(_DETAIL_PATH, [
+        '''CREATE TABLE IF NOT EXISTS klines (
+            code TEXT NOT NULL, market TEXT NOT NULL,
+            period TEXT NOT NULL, date TEXT NOT NULL,
+            open REAL, high REAL, low REAL, close REAL, volume REAL, amount REAL,
+            PRIMARY KEY (code, market, period, date))''',
+        '''CREATE TABLE IF NOT EXISTS stock_info (
+            code TEXT NOT NULL, market TEXT NOT NULL,
+            name TEXT, latest_kline_date TEXT,
+            PRIMARY KEY (code, market))''',
+        '''CREATE INDEX IF NOT EXISTS idx_klines_market ON klines(market, code, period, date)''',
+    ])
+
+
+def detail_stock_count():
+    conn = _detail_conn()
+    n = conn.execute('SELECT COUNT(DISTINCT code||market) FROM stock_info').fetchone()[0]
     conn.close()
     return n
 
+def detail_info_get(code, market):
+    """获取单只股票元信息 {name, latest_kline_date}"""
+    conn = _detail_conn()
+    r = conn.execute('SELECT name, latest_kline_date FROM stock_info WHERE code=? AND market=?',
+                     (code, market)).fetchone()
+    conn.close()
+    return dict(r) if r else None
 
-def klines_insert(rows):
+def detail_info_upsert(code, market, name, kline_date):
+    """插入或更新股票元信息"""
+    conn = _detail_conn()
+    conn.execute('INSERT OR REPLACE INTO stock_info (code, market, name, latest_kline_date) VALUES (?,?,?,?)',
+                 (code, market, name, kline_date))
+    conn.commit()
+    conn.close()
+
+def detail_info_all():
+    """所有股票元信息 [(code, market, name, latest_kline_date), ...]"""
+    conn = _detail_conn()
+    rows = conn.execute('SELECT code, market, name, latest_kline_date FROM stock_info').fetchall()
+    conn.close()
+    return [(r['code'], r['market'], r['name'], r['latest_kline_date']) for r in rows]
+
+def detail_remove_stock(code, market):
+    """删除某只股票的 K 线和元信息"""
+    conn = _detail_conn()
+    conn.execute('DELETE FROM klines WHERE code=? AND market=?', (code, market))
+    conn.execute('DELETE FROM stock_info WHERE code=? AND market=?', (code, market))
+    conn.commit()
+    conn.close()
+
+def detail_klines_insert(rows):
     """rows: [(code, market, period, date, open, high, low, close, volume, amount), ...]"""
     if not rows:
         return
-    conn = _conn()
+    conn = _detail_conn()
     conn.executemany(
         'INSERT OR IGNORE INTO klines (code,market,period,date,open,high,low,close,volume,amount) '
         'VALUES (?,?,?,?,?,?,?,?,?,?)', rows)
     conn.commit()
     conn.close()
 
-
-def klines_get(code, market, period, limit=300):
-    conn = _conn()
+def detail_klines_get(code, market, period, limit=300):
+    conn = _detail_conn()
     rows = conn.execute(
         'SELECT date, open, high, low, close, volume, amount FROM klines '
         'WHERE code=? AND market=? AND period=? ORDER BY date DESC LIMIT ?',
         (code, market, period, limit)).fetchall()
     conn.close()
     return [dict(r) for r in reversed(rows)]
+
+def detail_klines_batch(codes, market, period='daily', limit=120):
+    """批量取多只股票 K 线：{code: [{date, open, ...}]}"""
+    if not codes:
+        return {}
+    conn = _detail_conn()
+    placeholders = ','.join('?' * len(codes))
+    rows = conn.execute(
+        f'SELECT code, date, open, high, low, close, volume, amount FROM klines '
+        f'WHERE market=? AND period=? AND code IN ({placeholders}) ORDER BY code, date ASC',
+        [market, period] + list(codes)).fetchall()
+    conn.close()
+    result = {}
+    for r in rows:
+        k = {'date': r['date'], 'open': r['open'], 'high': r['high'],
+             'low': r['low'], 'close': r['close'], 'volume': r['volume'], 'amount': r['amount']}
+        result.setdefault(r['code'], []).append(k)
+    for code in result:
+        if len(result[code]) > limit:
+            result[code] = result[code][-limit:]
+    return result
