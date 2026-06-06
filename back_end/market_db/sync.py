@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .db import (
     list_markets, list_replace_market, list_sync_date_get, list_sync_date_set,
     list_stocks_all,
-    detail_info_all, detail_info_get, detail_info_upsert,
+    detail_info_all, detail_info_get, detail_info_upsert, detail_info_date_map,
     detail_klines_insert, detail_remove_stock,
 )
 
@@ -150,17 +150,35 @@ def _refresh_stock_list():
 # =========== 步骤 2：同步 K 线 ===========
 
 def _fetch_kline(code, seg_key, period, start_date, end_date):
-    """从腾讯 API 获取 K 线（前复权，按条数拉取）"""
+    """从腾讯 API 获取 K 线（前复权，增量时按需拉取条数以减少请求量）"""
     import requests as _rq
     c = str(code)
     pfx = 'sh' if c.startswith(('6', '9')) else 'sz'
     tp_map = {'daily': ('day', 800), 'weekly': ('week', 200), 'monthly': ('month', 40)}
-    tp, count = tp_map.get(period, ('day', 800))
+
+    # 增量场景：计算实际需要的条数，减少不必要的网络传输
+    if start_date and start_date != '19900101' and end_date:
+        try:
+            start_dt = datetime.date.fromisoformat(start_date[:4] + '-' + start_date[4:6] + '-' + start_date[6:8])
+            end_dt = datetime.date.fromisoformat(end_date[:4] + '-' + end_date[4:6] + '-' + end_date[6:8])
+            delta_days = (end_dt - start_dt).days
+            if period == 'daily':
+                need = min(delta_days + 10, 800)  # 按间隔天数 + 缓冲
+            elif period == 'weekly':
+                need = min(max(10, delta_days // 7 + 3), 200)
+            elif period == 'monthly':
+                need = min(max(3, delta_days // 30 + 2), 40)
+            tp, _ = tp_map.get(period, ('day', 800))
+        except Exception:
+            tp, need = tp_map.get(period, ('day', 800))
+    else:
+        tp, need = tp_map.get(period, ('day', 800))
+
     for attempt in range(3):
         try:
             r = _rq.get(
                 "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                params={'param': f"{pfx}{c},{tp},,,{count},qfq"},
+                params={'param': f"{pfx}{c},{tp},,,{need},qfq"},
                 headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
                 timeout=10,
             )
@@ -202,13 +220,22 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     return []
 
 
-def _sync_one_stock(code, market, name, periods=('daily', 'weekly', 'monthly')):
-    """同步单只股票所有周期的 K 线"""
-    today = _today_str()
-    info = detail_info_get(code, market)
-    max_date = info['latest_kline_date'] if info else None
+def _latest_possible_trading_day():
+    """估算最近的交易日：周末回退到周五，避免非交易日触发无意义的增量拉取"""
+    today = datetime.date.today()
+    wd = today.weekday()  # 0=Mon ... 6=Sun
+    if wd == 5:      # 周六 → 周五
+        return (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    elif wd == 6:    # 周日 → 周五
+        return (today - datetime.timedelta(days=2)).strftime('%Y-%m-%d')
+    return today.strftime('%Y-%m-%d')
 
-    if max_date and max_date >= today:
+
+def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('daily', 'weekly', 'monthly')):
+    """同步单只股票所有周期的 K 线（max_date_map 和 latest_trading 由调用方预加载，避免逐只查 DB）"""
+    max_date = max_date_map.get((code, market), None)
+
+    if max_date and max_date >= latest_trading:
         return
 
     all_rows = []
@@ -218,7 +245,7 @@ def _sync_one_stock(code, market, name, periods=('daily', 'weekly', 'monthly')):
             start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
         else:
             start = '19900101'
-        end = today.replace('-', '')
+        end = latest_trading.replace('-', '')
         rows = _fetch_kline(code, market, period, start, end)
         for r in rows:
             all_rows.append(r)
@@ -247,17 +274,24 @@ def _sync_klines():
     _sync_status['phase'] = 'kline'
     print(f"[sync] 开始同步 K 线 ({total} 只，4 线程增量)...")
 
+    # 预加载，避免每条股票都开一次 DB 连接
+    max_date_map = detail_info_date_map()
+    latest_trading = _latest_possible_trading_day()
+    skipped = sum(1 for s in stocks if max_date_map.get((s[0], s[1]), '') >= latest_trading)
+    need_sync = total - skipped
+    print(f"[sync] 已是最新: {skipped} 只，需要更新: {need_sync} 只")
+
     t0 = time.time()
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2]): s for s in stocks}
+        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], max_date_map, latest_trading): s for s in stocks}
         for fut in as_completed(futs):
             try:
                 fut.result()
             except Exception:
                 pass
             _sync_status['done'] += 1
-            step = 10
+            step = 50
             if _sync_status['done'] % step == 0 or _sync_status['done'] == total:
                 pct = _sync_status['done'] / total * 100
                 el = time.time() - t0
@@ -330,15 +364,18 @@ def _run_init(seg_key):
         print(f"[sync] 开始全量同步 K 线 ({len(stocks)} 只，4 线程)...")
 
         t0 = time.time()
+        # 新市场，所有股票都没有历史 K 线
+        max_date_map = {}
+        latest_trading = _latest_possible_trading_day()
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2]): s for s in stocks}
+            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], max_date_map, latest_trading): s for s in stocks}
             for fut in as_completed(futs):
                 try:
                     fut.result()
                 except Exception:
                     pass
                 _sync_status['done'] += 1
-                step = 10
+                step = 50
                 if _sync_status['done'] % step == 0 or _sync_status['done'] == len(stocks):
                     pct = _sync_status['done'] / len(stocks) * 100
                     el = time.time() - t0

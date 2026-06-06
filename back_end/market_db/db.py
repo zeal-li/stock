@@ -136,6 +136,13 @@ def detail_info_all():
     conn.close()
     return [(r['code'], r['market'], r['name'], r['latest_kline_date']) for r in rows]
 
+def detail_info_date_map():
+    """批量获取所有股票的 latest_kline_date，返回 {(code, market): date_str}，避免逐只查 DB"""
+    conn = _detail_conn()
+    rows = conn.execute('SELECT code, market, latest_kline_date FROM stock_info').fetchall()
+    conn.close()
+    return {(r['code'], r['market']): (r['latest_kline_date'] or '') for r in rows}
+
 def detail_remove_stock(code, market):
     """删除某只股票的 K 线和元信息"""
     conn = _detail_conn()
