@@ -272,15 +272,25 @@ app.run()
   │       └─ 每 60s：刷新 ②③④⑤⑥⑦（当日一次性数据仅首次刷新）
   │
   └─ [延迟 2s] 全市场同步线程 _startup_worker()（4 线程并发）
+      │
       ├─ 步骤1 _refresh_stock_list()  →  拉取在市的股票列表 → stock_list.db
       │     遍历 SEGMENTS 中已有市场，分页拉取（东方财富 push2delay，每页 1000 条）
+      │     通过 f2（价格）字段过滤退市股（价格为 '-' 的排除）
+      │     list_replace_market 全量替换：该段旧数据全部删除后重新写入
       │     同日已同步的市场跳过
       │
       ├─ 步骤2 _sync_klines()  →  遍历 stock_list.db → 增量/全量 K 线 → stock_detail_list.db
-      │     每日股票按 daily/weekly/monthly 三个周期拉取（腾讯，前复权）
-      │     已有最新日期的跳过，增量从 latest_kline_date+1 到今日
+      │     预加载 stock_info 为内存 map（避免每只查 DB），仅提交需要更新的股票
+      │     周末自动推算最近交易日（周六/日回退到周五），非交易时段跳过已同步股票
+      │     增量优化：
+      │       · 按实际间隔天数请求条数（差 1 天只拉 11 条，而非 800 条）
+      │       · 差 ≤7 天只拉日线（周/月线新周期未生成）
+      │       · 差 ≤31 天拉日线 + 周线
+      │       · >31 天或全新才拉日/周/月全量
+      │     写入使用 BEGIN IMMEDIATE 单事务，K 线 + latest_kline_date 原子落盘
+      │     SQLite WAL 模式 + PRAGMA synchronous=FULL，中途重启不丢进度
       │
-      └─ 步骤3 _cleanup_delisted()  →  detail 里有 list 里没有的 → 删除（退市股票）
+      └─ 步骤3 _cleanup_delisted()  →  detail 里有 list 里没有的 → 删除 K 线和元信息（退市股票）
 ```
 
 ### 按需加载（API 实时拉取）

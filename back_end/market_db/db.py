@@ -93,7 +93,7 @@ def list_sync_date_set(market, date_str):
 # ==================== stock_detail_list.db ====================
 
 def _detail_conn():
-    return _connect(_DETAIL_PATH, [
+    conn = _connect(_DETAIL_PATH, [
         '''CREATE TABLE IF NOT EXISTS klines (
             code TEXT NOT NULL, market TEXT NOT NULL,
             period TEXT NOT NULL, date TEXT NOT NULL,
@@ -105,6 +105,10 @@ def _detail_conn():
             PRIMARY KEY (code, market))''',
         '''CREATE INDEX IF NOT EXISTS idx_klines_market ON klines(market, code, period, date)''',
     ])
+    # WAL 模式：并发读写不互斥，崩溃恢复更可靠
+    conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA synchronous=FULL')
+    return conn
 
 
 def detail_stock_count():
@@ -161,6 +165,26 @@ def detail_klines_insert(rows):
         'VALUES (?,?,?,?,?,?,?,?,?,?)', rows)
     conn.commit()
     conn.close()
+
+
+def detail_sync_atomic(code, market, name, kline_rows, latest_date):
+    """原子写入：K 线数据 + stock_info 在同一个事务中，保证中途重启不会丢进度"""
+    conn = _detail_conn()
+    try:
+        conn.execute('BEGIN IMMEDIATE')
+        for r in kline_rows:
+            conn.execute(
+                'INSERT OR IGNORE INTO klines (code,market,period,date,open,high,low,close,volume,amount) '
+                'VALUES (?,?,?,?,?,?,?,?,?,?)', r)
+        conn.execute(
+            'INSERT OR REPLACE INTO stock_info (code, market, name, latest_kline_date) VALUES (?,?,?,?)',
+            (code, market, name or code, latest_date))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 def detail_klines_get(code, market, period, limit=300):
     conn = _detail_conn()

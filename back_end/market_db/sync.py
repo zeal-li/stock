@@ -13,7 +13,7 @@ from .db import (
     list_markets, list_replace_market, list_sync_date_get, list_sync_date_set,
     list_stocks_all,
     detail_info_all, detail_info_get, detail_info_upsert, detail_info_date_map,
-    detail_klines_insert, detail_remove_stock,
+    detail_klines_insert, detail_remove_stock, detail_sync_atomic,
 )
 
 # 市场分段 — key 用作 market 字段值
@@ -92,6 +92,10 @@ def _fetch_stocks_by_segment(seg_key):
         for row in items:
             code = str(row.get('f12', '')).zfill(6)
             name = str(row.get('f14', ''))
+            price = row.get('f2')
+            # 退市/长期停牌：价格为 '-' 或 None，排除
+            if price is None or price == '-' or str(price).strip() == '':
+                continue
             if len(code) != 6 or not code.isdigit():
                 continue
             seg = _code_to_segment(code)
@@ -238,6 +242,17 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
     if max_date and max_date >= latest_trading:
         return
 
+    # 增量：只差几天时，周线/月线无需重拉（新周期尚未生成）
+    if max_date:
+        try:
+            gap = (datetime.date.fromisoformat(latest_trading) - datetime.date.fromisoformat(max_date)).days
+        except Exception:
+            gap = None
+        if gap is not None and gap <= 7:
+            periods = ('daily',)
+        elif gap is not None and gap <= 31:
+            periods = ('daily', 'weekly')
+
     all_rows = []
     for period in periods:
         if max_date and max_date != '':
@@ -251,12 +266,23 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
             all_rows.append(r)
 
     if all_rows:
-        detail_klines_insert(all_rows)
         latest = max(r[3] for r in all_rows)
+        detail_sync_atomic(code, market, name, all_rows, latest)
+        print(f"\r[sync]  ✔ {code} {name} → {latest} (+{len(all_rows)}条)", flush=True)
+    elif max_date:
+        # 退市/停牌股票（最后数据超过 30 天且 API 已无新数据）：推进日期避免反复重试
+        try:
+            last_dt = datetime.date.fromisoformat(max_date)
+            latest_dt = datetime.date.fromisoformat(latest_trading)
+            if (latest_dt - last_dt).days > 30:
+                detail_info_upsert(code, market, name or code, latest_trading)
+                print(f"\r[sync]  ⊘ {code} {name} 疑似退市/停牌，跳过 (最后数据 {max_date})", flush=True)
+                return
+        except Exception:
+            pass
+        detail_info_upsert(code, market, name or code, max_date)
     else:
-        latest = max_date or ''
-
-    detail_info_upsert(code, market, name or code, latest)
+        print(f"\r[sync]  ✘ {code} {name} 无历史数据，API 也未返回", flush=True)
 
 
 def _sync_klines():
@@ -268,31 +294,36 @@ def _sync_klines():
         _sync_status['running'] = False
         return
 
-    total = len(stocks)
-    _sync_status['total'] = total
-    _sync_status['done'] = 0
-    _sync_status['phase'] = 'kline'
-    print(f"[sync] 开始同步 K 线 ({total} 只，4 线程增量)...")
-
     # 预加载，避免每条股票都开一次 DB 连接
     max_date_map = detail_info_date_map()
     latest_trading = _latest_possible_trading_day()
-    skipped = sum(1 for s in stocks if max_date_map.get((s[0], s[1]), '') >= latest_trading)
-    need_sync = total - skipped
-    print(f"[sync] 已是最新: {skipped} 只，需要更新: {need_sync} 只")
+
+    # 过滤：只同步需要更新的股票
+    to_sync = [s for s in stocks if max_date_map.get((s[0], s[1]), '') < latest_trading]
+    skipped = len(stocks) - len(to_sync)
+    total = len(to_sync)
+    _sync_status['total'] = total
+    _sync_status['done'] = 0
+    _sync_status['phase'] = 'kline'
+
+    if total == 0:
+        print(f"[sync] K 线已是最新 ({skipped} 只)，无需更新")
+        return
+
+    print(f"[sync] 开始同步 K 线 (已是最新: {skipped} 只，需要更新: {total} 只，4 线程增量)...")
 
     t0 = time.time()
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], max_date_map, latest_trading): s for s in stocks}
+        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], max_date_map, latest_trading): s for s in to_sync}
         for fut in as_completed(futs):
             try:
                 fut.result()
             except Exception:
                 pass
             _sync_status['done'] += 1
-            step = 50
-            if _sync_status['done'] % step == 0 or _sync_status['done'] == total:
+            # 前 4 只每完成一只都打，之后每 10 只一报
+            if _sync_status['done'] <= 4 or _sync_status['done'] % 10 == 0 or _sync_status['done'] == total:
                 pct = _sync_status['done'] / total * 100
                 el = time.time() - t0
                 eta = el / _sync_status['done'] * (total - _sync_status['done']) if _sync_status['done'] > 0 else 0
