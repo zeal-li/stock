@@ -480,7 +480,7 @@ def stock_kline():
 @app.route('/api/technical/ascending-channel', methods=['POST'])
 def technical_ascending_channel_start():
     """启动扫描"""
-    market = request.args.get('market', None)
+    market = request.args.get('market', '')
     result = run_ascending_channel_async(market=market)
     return jsonify(result)
 

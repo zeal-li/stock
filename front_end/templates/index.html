@@ -288,7 +288,8 @@
             var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>价格</th><th>评分</th><th>通道上轨</th><th>通道下轨</th><th>位置%</th><th>通道宽%</th><th>量比</th></tr></thead><tbody>';
             data.forEach(function(s) {
                 var d = s.detail || {};
-                var mk = String(s.code).match(/^(6|9)/) ? '1' : '0';
+                var c = String(s.code);
+                var mk = (/^(6|9|5|11)/.test(c)) ? '1' : '0';
                 html += '<tr>' +
                     '<td><span style="color:#888;">' + s.code + '</span></td>' +
                     '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + mk + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
