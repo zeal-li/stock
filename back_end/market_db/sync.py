@@ -13,7 +13,7 @@ from .db import (
     list_markets, list_replace_market, list_sync_date_get, list_sync_date_set,
     list_stocks_all,
     detail_info_all, detail_info_get, detail_info_upsert, detail_info_date_map,
-    detail_klines_insert, detail_remove_stock, detail_sync_atomic,
+    detail_klines_insert, detail_remove_stock, detail_sync_atomic, detail_clear_market,
 )
 
 # 市场分段 — key 用作 market 字段值
@@ -111,10 +111,10 @@ def _fetch_stocks_by_segment(seg_key):
     return all_rows
 
 
-def _fetch_active_stocks():
-    """拉取全市场（用于增量刷新已有分段）"""
+def _fetch_active_stocks(markets):
+    """拉取指定市场分段的股票列表"""
     all_rows = []
-    for seg_key in SEGMENTS:
+    for seg_key in markets:
         rows = _fetch_stocks_by_segment(seg_key)
         for code, name in rows:
             all_rows.append((code, seg_key, name))
@@ -135,8 +135,8 @@ def _refresh_stock_list():
         print("[sync] 股票列表已是最新（今日已更新），跳过")
         return
 
-    print("[sync] 获取在市的股票列表...")
-    all_rows = _fetch_active_stocks()
+    print(f"[sync] 获取在市的股票列表 (已存在 {len(markets)} 个分段: {', '.join(markets)})...")
+    all_rows = _fetch_active_stocks(markets)
     if all_rows is None:
         print("[sync] 获取失败，保留现有列表")
         return
@@ -193,12 +193,13 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
             else:
                 return []
             if tp == 'day':
-                raw = sd.get('day') or sd.get('qfqday') or []
+                raw = sd.get('qfqday') or sd.get('day') or []
             elif tp == 'week':
                 raw = sd.get('qfqweek') or sd.get('week') or []
             else:
                 raw = sd.get('qfqmonth') or sd.get('month') or []
             if not raw:
+                print(f"\r[sync]  ! {code} {period}: API 返回空 (HTTP {r.status_code})", flush=True)
                 return []
             rows = []
             for row in raw:
@@ -210,17 +211,24 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
                     continue
                 if end_date and date_str > end_date:
                     continue
+                # row[6] 在除权除息日为 dict（分红信息），此时成交额填 0
+                if len(row) >= 7 and not isinstance(row[6], dict):
+                    amount = float(row[6])
+                else:
+                    amount = 0
                 rows.append((
                     code, seg_key, period,
                     date_str,
                     float(row[1]), float(row[3]), float(row[4]),
                     float(row[2]), float(row[5]),
-                    float(row[6]) if len(row) >= 7 else 0,
+                    amount,
                 ))
             return rows
-        except Exception:
+        except Exception as e:
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
+            else:
+                print(f"\r[sync]  ! {code} {period}: 请求失败 ({type(e).__name__}: {e})", flush=True)
     return []
 
 
@@ -269,20 +277,13 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
         latest = max(r[3] for r in all_rows)
         detail_sync_atomic(code, market, name, all_rows, latest)
         print(f"\r[sync]  ✔ {code} {name} → {latest} (+{len(all_rows)}条)", flush=True)
-    elif max_date:
-        # 退市/停牌股票（最后数据超过 30 天且 API 已无新数据）：推进日期避免反复重试
-        try:
-            last_dt = datetime.date.fromisoformat(max_date)
-            latest_dt = datetime.date.fromisoformat(latest_trading)
-            if (latest_dt - last_dt).days > 30:
-                detail_info_upsert(code, market, name or code, latest_trading)
-                print(f"\r[sync]  ⊘ {code} {name} 疑似退市/停牌，跳过 (最后数据 {max_date})", flush=True)
-                return
-        except Exception:
-            pass
-        detail_info_upsert(code, market, name or code, max_date)
     else:
-        print(f"\r[sync]  ✘ {code} {name} 无历史数据，API 也未返回", flush=True)
+        # 无新数据：保留旧日期（下次还会重试，直到 API 有数据或列表被清理）
+        if max_date:
+            detail_info_upsert(code, market, name or code, max_date)
+            print(f"\r[sync]  ~ {code} {name} 无新数据 (已有 {max_date})", flush=True)
+        else:
+            print(f"\r[sync]  ✘ {code} {name} API 返回空 (periods={periods}, start={start if max_date else '19900101'})", flush=True)
 
 
 def _sync_klines():
@@ -441,6 +442,29 @@ def get_segments_info():
             conn_detail.close()
         result.append({'key': key, 'label': seg['label'], 'synced': synced, 'fresh': fresh, 'kline_count': count})
     return result
+
+
+# =========== 清库 ===========
+
+def clear_market(seg_key):
+    """清除指定市场的所有数据（列表 + K线 + 元信息 + 同步记录）"""
+    if seg_key not in SEGMENTS:
+        return {'success': False, 'error': '无效的市场分段'}
+    if seg_key not in list_markets():
+        return {'success': False, 'error': '该市场无数据可清除'}
+
+    label = SEGMENTS[seg_key]['label']
+    print(f"[sync] 清除 {label} 数据...")
+
+    # 1. 清除 detail 库中的 K 线和元信息
+    detail_clear_market(seg_key)
+
+    # 2. 清除 list 库中的股票列表和同步记录
+    list_replace_market(seg_key, [])
+    list_sync_date_set(seg_key, None)  # 清掉同步时间戳
+
+    print(f"[sync] {label} 数据已清除")
+    return {'success': True, 'message': f'{label} 数据已清除'}
 
 
 # =========== 启动入口 ===========

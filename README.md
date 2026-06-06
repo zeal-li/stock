@@ -274,7 +274,8 @@ app.run()
   └─ [延迟 2s] 全市场同步线程 _startup_worker()（4 线程并发）
       │
       ├─ 步骤1 _refresh_stock_list()  →  拉取在市的股票列表 → stock_list.db
-      │     遍历 SEGMENTS 中已有市场，分页拉取（东方财富 push2delay，每页 1000 条）
+      │     只拉取 stock_list.db 中已存在的市场分段（非全部 SEGMENTS）
+      │     分页拉取（东方财富 push2delay，每页 1000 条）
       │     通过 f2（价格）字段过滤退市股（价格为 '-' 的排除）
       │     list_replace_market 全量替换：该段旧数据全部删除后重新写入
       │     同日已同步的市场跳过

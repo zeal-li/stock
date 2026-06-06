@@ -155,6 +155,15 @@ def detail_remove_stock(code, market):
     conn.commit()
     conn.close()
 
+
+def detail_clear_market(market):
+    """清除指定市场的所有 K 线和元信息"""
+    conn = _detail_conn()
+    conn.execute('DELETE FROM klines WHERE market=?', (market,))
+    conn.execute('DELETE FROM stock_info WHERE market=?', (market,))
+    conn.commit()
+    conn.close()
+
 def detail_klines_insert(rows):
     """rows: [(code, market, period, date, open, high, low, close, volume, amount), ...]"""
     if not rows:

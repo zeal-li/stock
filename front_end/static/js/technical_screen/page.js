@@ -96,6 +96,61 @@ function loadMarket() {
         });
 }
 
+function clearMarket() {
+    var sel = document.getElementById('techMarket');
+    var key = sel.value;
+    if (!key) { alert('请先选择市场'); return; }
+    var label = sel.options[sel.selectedIndex].textContent.replace(/^[✓✔] /, '');
+    if (!confirm('确定要清除【' + label + '】的全部数据吗？\n\n此操作不可撤销，将删除该市场的股票列表、K线数据及同步记录。')) {
+        return;
+    }
+    var status = document.getElementById('techMarketStatus');
+    var loadBtn = document.getElementById('techLoadBtn');
+    var clearBtn = document.getElementById('techClearBtn');
+    var screenBtn = document.getElementById('techScreenBtn');
+
+    // 停止所有轮询
+    if (_initPollTimer) { clearInterval(_initPollTimer); _initPollTimer = null; }
+    if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
+
+    status.textContent = '正在清除数据...';
+    status.style.color = '#fbbf24';
+    loadBtn.disabled = true;
+    clearBtn.disabled = true;
+    screenBtn.disabled = true;
+    document.getElementById('techScreenResult').innerHTML = '';
+
+    fetch('/api/market-db/clear/' + key, { method: 'POST' })
+        .then(function(r){return r.json()})
+        .then(function(data){
+            if (!data.success) {
+                status.textContent = data.error || '清除失败';
+                status.style.color = '#e94560';
+                loadBtn.disabled = false;
+                clearBtn.disabled = false;
+                return;
+            }
+            status.textContent = data.message || '数据已清除';
+            status.style.color = '#4ade80';
+            loadBtn.disabled = false;
+            clearBtn.disabled = false;
+            // 刷新下拉选项
+            _refreshSegments().then(function() {
+                // 清除后当前市场不再有数据，重置选中状态
+                sel.value = '';
+                _curMarketKey = null;
+                status.textContent = (data.message || '数据已清除') + '，请重新加载';
+                status.style.color = '#f97316';
+            });
+        })
+        .catch(function(e){
+            status.textContent = '清除出错: ' + e.message;
+            status.style.color = '#e94560';
+            loadBtn.disabled = false;
+            clearBtn.disabled = false;
+        });
+}
+
 function _techRenderTable(data) {
     var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>价格</th><th>评分</th><th>通道上轨</th><th>通道下轨</th><th>位置%</th><th>通道宽%</th><th>量比</th></tr></thead><tbody>';
     data.forEach(function(s) {

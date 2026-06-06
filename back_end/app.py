@@ -498,6 +498,12 @@ def market_db_init(seg_key):
     result = init_segment(seg_key)
     return jsonify(result)
 
+@app.route('/api/market-db/clear/<seg_key>', methods=['POST'])
+def market_db_clear(seg_key):
+    from market_db.sync import clear_market
+    result = clear_market(seg_key)
+    return jsonify(result)
+
 @app.route('/api/market-db/init/status')
 def market_db_init_status():
     from market_db.sync import get_init_status
