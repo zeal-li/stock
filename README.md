@@ -250,35 +250,125 @@ CREATE TABLE market_data (
 
 ## 数据同步流程
 
-```
-启动 → _startup_worker（后台线程，4 线程）
-  ├─ _refresh_stock_list()    拉取在市的股票列表 → stock_list.db（已有市场才更新，同日跳过）
-  ├─ _sync_klines()           遍历 stock_list.db → 增量/全量拉 K 线 → stock_detail_list.db（最近 3 年）
-  └─ _cleanup_delisted()      detail 里有 list 里没有的 → 删除（退市）
+### 启动时加载
 
-手动加载市场：
+应用启动时启动两个后台线程：
+
+```
+app.run()
+  │
+  ├─ [立即] 行情轮询线程 _background_poller()
+  │   ├─ 首次启动：若当日缓存不存在，一次性全量抓取 7 类数据 → money_flow.db
+  │   │     ① major_indices     上证/深证指数实时行情（东方财富 push2delay）
+  │   │     ② market_breadth    沪深两市涨跌家数（东方财富 push2delay）
+  │   │     ③ sh_minute         上证指数日内分时走势（东方财富 trends2）
+  │   │     ④ fund_flow         主力资金净流入分时（东方财富 fflow/kline）
+  │   │     ⑤ turnover_minute   全市场成交额分时（同花顺 dq.10jqka.com.cn）
+  │   │     ⑥ margin_trading    近 60 天融资融券余额（上交所 + 深交所）
+  │   │     ⑦ daily_closes      沪深指数近 30 天日K收盘价（腾讯 ifzq.gtimg.cn）
+  │   │
+  │   └─ 交易时段循环（周一至五 09:15-11:35, 12:55-15:05）：
+  │       ├─ 每 5s：刷新 ①（大盘指数）
+  │       └─ 每 60s：刷新 ②③④⑤⑥⑦（当日一次性数据仅首次刷新）
+  │
+  └─ [延迟 2s] 全市场同步线程 _startup_worker()（4 线程并发）
+      ├─ 步骤1 _refresh_stock_list()  →  拉取在市的股票列表 → stock_list.db
+      │     遍历 SEGMENTS 中已有市场，分页拉取（东方财富 push2delay，每页 1000 条）
+      │     同日已同步的市场跳过
+      │
+      ├─ 步骤2 _sync_klines()  →  遍历 stock_list.db → 增量/全量 K 线 → stock_detail_list.db
+      │     每日股票按 daily/weekly/monthly 三个周期拉取（腾讯，前复权）
+      │     已有最新日期的跳过，增量从 latest_kline_date+1 到今日
+      │
+      └─ 步骤3 _cleanup_delisted()  →  detail 里有 list 里没有的 → 删除（退市股票）
+```
+
+### 按需加载（API 实时拉取）
+
+以下 API 由前端在用户操作时触发，实时从外部数据源拉取（不做服务端持久化缓存）：
+
+| API | 数据 | 数据源 |
+|-----|------|--------|
+| `GET /api/stock-quotes` | 批量股票实时行情（价/量/额/换手/PE/PB/市值） | 东方财富 push2delay |
+| `GET /api/stock-extra` | 单只股票量比/委比 | 东方财富 push2delay |
+| `GET /api/stock-minute` | 个股分时走势 | A股：东方财富（单日）/ 新浪（多日）；港股美股：Yahoo Finance |
+| `GET /api/stock-kline` | 个股K线（日/周/月） | A股：腾讯（前复权）+ 同花顺（成交额/换手率）；港股美股：Yahoo Finance |
+| `GET /api/search-stock` | 股票搜索（名称/代码）+ 实时行情 | 东方财富 searchapi |
+| `GET /api/goodwill` | 商誉率 + 质押率（10 线程并发） | 东方财富 财务报表 + 数据中心 |
+
+### 聚合计算（基于缓存）
+
+以下 API 从 `money_flow.db` 缓存读取数据后，在服务端加权聚合计算得出指数值（缓存 60s）：
+
+| API | 指标 | 依赖缓存数据 | 分项权重 |
+|-----|------|-------------|----------|
+| `GET /api/fear-index` | 恐慌指数 0-100 | major_indices + sh_minute + market_breadth + fund_flow | 指数压力(22) + 日内压力(28) + 广度压力(22) + 资金压力(12) + 稳定因子(6) + 基础分(20) |
+| `GET /api/risk-index` | 风险指数 0-100 | margin_trading + daily_closes + market_breadth | 融资因子(35) + 趋势因子(30) + 情绪因子(20) + 结构因子(15) |
+
+### 手动操作
+
+```
+手动加载新市场：
   POST /api/market-db/init/<seg_key>  →  异步初始化新市场（拉列表 + 全量 K 线）
   GET  /api/market-db/init/status    →  查询进度 {running, total, done, phase}
 
-技术选股：
-  POST /api/technical/ascending-channel      →  读 stock_detail_list.db 扫描上升通道
-  GET  /api/technical/ascending-channel/status →  轮询结果
+技术选股（离线扫描，不请求外部数据源）：
+  POST /api/technical/ascending-channel      →  读 stock_detail_list.db 扫描上升通道（30 线程并发）
+      取最近 120 条日K，线性回归拟合通道，R²>=0.6 且通道宽度<30% 且量比>0.8
+  GET  /api/technical/ascending-channel/status →  轮询进度
 ```
 
 ## 数据源
 
-| 数据 | 来源 |
+### 东方财富
+
+| 数据 | 接口 |
 |------|------|
-| 实时行情 | 东方财富 `push2delay.eastmoney.com` |
-| K 线（A 股） | 腾讯 `ifzq.gtimg.cn` + 同花顺 `d.10jqka.com.cn` |
-| K 线（港股/美股） | Yahoo Finance `query1.finance.yahoo.com` |
-| 分时走势 | 东方财富 `trends2`（5s 缓存，仅交易时段） |
-| 股票列表 | 东方财富 `push2delay.eastmoney.com/api/qt/clist/get` |
-| K 线同步 | akshare `stock_zh_a_hist`（日/周/月） |
-| 大盘资金净流入 | 东方财富 `fflow/kline` |
-| 融资融券 | akshare |
-| 商誉/质押 | 东方财富 F10 / `RPT_CSDC_LIST` |
-| 股票搜索 | 东方财富 `searchapi.eastmoney.com` |
+| 大盘指数实时行情 | `push2delay.eastmoney.com/api/qt/ulist.np/get` |
+| 股票批量实时行情（价/量/额/换手/PE/PB/市值） | `push2delay.eastmoney.com/api/qt/ulist.np/get` |
+| 单只股票量比/委比 | `push2delay.eastmoney.com/api/qt/stock/get` |
+| 上证指数日内分时 | `push2delay.eastmoney.com/api/qt/stock/trends2/get` |
+| 个股单日分时 | `push2delay.eastmoney.com/api/qt/stock/trends2/get` |
+| 主力资金净流入分时 | `push2delay.eastmoney.com/api/qt/stock/fflow/kline/get` |
+| 沪深涨跌家数 | `push2delay.eastmoney.com/api/qt/ulist.np/get` |
+| 股票列表（分市场分页拉取） | `push2delay.eastmoney.com/api/qt/clist/get` |
+| 股票搜索 | `searchapi.eastmoney.com/api/suggest/get` |
+| 商誉率 | `emweb.securities.eastmoney.com/PC_HSF10/FinanceAnalysis/FinanceAnalysis` + `NewFinanceAnalysis/ZYZWNewFinanceAnalysis` |
+| 质押率 | `datacenter-web.eastmoney.com/api/data/v1/get` |
+
+### 腾讯证券
+
+| 数据 | 接口 |
+|------|------|
+| A 股 K 线（日/周/月，前复权） | `web.ifzq.gtimg.cn/appstock/app/fqkline/get` |
+| 沪深指数近 30 天日K收盘价 | `web.ifzq.gtimg.cn/appstock/app/fqkline/get` |
+
+### 同花顺
+
+| 数据 | 接口 |
+|------|------|
+| A 股 K 线成交额 / 换手率（补充腾讯接口缺少的字段） | `d.10jqka.com.cn/v2/line/stock_zh_a_hist` |
+| 全市场成交额分时 | `dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data` |
+
+### 新浪财经
+
+| 数据 | 接口 |
+|------|------|
+| A 股多日分时走势（5 分钟K线） | `money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData` |
+
+### Yahoo Finance
+
+| 数据 | 接口 |
+|------|------|
+| 港股 / 美股 K 线（日/周/月） | `query1.finance.yahoo.com/v8/finance/chart/{symbol}` |
+| 港股 / 美股多日分时 | `query1.finance.yahoo.com/v8/finance/chart/{symbol}` |
+
+### 交易所
+
+| 数据 | 接口 |
+|------|------|
+| 融资融券余额（沪市） | `query.sse.com.cn/marketdata/tradedata/queryMargin.do` |
+| 融资融券余额（深市） | `www.szse.cn/api/report/ShowReport/data` |
 
 ## 快速开始
 
