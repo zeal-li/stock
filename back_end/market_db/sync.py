@@ -91,6 +91,10 @@ def _fetch_stocks_by_segment(seg_key):
                 seg = _code_to_segment(code)
                 if seg != seg_key:
                     continue
+                # ETF 分段额外校验：过滤掉非 ETF 代码
+                if seg_key in ('sz_etf', 'sh_etf'):
+                    if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
+                        continue
                 all_rows.append((code, name))
             # push2delay 的 diff 是 dict，每页约 100 条，不能按 pz 算页数
             if len(items) < 80 or len(items) == 0:

@@ -480,7 +480,8 @@ def stock_kline():
 @app.route('/api/technical/ascending-channel', methods=['POST'])
 def technical_ascending_channel_start():
     """启动扫描"""
-    result = run_ascending_channel_async()
+    market = request.args.get('market', None)
+    result = run_ascending_channel_async(market=market)
     return jsonify(result)
 
 @app.route('/api/technical/ascending-channel/status')
@@ -520,5 +521,6 @@ def market_db_status():
 if __name__ == '__main__':
     start_major_indices_poller()  # 启动后台指数行情轮询
     from market_db.sync import start_startup_sync
-    start_startup_sync()           # 后台增量更新已有市场的 K 线
+    import threading
+    threading.Timer(2.0, start_startup_sync).start()  # 延迟 2s，等 Flask 启动完
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)

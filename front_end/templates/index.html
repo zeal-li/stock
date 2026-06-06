@@ -80,7 +80,7 @@
                 <!-- 市场选择 -->
                 <div class="index-card" style="padding:12px 15px;margin-bottom:6px;">
                     <span style="color:#8b8b9e;margin-right:8px;">市场:</span>
-                    <select id="techMarket" style="cursor:pointer;font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;">
+                    <select id="techMarket" onchange="_onMarketSelect()" style="cursor:pointer;font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;">
                         <option value="">-- 选择市场 --</option>
                     </select>
                     <button class="refresh-btn" style="margin-left:6px;" onclick="loadMarket()" id="techLoadBtn">加载</button>
@@ -183,24 +183,60 @@
         // ---- 技术选股 ----
         var _techPollTimer = null;
         var _segData = [];
+        var _curMarketKey = null;
 
-        fetch('/api/market-db/segments').then(function(r){return r.json()}).then(function(list){
-            _segData = list;
+        function _onMarketSelect() {
             var sel = document.getElementById('techMarket');
-            list.forEach(function(s){
-                var opt = document.createElement('option');
-                opt.value = s.key;
-                opt.textContent = s.label + (s.synced ? (s.fresh ? ' ✓' : ' ✓') : '');
-                opt.style.color = s.synced ? '#4ade80' : '#8b8b9e';
-                sel.appendChild(opt);
-            });
-            var firstSynced = list.find(function(s){return s.synced;});
-            if (firstSynced) {
-                sel.value = firstSynced.key;
-                document.getElementById('techMarketStatus').textContent = firstSynced.label + ': ' + firstSynced.kline_count + ' 只有K线';
+            var key = sel.value;
+            _curMarketKey = key;
+            if (!key) return;
+            var item = _segData.find(function(s){return s.key === key;});
+            var status = document.getElementById('techMarketStatus');
+            if (item && item.synced) {
+                status.textContent = item.label + '：' + item.kline_count + ' 只';
+                status.style.color = '#8b8b9e';
                 document.getElementById('techScreenBtn').disabled = false;
+            } else {
+                status.textContent = '未加载';
+                status.style.color = '#8b8b9e';
+                document.getElementById('techScreenBtn').disabled = true;
             }
-        }).catch(function(){});
+        }
+
+        function _refreshSegments() {
+            return fetch('/api/market-db/segments').then(function(r){return r.json()}).then(function(list){
+                _segData = list;
+                var sel = document.getElementById('techMarket');
+                var oldVal = _curMarketKey || sel.value;
+                sel.innerHTML = '<option value="">-- 选择市场 --</option>';
+                list.forEach(function(s){
+                    var opt = document.createElement('option');
+                    opt.value = s.key;
+                    if (s.synced) {
+                        opt.textContent = s.label + ' ✓';
+                        opt.style.color = '#4ade80';
+                    } else {
+                        opt.textContent = s.label;
+                        opt.style.color = '#8b8b9e';
+                    }
+                    sel.appendChild(opt);
+                });
+                // 恢复选中
+                var found = list.find(function(s){return s.key === oldVal;});
+                if (found) {
+                    sel.value = found.key;
+                    _onMarketSelect();
+                } else {
+                    var firstSynced = list.find(function(s){return s.synced;});
+                    if (firstSynced) {
+                        sel.value = firstSynced.key;
+                        _onMarketSelect();
+                    }
+                }
+            }).catch(function(){});
+        }
+
+        _refreshSegments();
 
         var _initPollTimer = null;
         function loadMarket() {
@@ -236,6 +272,7 @@
                                     status.style.color = '#4ade80';
                                     btn.disabled = false;
                                     document.getElementById('techScreenBtn').disabled = false;
+                                    _refreshSegments();
                                 }
                             });
                     }, 1000);
@@ -276,7 +313,8 @@
             status.style.color = '#fbbf24';
             btn.disabled = true;
             try {
-                var res = await fetch('/api/technical/ascending-channel', { method: 'POST' });
+                var mkt = document.getElementById('techMarket').value;
+                var res = await fetch('/api/technical/ascending-channel?market=' + encodeURIComponent(mkt), { method: 'POST' });
                 var data = await res.json();
                 if (!data.success) { status.textContent = data.error; status.style.color = '#e94560'; btn.disabled = false; return; }
                 _techPollTimer = setInterval(async function() {

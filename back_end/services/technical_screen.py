@@ -94,14 +94,14 @@ def _scan_one(code, name):
 _scan_state = {'running': False, 'total': 0, 'done': 0, 'results': []}
 
 
-def run_ascending_channel_async(max_workers=30):
+def run_ascending_channel_async(market=None, max_workers=30):
     if _scan_state['running']:
         return {'success': False, 'error': '扫描进行中'}
     _scan_state['running'] = True
     _scan_state['done'] = 0
     _scan_state['results'] = []
     import threading
-    threading.Thread(target=_do_scan, args=(max_workers,), daemon=True).start()
+    threading.Thread(target=_do_scan, args=(market, max_workers), daemon=True).start()
     return {'success': True, 'message': '扫描已启动'}
 
 
@@ -114,18 +114,25 @@ def get_scan_status():
     }
 
 
-def _do_scan(max_workers):
+def _do_scan(market, max_workers):
     global _scan_state
     try:
         conn = _list_conn()
-        rows = conn.execute('SELECT code, name FROM stocks ORDER BY code').fetchall()
+        if market:
+            rows = conn.execute('SELECT code, name FROM stocks WHERE market=? ORDER BY code', (market,)).fetchall()
+        else:
+            rows = conn.execute('SELECT code, name FROM stocks ORDER BY code').fetchall()
         conn.close()
         stocks = [(r['code'], r['name']) for r in rows]
 
         # 只扫描 stock_detail_list.db 里有 K 线数据的
         conn2 = _kline_conn()
-        has_kline = set(r['code'] for r in
-            conn2.execute('SELECT DISTINCT code FROM klines WHERE period="daily"').fetchall())
+        if market:
+            has_kline = set(r['code'] for r in
+                conn2.execute('SELECT DISTINCT code FROM klines WHERE period="daily" AND market=?', (market,)).fetchall())
+        else:
+            has_kline = set(r['code'] for r in
+                conn2.execute('SELECT DISTINCT code FROM klines WHERE period="daily"').fetchall())
         conn2.close()
         scan_list = [(c, n) for c, n in stocks if c in has_kline]
 
