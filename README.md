@@ -159,6 +159,28 @@ CREATE TABLE watchlist (
 );
 ```
 
+### data/money_flow.db — 资金流向数据快照
+
+```sql
+CREATE TABLE market_data (
+    key   TEXT PRIMARY KEY,          -- major_indices/sh_minute/fund_flow/turnover_minute/margin_trading/daily_closes/fear_index/risk_index
+    value TEXT NOT NULL,             -- JSON 序列化的数据
+    meta  TEXT                       -- 时间戳或日期字符串(YYYY-MM-DD)
+);
+```
+
+| key | 数据 | meta |
+|-----|------|------|
+| major_indices | 上证/深证实时行情 | 时间戳 |
+| sh_minute | 上证分时走势 | 时间戳 |
+| market_breadth | 涨跌家数 | 时间戳 |
+| fund_flow | 主力资金净流入 | 时间戳 |
+| turnover_minute | 成交额分时 | 时间戳 |
+| margin_trading | 融资融券 | 日期 |
+| daily_closes | 30天日K收盘价 | 日期 |
+| fear_index | 恐慌指数 | 时间戳 |
+| risk_index | 风险指数 | 时间戳 |
+
 ### 市场分段定义
 
 | key | label | 代码前缀 |
@@ -168,7 +190,63 @@ CREATE TABLE watchlist (
 | gem | 创业板 | 300/301 |
 | star | 科创板 | 688 |
 | sz_etf | 深ETF | 159/16/18 |
-| sh_etf | 沪ETF | 5-（过滤掉 600-605/688） |
+| sh_etf | 沪ETF | 5 |
+
+## 前端 localStorage 缓存
+
+### kl_cache — K 线弹窗缓存
+
+```json
+{
+  "_date": "2026-06-06",
+  "000001": {
+    "day": [{ "time": "2026-01-01", "open": 10.5, ... }],
+    "week": [...],
+    "month": [...],
+    "minute": { "times": ["09:30",...], "prices": [...], "volumes": [...], "amounts": [...] },
+    "fiveday": { "times": [...], "prices": [...], "volumes": [...], "amounts": [...] },
+    "extra": { "volume_ratio": 1.2, "bid_ratio": 0.8 },
+    "quotes": { "price": "10.50", "pct": "+2.5%", ... }
+  }
+}
+```
+| 字段 | 说明 |
+|------|------|
+| `_date` | 缓存日期，跨天自动清空 |
+| `{code}` | 股票代码为 key |
+| `day/week/month` | K 线数组 |
+| `minute` | 当日分时数据 |
+| `fiveday` | 五日分时数据 |
+| `extra` | 量比 / 委比 |
+| `quotes` | 行情快照（价格/涨跌/PE/PB 等） |
+
+### stockCache — 选股列表缓存
+
+```json
+{
+  "date": "2026-06-06",
+  "stocks": [
+    { "code": "000001", "market": "0", "gw": 5.23, "pld": 12.5, "addedDate": "2026-05-01", "addedPrice": "10.50" }
+  ]
+}
+```
+| 字段 | 说明 |
+|------|------|
+| `date` | 缓存日期，跨天商誉/质押数据失效 |
+| `stocks[].code` | 股票代码 |
+| `stocks[].market` | 市场 |
+| `stocks[].gw` | 商誉率 (%) |
+| `stocks[].pld` | 质押率 (%) |
+| `stocks[].addedDate` | 加入自选日期 |
+| `stocks[].addedPrice` | 加入自选时价格 |
+
+### watchlistCache — 自选股列表缓存
+
+结构同 `stockCache`，独立存储自选股列表。SQLite `watchlist.db` 作为跨设备兜底。
+
+### 缓存清理
+
+清除缓存按钮调用 `clearAllCaches()` 清除 `kl_cache` / `stockCache` / `watchlistCache` 三个 key，同时立即刷新页面列表。
 
 ## 数据同步流程
 
@@ -186,15 +264,6 @@ CREATE TABLE watchlist (
   POST /api/technical/ascending-channel      →  读 stock_detail_list.db 扫描上升通道
   GET  /api/technical/ascending-channel/status →  轮询结果
 ```
-
-## 缓存策略
-
-| 数据 | 存储 | 生命周期 |
-|------|------|---------|
-| K 线/分时数据 | localStorage `kl_cache` | 跨天自动清 + 关弹窗清 |
-| 选股列表 | localStorage `stockCache` | 跨天清商誉 |
-| 自选股列表 | localStorage `watchlistCache` + SQLite | localStorage 优先，SQLite 兜底 |
-| 资金流数据 | SQLite `money_flow.db` | 启动时查日期，非当日全量更新 |
 
 ## 数据源
 

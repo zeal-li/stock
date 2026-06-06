@@ -41,11 +41,14 @@ datas = [
 
 # 隐式导入的服务模块
 hidden_imports = [
-    'services', 'services.__init__',
-    'services.market_data', 'services.money_flow',
-    'services.finance', 'services.search',
-    'services.watchlist', 'services.utils',
-    'services.technical_screen',
+    'common', 'common.__init__', 'common.utils', 'common.finance',
+    'money_flow', 'money_flow.__init__', 'money_flow.storage', 'money_flow.market',
+    'money_flow.fund_flow', 'money_flow.turnover', 'money_flow.margin',
+    'money_flow.fear_index', 'money_flow.risk_index',
+    'stock_pick', 'stock_pick.__init__', 'stock_pick.service',
+    'watchlist', 'watchlist.__init__', 'watchlist.service',
+    'technical_screen', 'technical_screen.__init__', 'technical_screen.service',
+    'market_db', 'market_db.__init__', 'market_db.db', 'market_db.sync',
 ]
 
 PyInstaller.__main__.run([

@@ -14,7 +14,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'mone
 def _db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    conn.execute('CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY, value TEXT NOT NULL, meta TEXT)')
+    conn.execute('CREATE TABLE IF NOT EXISTS market_data (key TEXT PRIMARY KEY, value TEXT NOT NULL, meta TEXT)')
     conn.commit()
     return conn
 
@@ -22,7 +22,7 @@ def _db():
 def db_get(key):
     """读取缓存，返回 (value, meta) 或 None"""
     conn = _db()
-    row = conn.execute('SELECT value, meta FROM cache WHERE key = ?', (key,)).fetchone()
+    row = conn.execute('SELECT value, meta FROM market_data WHERE key = ?', (key,)).fetchone()
     conn.close()
     if row:
         val = json.loads(row[0])
@@ -39,7 +39,7 @@ def db_get(key):
 def db_set(key, value, meta=''):
     """写入缓存，meta 存时间戳或日期字符串"""
     conn = _db()
-    conn.execute('INSERT OR REPLACE INTO cache (key, value, meta) VALUES (?, ?, ?)',
+    conn.execute('INSERT OR REPLACE INTO market_data (key, value, meta) VALUES (?, ?, ?)',
                  (key, json.dumps(value, ensure_ascii=False), str(meta)))
     conn.commit()
     conn.close()
@@ -48,7 +48,7 @@ def db_set(key, value, meta=''):
 def db_has(key):
     """判断 key 是否存在"""
     conn = _db()
-    row = conn.execute('SELECT 1 FROM cache WHERE key = ?', (key,)).fetchone()
+    row = conn.execute('SELECT 1 FROM market_data WHERE key = ?', (key,)).fetchone()
     conn.close()
     return row is not None
 

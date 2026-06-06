@@ -67,43 +67,42 @@ def _fetch_stocks_by_segment(seg_key):
     page = 1
     print(f"[sync] 拉取 {label} 列表...")
     while True:
-        try:
-            r = requests.get(url, params={
-                'pn': page, 'pz': 3000, 'po': 1, 'np': 1,
-                'fltt': 2, 'invt': 2,
-                'fid': 'f12',
-                'fs': fs_filter,
-                'fields': 'f2,f12,f14',
-                'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-            }, headers=headers, timeout=15)
-            data = r.json().get('data') or {}
-            diff = data.get('diff') or {}
-            total = data.get('total', 0)
-            if not diff:
+        r = None
+        for attempt in range(3):
+            try:
+                r = requests.get(url, params={
+                    'pn': page, 'pz': 1000, 'po': 1, 'np': 1,
+                    'fltt': 2, 'invt': 2,
+                    'fid': 'f12',
+                    'fs': fs_filter,
+                    'fields': 'f2,f12,f14',
+                    'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+                }, headers=headers, timeout=15)
                 break
-            items = diff.values() if isinstance(diff, dict) else (diff if isinstance(diff, list) else [])
-            for row in items:
-                code = str(row.get('f12', '')).zfill(6)
-                name = str(row.get('f14', ''))
-                if len(code) != 6 or not code.isdigit():
-                    continue
-                # 只保留属于该分段的
-                seg = _code_to_segment(code)
-                if seg != seg_key:
-                    continue
-                # ETF 分段额外校验：过滤掉非 ETF 代码
-                if seg_key in ('sz_etf', 'sh_etf'):
-                    if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
-                        continue
-                all_rows.append((code, name))
-            # push2delay 的 diff 是 dict，每页约 100 条，不能按 pz 算页数
-            if len(items) < 80 or len(items) == 0:
-                break
-            page += 1
-            _time.sleep(0.1)
-        except Exception as e:
-            print(f"[sync] {label} 第{page}页失败: {e}")
+            except Exception:
+                if attempt < 2: _time.sleep(2 * (attempt + 1))
+        if r is None:
+            print(f"[sync] {label} 第{page}页请求失败（已重试3次）")
             break
+        data = r.json().get('data') or {}
+        diff = data.get('diff') or {}
+        items = diff.values() if isinstance(diff, dict) else (diff if isinstance(diff, list) else [])
+        if not items:
+            break
+        for row in items:
+            code = str(row.get('f12', '')).zfill(6)
+            name = str(row.get('f14', ''))
+            if len(code) != 6 or not code.isdigit():
+                continue
+            seg = _code_to_segment(code)
+            if seg != seg_key:
+                continue
+            if seg_key in ('sz_etf', 'sh_etf'):
+                if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
+                    continue
+            all_rows.append((code, name))
+        page += 1
+        _time.sleep(0.1)
     print(f"[sync] {label}: {len(all_rows)} 只")
     return all_rows
 
