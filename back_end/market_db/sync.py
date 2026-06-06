@@ -147,21 +147,40 @@ def _refresh_stock_list():
 # =========== 步骤 2：同步 K 线 ===========
 
 def _fetch_kline(code, seg_key, period, start_date, end_date):
-    """从 akshare 获取单只股票 K 线"""
-    import akshare as ak
+    """从腾讯 API 获取 K 线（前复权）"""
+    import requests as _rq
+    c = str(code)
+    pfx = 'sh' if c.startswith(('6', '9')) else 'sz'
+    tp_map = {'daily': 'day', 'weekly': 'week', 'monthly': 'month'}
+    tp = tp_map.get(period, 'day')
     for attempt in range(3):
         try:
-            df = ak.stock_zh_a_hist(symbol=code, period=period,
-                                    start_date=start_date, end_date=end_date, adjust="qfq")
-            if df is None or df.empty:
+            r = _rq.get(
+                "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+                params={'param': f"{pfx}{c},{tp},,{start_date},{end_date},qfq"},
+                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
+                timeout=10,
+            )
+            jd = r.json()
+            sd = (jd.get('data') or {}).get(f"{pfx}{c}", {})
+            if tp == 'day':
+                raw = sd.get('day') or sd.get('qfqday') or []
+            elif tp == 'week':
+                raw = sd.get('qfqweek') or sd.get('week') or []
+            else:
+                raw = sd.get('qfqmonth') or sd.get('month') or []
+            if not raw:
                 return []
             rows = []
-            for _, row in df.iterrows():
+            for row in raw:
+                if len(row) < 6:
+                    continue
                 rows.append((
                     code, seg_key, period,
-                    str(row['日期'])[:10],
-                    float(row['开盘']), float(row['最高']), float(row['最低']),
-                    float(row['收盘']), float(row['成交量']), float(row['成交额'])
+                    str(row[0])[:10],
+                    float(row[1]), float(row[3]), float(row[4]),
+                    float(row[2]), float(row[5]),
+                    float(row[6]) if len(row) >= 7 else 0,
                 ))
             return rows
         except Exception:
