@@ -10,38 +10,50 @@ function watchlistSaveCache() {
 }
 
 function loadWatchlistStocks() {
-    // 优先从 localStorage 恢复
-    var stocks = null;
-    var raw = JSON.parse(localStorage.getItem('watchlistCache') || 'null');
-    if (raw && raw.stocks) {
-        var expired = raw.date !== watchlistGetToday();
-        stocks = raw.stocks.map(function(s) { return createStock(s.code, s.code, s.market, (!expired && s.gw !== undefined && s.pld !== undefined) ? { gw: s.gw, pld: s.pld } : null, { addedDate: s.addedDate || '', addedPrice: s.addedPrice || '' }); });
-    }
-    watchlistStocks = stocks || [];
-    watchlistRender();
-    if (watchlistStocks.length > 0) {
-        refreshWatchlistQuotes();
-        refreshWatchlistGoodwill();
-    }
-    // 异步从数据库同步（换电脑后首次用）
-    if (!stocks) {
-        fetch('/api/watchlist')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (!data.success || !data.data.length) return;
-                watchlistStocks = data.data.map(function(s) {
-                    var ad = s.created_at ? s.created_at.slice(0, 10) : '';
-                    return createStock(s.code, s.code, s.market, null, { addedDate: ad, addedPrice: s.added_price || '' });
+    fetch('/api/watchlist')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) throw new Error('API failed');
+            // 读取缓存，仅用于补充商誉/质押等数据
+            var cacheMap = {};
+            var raw = JSON.parse(localStorage.getItem('watchlistCache') || 'null');
+            if (raw && raw.stocks) {
+                var expired = raw.date !== watchlistGetToday();
+                raw.stocks.forEach(function(s) {
+                    if (!expired && s.gw !== undefined && s.pld !== undefined) { cacheMap[s.code] = { gw: s.gw, pld: s.pld }; }
                 });
-                watchlistSaveCache();
+            }
+            // 以数据库列表为准，缓存补充数据
+            var dbStocks = (data.data || []).map(function(s) {
+                var ad = s.created_at ? s.created_at.slice(0, 10) : '';
+                var goodwill = cacheMap[s.code] || null;
+                return createStock(s.code, s.code, s.market, goodwill, { addedDate: ad, addedPrice: s.added_price || '' });
+            });
+            watchlistStocks = dbStocks;
+            watchlistSaveCache();  // 清理缓存中多余的股票
+            watchlistRender();
+            if (watchlistStocks.length > 0) {
+                refreshWatchlistQuotes();
+                refreshWatchlistGoodwill();
+            }
+        })
+        .catch(function() {
+            // API 失败时降级到缓存作为兜底
+            var raw = JSON.parse(localStorage.getItem('watchlistCache') || 'null');
+            if (raw && raw.stocks) {
+                var expired = raw.date !== watchlistGetToday();
+                watchlistStocks = raw.stocks.map(function(s) {
+                    return createStock(s.code, s.code, s.market,
+                        (!expired && s.gw !== undefined && s.pld !== undefined) ? { gw: s.gw, pld: s.pld } : null,
+                        { addedDate: s.addedDate || '', addedPrice: s.addedPrice || '' });
+                });
+                watchlistRender();
                 if (watchlistStocks.length > 0) {
-                    watchlistRender();
                     refreshWatchlistQuotes();
                     refreshWatchlistGoodwill();
                 }
-            })
-            .catch(function() {});
-    }
+            }
+        });
 }
 
 // ---- 增删 ----

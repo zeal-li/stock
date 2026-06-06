@@ -318,6 +318,88 @@ app.run()
   GET  /api/technical/ascending-channel/status →  轮询进度
 ```
 
+### 前端页面加载与自动刷新
+
+前端页面启动时注册全局 10 秒定时器，按当前页面和交易时段决定刷新粒度。
+
+#### 全局启动
+
+```
+页面加载 (index.html)
+  ├─ loadAllData()              资金流向页初始加载（7 个 API 并行请求）
+  ├─ loadPickedStocks()         选股页列表恢复（从 localStorage stockCache）
+  ├─ loadWatchlistStocks()      自选股页列表恢复（GET /api/watchlist 获取权威列表 → 缓存补充商誉/质押 → 缓存中多余的股票自动清理）
+  └─ setInterval(refreshRealtimeData, 10000)  全局 10 秒定时器（永不停止）
+       └─ 内部判断：isInTradingHours() + currentNavPage 决定刷新哪些数据
+```
+
+#### 资金流向页
+
+| 时机 | 触发 | API | 频率 |
+|------|------|-----|------|
+| 初始加载 / 导航切换 | `loadAllData()` → 并行请求 | 上证/深证指数、成交额分时、资金流向、融资融券、恐慌指数、风险指数、上证分时 | 一次性全量 |
+| 交易时段自动刷新（每 10s 触发，60s 粒度） | `refreshRealtimeData()` | `major-indices`（每 10s）+ 其余 6 项（每 60s） + `margin-trading`（每天一次） | 10s/60s/每日 |
+| 点击"清理缓存"按钮 | `clearAllCaches()` + `loadAllData()` | 同上初始加载 | 手动 |
+
+#### 选股页（纯前端缓存，后端无持久化）
+
+| 时机 | 触发 | API | 频率 |
+|------|------|-----|------|
+| 初始加载 | `loadPickedStocks()` | 从 localStorage `stockCache` 恢复列表 → `stock-quotes` + `goodwill` | 一次性 |
+| 交易时段自动刷新 | `refreshRealtimeData()` | `stock-quotes`（仅更新价格列，不重建表格） | 每 10s |
+| 搜索股票 | 输入框输入（防抖 300ms） | `search-stock` | 每次输入 |
+| 添加股票 | 点击搜索结果 | `stock-quotes` + `goodwill` | 事件触发 |
+| 删除股票 | 点击 × 按钮 | 无 API（仅操作 localStorage） | 事件触发 |
+
+#### 自选股页（后端 SQLite 持久化 + 前端缓存补充）
+
+| 时机 | 触发 | API | 频率 |
+|------|------|-----|------|
+| 初始加载 | `loadWatchlistStocks()` | `GET /api/watchlist`（权威列表）→ localStorage 补充商誉/质押 → `stock-quotes` + `goodwill` | 一次性 |
+| 交易时段自动刷新 | `refreshRealtimeData()` | `stock-quotes`（仅更新价格列，不重建表格） | 每 10s |
+| 添加股票 | 点击搜索结果 | `stock-quotes`（获取加入价格）→ `POST /api/watchlist`（持久化）→ `goodwill` | 事件触发 |
+| 删除股票 | 点击 × 按钮 | `DELETE /api/watchlist/{code}`（异步删除） | 事件触发 |
+
+#### K 线弹窗
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 打开弹窗 | 点击股票名称 | `stock-quotes` + `stock-kline(day)` + `goodwill` + `stock-extra` | 4 个 API 并行请求；有 localStorage 缓存则跳过 |
+| 弹窗头部行情 | `setInterval(_refreshHeaderData, 10000)` | `stock-quotes` + `stock-extra` | 交易时段每 10s |
+| 切换到分时图 | `_loadMinuteChart()` | `stock-minute` + `setInterval(_refreshMinuteData, 60000)` | 交易时段每 60s |
+| 切换到五日分时 | `_loadFiveDayMinute()` | `stock-minute(days=5)` + `setInterval(_refreshFiveDayData, 60000)` | 交易时段每 60s |
+| 切换 K 线周期 | `_switchPeriod()` | `stock-kline(period)` | 有缓存直接用，无缓存才请求 |
+| 关闭弹窗 | `close()` | 清除当前股票在 kl_cache 中的行情/分时/K线缓存 + 清除所有定时器 | — |
+
+#### 技术选股页
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 页面加载 | 模块初始化 | `market-db/segments` | 获取市场分段列表 |
+| 加载市场数据 | 点击"加载"按钮 | `POST market-db/init/{key}` + `GET init/status`（每 1s 轮询进度） | 手动 |
+| 运行选股 | 点击"上升通道"按钮 | `POST ascending-channel` + `GET status`（每 2s 轮询进度） | 手动 |
+
+#### 前端定时器汇总
+
+| 定时器 | 间隔 | 作用域 | 条件 |
+|--------|------|--------|------|
+| `refreshRealtimeData` | 10s | 全局 | 交易时段 + 当前页面判断 |
+| `_headerTimer` | 10s | K线弹窗 | 交易时段 |
+| `_minuteTimer` | 60s | K线弹窗（分时模式） | 交易时段 |
+| `_fiveDayTimer` | 60s | K线弹窗（五日模式） | 交易时段 |
+| `_initPollTimer` | 1s | 技术选股（市场初始化中） | 任务完成清除 |
+| `_techPollTimer` | 2s | 技术选股（选股扫描中） | 任务完成清除 |
+
+#### localStorage 缓存
+
+| Key | 使用页面 | 内容 | 持久化 | 跨天策略 |
+|-----|----------|------|--------|----------|
+| `kl_cache` | K线弹窗 | K线/分时/五日/行情/商誉/量比委比 | 纯缓存 | 跨天全删；交易时段关闭弹窗清除非商誉缓存 |
+| `stockCache` | 选股页 | 已选股票列表 + 商誉/质押 | 纯缓存，后端无持久化 | 跨天商誉失效，列表保留 |
+| `watchlistCache` | 自选股页 | 自选股数据补充（商誉/质押） | API 为权威来源（`watchlist.db`），缓存仅作补充 | 跨天商誉失效；API 返回的列表覆盖缓存中多余条目 |
+
+手动清理：点击"清理缓存"按钮 → 删除全部三个 key → 重新加载列表。
+
 ## 数据源
 
 ### 东方财富
