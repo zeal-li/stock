@@ -147,22 +147,26 @@ def _refresh_stock_list():
 # =========== 步骤 2：同步 K 线 ===========
 
 def _fetch_kline(code, seg_key, period, start_date, end_date):
-    """从腾讯 API 获取 K 线（前复权）"""
+    """从腾讯 API 获取 K 线（前复权，按条数拉取）"""
     import requests as _rq
     c = str(code)
     pfx = 'sh' if c.startswith(('6', '9')) else 'sz'
-    tp_map = {'daily': 'day', 'weekly': 'week', 'monthly': 'month'}
-    tp = tp_map.get(period, 'day')
+    tp_map = {'daily': ('day', 800), 'weekly': ('week', 200), 'monthly': ('month', 40)}
+    tp, count = tp_map.get(period, ('day', 800))
     for attempt in range(3):
         try:
             r = _rq.get(
                 "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                params={'param': f"{pfx}{c},{tp},,{start_date},{end_date},qfq"},
+                params={'param': f"{pfx}{c},{tp},,,{count},qfq"},
                 headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
                 timeout=10,
             )
             jd = r.json()
-            sd = (jd.get('data') or {}).get(f"{pfx}{c}", {})
+            data = jd.get('data', {})
+            if isinstance(data, dict):
+                sd = data.get(f"{pfx}{c}", {})
+            else:
+                return []
             if tp == 'day':
                 raw = sd.get('day') or sd.get('qfqday') or []
             elif tp == 'week':
@@ -175,9 +179,15 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
             for row in raw:
                 if len(row) < 6:
                     continue
+                date_str = str(row[0])[:10].replace('-', '')
+                # 按日期范围过滤
+                if start_date and date_str < start_date:
+                    continue
+                if end_date and date_str > end_date:
+                    continue
                 rows.append((
                     code, seg_key, period,
-                    str(row[0])[:10],
+                    date_str,
                     float(row[1]), float(row[3]), float(row[4]),
                     float(row[2]), float(row[5]),
                     float(row[6]) if len(row) >= 7 else 0,
