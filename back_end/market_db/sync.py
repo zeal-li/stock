@@ -20,12 +20,12 @@ from .db import (
 SEGMENTS = {
     'sh_main': {'label': '沪A',   'prefix': ('600', '601', '603', '605')},
     'sz_main': {'label': '深A',   'prefix': ('000', '001', '002', '003')},
+    'sh_etf':  {'label': '沪ETF',  'prefix': ('5',)},
+    'sz_etf':  {'label': '深ETF',  'prefix': ('159', '16', '18')},
     'gem':     {'label': '创业板', 'prefix': ('300', '301')},
     'star':    {'label': '科创板', 'prefix': ('688',)},
     'bj':      {'label': '北交所', 'prefix': ('83', '87', '88')},
     'xsb':     {'label': '新三板', 'prefix': ('43',)},
-    'sz_etf':  {'label': '深ETF',  'prefix': ('159', '16')},
-    'sh_etf':  {'label': '沪ETF',  'prefix': ('51',)},
 }
 
 
@@ -57,13 +57,10 @@ def _fetch_stocks_by_segment(seg_key):
     # 根据分段选 fs 过滤器
     if seg_key in ('sh_main', 'sz_main', 'gem', 'star'):
         fs_filter = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
-    elif seg_key == 'bj':
-        fs_filter = 'm:0+t:81'
-    elif seg_key == 'xsb':
-        fs_filter = 'm:0+t:7'
     elif seg_key in ('sz_etf', 'sh_etf'):
         fs_filter = 'b:MK0021,b:MK0022,b:MK0023,b:MK0024'
     else:
+        print(f"[sync] {label} 暂不支持（API 无此市场数据）")
         return []
 
     all_rows = []
@@ -91,10 +88,12 @@ def _fetch_stocks_by_segment(seg_key):
                 if len(code) != 6 or not code.isdigit():
                     continue
                 # 只保留属于该分段的
-                if _code_to_segment(code) != seg_key:
+                seg = _code_to_segment(code)
+                if seg != seg_key:
                     continue
                 all_rows.append((code, name))
-            if page * 3000 >= total:
+            # push2delay 的 diff 是 dict，每页约 100 条，不能按 pz 算页数
+            if len(items) < 80 or len(items) == 0:
                 break
             page += 1
             _time.sleep(0.1)
@@ -226,7 +225,8 @@ def _sync_klines():
             except Exception:
                 pass
             _sync_status['done'] += 1
-            if _sync_status['done'] % 500 == 0 or _sync_status['done'] == total:
+            step = 10
+            if _sync_status['done'] % step == 0 or _sync_status['done'] == total:
                 pct = _sync_status['done'] / total * 100
                 el = time.time() - t0
                 eta = el / _sync_status['done'] * (total - _sync_status['done']) if _sync_status['done'] > 0 else 0
@@ -288,8 +288,8 @@ def _run_init(seg_key):
             _sync_status['running'] = False
             return
 
-    list_replace_market(seg_key, rows)
-    print(f"[sync] {label} 股票列表已写入: {len(rows)} 只")
+        list_replace_market(seg_key, rows)
+        print(f"[sync] {label} 股票列表已写入: {len(rows)} 只")
 
         stocks = [(c, seg_key, n) for c, n in rows]
         _sync_status['total'] = len(stocks)
@@ -306,7 +306,8 @@ def _run_init(seg_key):
                 except Exception:
                     pass
                 _sync_status['done'] += 1
-                if _sync_status['done'] % 500 == 0 or _sync_status['done'] == len(stocks):
+                step = 10
+                if _sync_status['done'] % step == 0 or _sync_status['done'] == len(stocks):
                     pct = _sync_status['done'] / len(stocks) * 100
                     el = time.time() - t0
                     eta = el / _sync_status['done'] * (len(stocks) - _sync_status['done']) if _sync_status['done'] > 0 else 0

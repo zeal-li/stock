@@ -1,117 +1,172 @@
 # 鑫多多
 
-A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股（SQLite 持久化）、K 线弹窗、融资融券、恐慌/风险指数等。
+A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股（SQLite 持久化）、K 线弹窗、融资融券、恐慌/风险指数、技术选股。
 
 ## 目录结构
 
 ```
 stock/
-├── back_end/                        # 🔧 后端（Flask）
-│   ├── app.py                       # 路由注册 + 启动
-│   ├── common/                      # 公共模块
-│   │   ├── __init__.py              # 代理配置
-│   │   ├── utils.py                 # 格式化函数（fmt/is_etf 等）
-│   │   └── finance.py              # 财务数据（商誉率/质押率）
-│   ├── money_flow/                  # 资金流向
-│   │   ├── storage.py               # SQLite 持久化 + 后台轮询线程
-│   │   ├── market.py               # 大盘指数行情 + 分时走势 + 涨跌家数
-│   │   ├── fund_flow.py            # 大盘资金净流入
-│   │   ├── turnover.py             # 成交额分时
-│   │   ├── margin.py               # 融资融券
-│   │   ├── fear_index.py           # 市场恐慌指数
-│   │   └── risk_index.py           # 市场风险指数
-│   ├── stock_pick/                  # 选股
-│   │   └── service.py              # 股票搜索 + 行情查询
-│   ├── watchlist/                   # 自选股
-│   │   └── service.py              # SQLite 持久化 + CRUD API
-│   ├── market_db/                    # 全市场股票数据库
-│   │   ├── db.py                    # SQLite 表结构 + CRUD
-│   │   └── sync.py                  # 启动时后台同步（股票列表+日K/周K/月K）
-│   ├── technical_screen/            # 技术选股
-│   │   └── service.py              # 上升通道扫描
-│   ├── data/                        # 数据文件（.gitignore 排除）
-│   │   ├── watchlist.db            # 自选股 SQLite 数据库
-│   │   ├── money_flow.db           # 资金流向缓存数据库
-│   │   └── market.db               # 全市场股票+K线数据库
+├── back_end/                          # 🔧 后端（Flask）
+│   ├── app.py                         # 路由 + 启动 + 后台定时器
+│   ├── services/                      # 公共服务模块
+│   │   ├── __init__.py                # 代理配置（REQUEST_PROXIES）
+│   │   ├── utils.py                   # 格式化 + is_etf 等
+│   │   ├── market_data.py             # 行情 + K线 + 分时
+│   │   ├── money_flow.py              # 资金流 + 融资融券 + 恐慌指数
+│   │   ├── finance.py                 # 商誉率 + 质押率
+│   │   ├── search.py                  # 股票搜索
+│   │   ├── watchlist.py               # 自选股 SQLite CRUD
+│   │   └── technical_screen.py         # 技术选股（上升通道等）
+│   ├── market_db/                     # 全市场股票数据库
+│   │   ├── db.py                      # SQLite 表结构 + CRUD
+│   │   └── sync.py                    # 股票列表同步 + K线增量更新
+│   ├── data/                          # 运行时数据（.gitignore）
+│   │   ├── stock_list.db              # 在市的股票列表
+│   │   └── stock_detail_list.db       # K线 + 股票元信息
 │   ├── requirements.txt
+│   ├── build_exe.py                   # PyInstaller 打包脚本
 │   ├── start.bat / stop.bat / restart.bat
-├── front_end/                       # 🎨 前端
+├── front_end/                         # 🎨 前端
 │   ├── templates/
-│   │   └── index.html              # 页面骨架 + 导航 + 初始化
+│   │   └── index.html                 # 页面 + 导航 + 初始化 + 技术选股 UI
 │   └── static/
-│       ├── style.css               # 全局样式
+│       ├── style.css
+│       ├── app.js
 │       └── js/
-│           ├── common.js           # 公共函数（交易时间判断/缓存清理）
-│           ├── money_flow/
-│           │   ├── charts.js       # 图表渲染（分时/资金流/融资融券）
-│           │   └── refresh.js      # 自动刷新（10s 定时器）
-│           ├── stock_pick/
-│           │   └── service.js      # 选股列表（搜索/缓存/渲染）
-│           ├── watchlist/
-│           │   └── service.js      # 自选股列表（增删/行情/缓存）
-│           └── kline/
-│               └── popup.js        # K 线弹窗（日K/周K/月K/分时/五日）
+│           ├── common.js              # 交易时间判断 / 缓存清理
+│           ├── charts.js              # 图表渲染
+│           ├── auto-refresh.js        # 自动刷新（10s / 60s）
+│           ├── stock-pick.js          # 选股 + 自选股（搜索/缓存/渲染）
+│           └── kline-popup.js         # K 线弹窗（日/周/月/分时/五日）
 ├── .gitignore
+├── build_exe.py                        # 与 back_end 同级入口
 └── README.md
 ```
 
-## 功能模块
+## 功能页面
 
 | 页面 | 功能 |
 |------|------|
-| 资金流向 | 上证指数分时走势、大盘资金净流入、融资融券、市场恐慌/风险指数 |
-| 选股 | 股票搜索、自选列表（价格/涨跌/PE/PB/市值/商誉/质押） |
-| 自选股 | 独立自选列表、SQLite 跨设备持久化、加自选/删自选 |
-| K 线弹窗 | LightweightCharts 蜡烛图、日K/周K/月K/分时/五日、均线/布林线 |
+| 资金流向 | 上证指数分时、大盘资金净流入、融资融券、恐慌/风险指数 |
+| 自选股 | 自选列表、加/删自选、行情刷新、加选天数/涨跌幅 |
+| 选股 | 股票搜索、自选列表、商誉率/质押率 |
+| 技术选股 | 按市场分段加载、上升通道扫描 |
+| K 线弹窗 | LightweightCharts 蜡烛图、日K/周K/月K/分时/五日、MA/布林线 |
 
-### K 线弹窗
+## SQLite 数据库表结构
 
-- 标题栏：实时价格、涨跌、⭐加自选/🗑删自选
-- 参数行：今开/高/低/昨收、成交量/成交额、换手/振幅、量比/委比、PE/PB、总市值/流通市值、商誉率/质押率
-- 十字线提示：日期、高/低、开/收、涨跌额/涨跌幅、成交量/成交额/换手率
-- 指标切换：MA5/10/20/30/60/120、布林线（UP/MID/LOW）
+### data/stock_list.db — 在市的股票列表
 
-### 缓存策略
+```sql
+-- 股票列表
+CREATE TABLE stocks (
+    code TEXT NOT NULL,          -- 股票代码（6位）
+    market TEXT NOT NULL,        -- 市场分段（sh_main/sz_main/gem/star/sz_etf/sh_etf）
+    name TEXT,                   -- 股票名称
+    PRIMARY KEY (code, market)
+);
+
+-- 同步日志
+CREATE TABLE sync_log (
+    market TEXT PRIMARY KEY,     -- 市场分段
+    last_sync_date TEXT           -- 上次同步日期 YYYY-MM-DD
+);
+```
+
+### data/stock_detail_list.db — K 线数据
+
+```sql
+-- K 线数据
+CREATE TABLE klines (
+    code TEXT NOT NULL,          -- 股票代码
+    market TEXT NOT NULL,        -- 市场分段
+    period TEXT NOT NULL,        -- 周期（daily/weekly/monthly）
+    date TEXT NOT NULL,          -- 日期
+    open REAL,                   -- 开盘价
+    high REAL,                   -- 最高价
+    low REAL,                    -- 最低价
+    close REAL,                  -- 收盘价
+    volume REAL,                 -- 成交量
+    amount REAL,                 -- 成交额
+    PRIMARY KEY (code, market, period, date)
+);
+
+-- 索引：按市场批量查询
+CREATE INDEX idx_klines_market ON klines(market, code, period, date);
+
+-- 股票元信息
+CREATE TABLE stock_info (
+    code TEXT NOT NULL,          -- 股票代码
+    market TEXT NOT NULL,        -- 市场分段
+    name TEXT,                   -- 股票名称
+    latest_kline_date TEXT,      -- 最新K线日期
+    PRIMARY KEY (code, market)
+);
+```
+
+### data/watchlist.db — 自选股
+
+```sql
+CREATE TABLE watchlist (
+    code TEXT,                   -- 股票代码
+    market TEXT,                 -- 市场
+    created_at TEXT,             -- 加入时间
+    added_price TEXT,            -- 加入价格
+    PRIMARY KEY (code, market)
+);
+```
+
+### 市场分段定义
+
+| key | label | 代码前缀 |
+|-----|-------|---------|
+| sh_main | 沪A | 600/601/603/605 |
+| sz_main | 深A | 000/001/002/003 |
+| gem | 创业板 | 300/301 |
+| star | 科创板 | 688 |
+| sz_etf | 深ETF | 159/16/18 |
+| sh_etf | 沪ETF | 5-（过滤掉 600-605/688） |
+
+## 数据同步流程
+
+```
+启动 → _startup_worker（后台线程，4 线程）
+  ├─ _refresh_stock_list()    拉取在市的股票列表 → stock_list.db（已有市场才更新，同日跳过）
+  ├─ _sync_klines()           遍历 stock_list.db → 增量/全量拉 K 线 → stock_detail_list.db（最近 3 年）
+  └─ _cleanup_delisted()      detail 里有 list 里没有的 → 删除（退市）
+
+手动加载市场：
+  POST /api/market-db/init/<seg_key>  →  异步初始化新市场（拉列表 + 全量 K 线）
+  GET  /api/market-db/init/status    →  查询进度 {running, total, done, phase}
+
+技术选股：
+  POST /api/technical/ascending-channel      →  读 stock_detail_list.db 扫描上升通道
+  GET  /api/technical/ascending-channel/status →  轮询结果
+```
+
+## 缓存策略
 
 | 数据 | 存储 | 生命周期 |
-|------|------|----------|
-| K 线/分时数据 | localStorage `kl_cache` | 跨天自动清 + 手动清 |
-| 选股列表 | localStorage `stockCache` | 跨天清商誉 + 手动清 |
+|------|------|---------|
+| K 线/分时数据 | localStorage `kl_cache` | 跨天自动清 + 关弹窗清 |
+| 选股列表 | localStorage `stockCache` | 跨天清商誉 |
 | 自选股列表 | localStorage `watchlistCache` + SQLite | localStorage 优先，SQLite 兜底 |
-| 资金流数据 | SQLite `money_flow.db` | 启动时检查日期，非当日全量更新；交易时段按频率刷新 |
+| 资金流数据 | SQLite `money_flow.db` | 启动时查日期，非当日全量更新 |
 
 ## 数据源
 
-### 行情 + K 线
-
-| 数据 | 市场 | 来源 |
-|------|------|------|
-| 实时行情 | A/港/美 | 东方财富 `push2delay.eastmoney.com` |
-| 日K线 | A 股 | 腾讯 `ifzq.gtimg.cn` + 同花顺 `d.10jqka.com.cn` |
-| 日K线 | 港股/美股 | Yahoo Finance `query1.finance.yahoo.com` |
-| 分时走势 | A 股 | 东方财富 `trends2`（5s 缓存，仅交易时段） |
-
-### 大盘指标
-
-| 数据 | 来源 | 刷新频率 |
-|------|------|----------|
-| 大盘资金净流入 | 东方财富 `fflow/kline` | 60s |
-| 成交额 | 同花顺 `dq.10jqka.com.cn` | 60s |
-| 恐慌/风险指数 | 多因子加权 | 60s |
-| 融资融券 | akshare | 每天一次 |
-
-### 财务数据
-
 | 数据 | 来源 |
 |------|------|
-| 商誉率 | 东方财富 F10 资产负债表 |
-| 质押率 | 东方财富 `RPT_CSDC_LIST` |
+| 实时行情 | 东方财富 `push2delay.eastmoney.com` |
+| K 线（A 股） | 腾讯 `ifzq.gtimg.cn` + 同花顺 `d.10jqka.com.cn` |
+| K 线（港股/美股） | Yahoo Finance `query1.finance.yahoo.com` |
+| 分时走势 | 东方财富 `trends2`（5s 缓存，仅交易时段） |
+| 股票列表 | 东方财富 `push2delay.eastmoney.com/api/qt/clist/get` |
+| K 线同步 | akshare `stock_zh_a_hist`（日/周/月） |
+| 大盘资金净流入 | 东方财富 `fflow/kline` |
+| 融资融券 | akshare |
+| 商誉/质押 | 东方财富 F10 / `RPT_CSDC_LIST` |
 | 股票搜索 | 东方财富 `searchapi.eastmoney.com` |
-
-## 环境要求
-
-- Python 3.9+
-- 依赖见 `back_end/requirements.txt`
 
 ## 快速开始
 
@@ -124,22 +179,12 @@ python app.py
 # 浏览器访问 http://localhost:5000
 ```
 
-或直接双击 `back_end\start.bat`。
+或双击 `back_end\start.bat`。
 
-## 开发指南
+## 打包
 
-### 加新功能模块
-
-1. 在 `back_end/<功能名>/` 下新建模块
-2. 在 `back_end/app.py` 中 import 并注册路由
-3. 前端 JS 放入 `front_end/static/js/<功能名>/`
-4. 在 `index.html` 中加 `<script>` 引用和页面容器
-
-```python
-# 后端示例
-from new_feature.service import get_data
-
-@app.route('/api/new-endpoint')
-def new_endpoint():
-    return jsonify(get_data())
+```powershell
+# 用 venv python 运行
+venv\Scripts\python.exe build_exe.py
+# exe 输出到 dist\鑫多多.exe
 ```
