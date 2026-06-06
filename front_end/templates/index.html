@@ -202,32 +202,49 @@
             }
         }).catch(function(){});
 
+        var _initPollTimer = null;
         function loadMarket() {
             var sel = document.getElementById('techMarket');
             var key = sel.value;
             if (!key) { alert('请先选择市场'); return; }
             var status = document.getElementById('techMarketStatus');
             var btn = document.getElementById('techLoadBtn');
-            status.textContent = '正在加载...';
+            if (_initPollTimer) clearInterval(_initPollTimer);
+            status.textContent = '正在拉取列表...';
             status.style.color = '#fbbf24';
             btn.disabled = true;
             fetch('/api/market-db/init/' + key, { method: 'POST' })
                 .then(function(r){return r.json()})
                 .then(function(data){
-                    if (data.success) {
-                        status.textContent = '已加载 ' + data.stocks + ' 只';
-                        status.style.color = '#4ade80';
-                        document.getElementById('techScreenBtn').disabled = false;
-                    } else {
+                    if (!data.success) {
                         status.textContent = data.error || '已存在';
                         status.style.color = '#e94560';
+                        btn.disabled = false;
+                        return;
                     }
+                    _initPollTimer = setInterval(function(){
+                        fetch('/api/market-db/init/status')
+                            .then(function(r){return r.json()})
+                            .then(function(s){
+                                if (s.running) {
+                                    var bar = '', w = 20, f = Math.floor(w * s.done / s.total);
+                                    for (var i=0;i<w;i++) bar += i<=f ? '█' : '░';
+                                    status.textContent = s.phase === 'list' ? '拉取列表...' : ('K线 ' + bar + ' ' + s.done + '/' + s.total);
+                                } else {
+                                    clearInterval(_initPollTimer); _initPollTimer = null;
+                                    status.textContent = '加载完成，共 ' + s.total + ' 只';
+                                    status.style.color = '#4ade80';
+                                    btn.disabled = false;
+                                    document.getElementById('techScreenBtn').disabled = false;
+                                }
+                            });
+                    }, 1000);
                 })
                 .catch(function(e){
                     status.textContent = '请求出错: ' + e.message;
                     status.style.color = '#e94560';
-                })
-                .finally(function(){ btn.disabled = false; });
+                    btn.disabled = false;
+                });
         }
 
         function _techRenderTable(data) {

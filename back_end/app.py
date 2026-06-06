@@ -497,6 +497,11 @@ def market_db_init(seg_key):
     result = init_segment(seg_key)
     return jsonify(result)
 
+@app.route('/api/market-db/init/status')
+def market_db_init_status():
+    from market_db.sync import get_init_status
+    return jsonify(get_init_status())
+
 @app.route('/api/market-db/segments')
 def market_db_segments():
     from market_db.sync import get_segments_info

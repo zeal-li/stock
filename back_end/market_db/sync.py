@@ -44,58 +44,74 @@ def _code_to_segment(code):
 
 # =========== 步骤 1：刷新股票列表 ===========
 
-def _fetch_active_stocks():
-    """从 akshare 获取全市场在市的 A 股 + ETF"""
-    import akshare as ak
+def _fetch_stocks_by_segment(seg_key):
+    """只拉取指定分段的市场股票列表"""
+    import requests
+    import time as _time
 
-    all_rows = []  # [(code, seg_key, name), ...]
+    seg = SEGMENTS[seg_key]
+    label = seg['label']
+    url = 'https://push2delay.eastmoney.com/api/qt/clist/get'
+    headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
 
-    # —— A 股 ——
-    print("[sync] 获取 A 股列表...")
-    try:
-        df = ak.stock_zh_a_spot_em()
-    except Exception:
+    # 根据分段选 fs 过滤器
+    if seg_key in ('sh_main', 'sz_main', 'gem', 'star'):
+        fs_filter = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
+    elif seg_key == 'bj':
+        fs_filter = 'm:0+t:81'
+    elif seg_key == 'xsb':
+        fs_filter = 'm:0+t:7'
+    elif seg_key in ('sz_etf', 'sh_etf'):
+        fs_filter = 'b:MK0021,b:MK0022,b:MK0023,b:MK0024'
+    else:
+        return []
+
+    all_rows = []
+    page = 1
+    print(f"[sync] 拉取 {label} 列表...")
+    while True:
         try:
-            df = ak.stock_info_a_code_name()
+            r = requests.get(url, params={
+                'pn': page, 'pz': 3000, 'po': 1, 'np': 1,
+                'fltt': 2, 'invt': 2,
+                'fid': 'f12',
+                'fs': fs_filter,
+                'fields': 'f2,f12,f14',
+                'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+            }, headers=headers, timeout=15)
+            data = r.json().get('data') or {}
+            diff = data.get('diff') or {}
+            total = data.get('total', 0)
+            if not diff:
+                break
+            items = diff.values() if isinstance(diff, dict) else (diff if isinstance(diff, list) else [])
+            for row in items:
+                code = str(row.get('f12', '')).zfill(6)
+                name = str(row.get('f14', ''))
+                if len(code) != 6 or not code.isdigit():
+                    continue
+                # 只保留属于该分段的
+                if _code_to_segment(code) != seg_key:
+                    continue
+                all_rows.append((code, name))
+            if page * 3000 >= total:
+                break
+            page += 1
+            _time.sleep(0.1)
         except Exception as e:
-            print(f"[sync] A 股列表获取失败: {e}")
-            return None
+            print(f"[sync] {label} 第{page}页失败: {e}")
+            break
+    print(f"[sync] {label}: {len(all_rows)} 只")
+    return all_rows
 
-    if df is None or df.empty:
-        print("[sync] A 股列表为空")
-        return None
 
-    for _, row in df.iterrows():
-        code = str(row.get('代码', row.get('code', ''))).zfill(6)
-        name = str(row.get('名称', row.get('name', '')))
-        if not code.isdigit() or len(code) != 6:
-            continue
-        seg = _code_to_segment(code)
-        if seg is None:
-            continue
-        all_rows.append((code, seg, name))
-    print(f"[sync] A 股有效: {len(all_rows)} 只")
-
-    # —— ETF ——
-    print("[sync] 获取 ETF 列表...")
-    try:
-        df_etf = ak.fund_etf_spot_em()
-    except Exception as e:
-        print(f"[sync] ETF 列表获取失败: {e}")
-        return all_rows
-
-    etf_count = 0
-    for _, row in df_etf.iterrows():
-        code = str(row.get('代码', row.get('code', ''))).zfill(6)
-        name = str(row.get('名称', row.get('name', '')))
-        if not code.isdigit() or len(code) != 6:
-            continue
-        seg = _code_to_segment(code)
-        if seg is None:
-            continue
-        all_rows.append((code, seg, name))
-        etf_count += 1
-    print(f"[sync] ETF: {etf_count} 只，总计 {len(all_rows)} 只")
+def _fetch_active_stocks():
+    """拉取全市场（用于增量刷新已有分段）"""
+    all_rows = []
+    for seg_key in SEGMENTS:
+        rows = _fetch_stocks_by_segment(seg_key)
+        for code, name in rows:
+            all_rows.append((code, seg_key, name))
     return all_rows
 
 
@@ -126,7 +142,6 @@ def _refresh_stock_list():
     for m in markets:
         rows = by_market.get(m, [])
         list_replace_market(m, rows)
-        list_sync_date_set(m, today)
         print(f"[sync] {SEGMENTS.get(m, {}).get('label', m)} 列表已更新: {len(rows)} 只")
 
 
@@ -188,16 +203,20 @@ def _sync_one_stock(code, market, name, periods=('daily', 'weekly', 'monthly')):
 
 def _sync_klines():
     """遍历 stock_list.db，增量同步 K 线"""
+    global _sync_status
     stocks = list_stocks_all()
     if not stocks:
         print("[sync] 股票列表为空，跳过 K 线同步")
+        _sync_status['running'] = False
         return
 
     total = len(stocks)
+    _sync_status['total'] = total
+    _sync_status['done'] = 0
+    _sync_status['phase'] = 'kline'
     print(f"[sync] 开始同步 K 线 ({total} 只，4 线程增量)...")
 
     t0 = time.time()
-    done = 0
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2]): s for s in stocks}
@@ -206,13 +225,13 @@ def _sync_klines():
                 fut.result()
             except Exception:
                 pass
-            done += 1
-            if done % 500 == 0 or done == total:
-                pct = done / total * 100
+            _sync_status['done'] += 1
+            if _sync_status['done'] % 500 == 0 or _sync_status['done'] == total:
+                pct = _sync_status['done'] / total * 100
                 el = time.time() - t0
-                eta = el / done * (total - done) if done > 0 else 0
-                bar = '█' * int(30 * done / total) + '░' * (30 - int(30 * done / total))
-                print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {done}/{total}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
+                eta = el / _sync_status['done'] * (total - _sync_status['done']) if _sync_status['done'] > 0 else 0
+                bar = '█' * int(30 * _sync_status['done'] / total) + '░' * (30 - int(30 * _sync_status['done'] / total))
+                print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {_sync_status['done']}/{total}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
     print()
     print(f"[sync] K 线同步完成，耗时 {time.time()-t0:.0f}s")
 
@@ -237,8 +256,11 @@ def _cleanup_delisted():
 
 # =========== 初始化新市场 ===========
 
+_sync_status = {'running': False, 'label': '', 'total': 0, 'done': 0, 'phase': ''}
+
 def init_segment(seg_key):
     """初始化一个市场分段：拉取股票列表 + 全量同步 K 线"""
+    global _sync_status
     if seg_key not in SEGMENTS:
         return {'success': False, 'error': '无效的市场分段'}
 
@@ -246,44 +268,60 @@ def init_segment(seg_key):
         print(f"[sync] {SEGMENTS[seg_key]['label']} 已存在，跳过初始化")
         return {'success': False, 'error': '市场已存在'}
 
-    prefix = SEGMENTS[seg_key]['prefix']
-    label = SEGMENTS[seg_key]['label']
-    print(f"[sync] 初始化: {label}")
+    if _sync_status['running']:
+        return {'success': False, 'error': '已有同步任务运行中'}
 
-    all_rows = _fetch_active_stocks()
-    if all_rows is None:
-        return {'success': False, 'error': '无法获取股票列表'}
+    _sync_status['running'] = True
+    _sync_status['label'] = SEGMENTS[seg_key]['label']
+    threading.Thread(target=_run_init, args=(seg_key,), daemon=True).start()
+    return {'success': True, 'message': '初始化已启动'}
 
-    rows = [(c, n) for c, s, n in all_rows if s == seg_key]
-    if not rows:
-        return {'success': False, 'error': f'{label} 无股票'}
+def _run_init(seg_key):
+    global _sync_status
+    try:
+        label = SEGMENTS[seg_key]['label']
+        _sync_status['phase'] = 'list'
+        print(f"[sync] 初始化: {label}")
 
-    today = _today_str()
+        rows = _fetch_stocks_by_segment(seg_key)
+        if not rows:
+            _sync_status['running'] = False
+            return
+
     list_replace_market(seg_key, rows)
-    list_sync_date_set(seg_key, today)
     print(f"[sync] {label} 股票列表已写入: {len(rows)} 只")
 
-    stocks = [(c, seg_key, n) for c, n in rows]
-    print(f"[sync] 开始全量同步 K 线 ({len(stocks)} 只，4 线程)...")
+        stocks = [(c, seg_key, n) for c, n in rows]
+        _sync_status['total'] = len(stocks)
+        _sync_status['done'] = 0
+        _sync_status['phase'] = 'kline'
+        print(f"[sync] 开始全量同步 K 线 ({len(stocks)} 只，4 线程)...")
 
-    t0 = time.time()
-    done = 0
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2]): s for s in stocks}
-        for fut in as_completed(futs):
-            try: fut.result()
-            except Exception: pass
-            done += 1
-            if done % 500 == 0 or done == len(stocks):
-                pct = done / len(stocks) * 100
-                el = time.time() - t0
-                eta = el / done * (len(stocks) - done) if done > 0 else 0
-                bar = '█' * int(30 * done / len(stocks)) + '░' * (30 - int(30 * done / len(stocks)))
-                print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {done}/{len(stocks)}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
-    print()
-    _cleanup_delisted()
-    print(f"[sync] {label} 初始化完成，耗时 {time.time()-t0:.0f}s")
-    return {'success': True, 'stocks': len(stocks)}
+        t0 = time.time()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2]): s for s in stocks}
+            for fut in as_completed(futs):
+                try:
+                    fut.result()
+                except Exception:
+                    pass
+                _sync_status['done'] += 1
+                if _sync_status['done'] % 500 == 0 or _sync_status['done'] == len(stocks):
+                    pct = _sync_status['done'] / len(stocks) * 100
+                    el = time.time() - t0
+                    eta = el / _sync_status['done'] * (len(stocks) - _sync_status['done']) if _sync_status['done'] > 0 else 0
+                    bar = '█' * int(30 * _sync_status['done'] / len(stocks)) + '░' * (30 - int(30 * _sync_status['done'] / len(stocks)))
+                    print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {_sync_status['done']}/{len(stocks)}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
+        print()
+        _cleanup_delisted()
+        list_sync_date_set(seg_key, _today_str())
+        print(f"[sync] {label} 初始化完成，耗时 {time.time()-t0:.0f}s")
+    finally:
+        _sync_status['running'] = False
+        _sync_status['phase'] = 'done'
+
+def get_init_status():
+    return dict(_sync_status)
 
 
 def get_segments_info():
@@ -308,10 +346,21 @@ def get_segments_info():
 
 def _startup_worker():
     """后台线程：只更新已有市场，不新增"""
+    global _sync_status
+    _sync_status['running'] = True
+    _sync_status['label'] = '增量同步'
     print("[sync] ===== 启动增量同步 =====")
+    _sync_status['phase'] = 'list'
     _refresh_stock_list()
     _sync_klines()
+    _sync_status['phase'] = 'cleanup'
     _cleanup_delisted()
+    # 全部完成后才更新时间戳
+    today = _today_str()
+    for m in list_markets():
+        list_sync_date_set(m, today)
+    _sync_status['running'] = False
+    _sync_status['phase'] = 'done'
     print("[sync] ===== 同步完成 =====\n")
 
 
