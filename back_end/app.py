@@ -14,7 +14,7 @@ from money_flow.margin import get_margin_trading
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
-from services.technical_screen import run_ascending_channel_async, get_scan_status
+from technical_screen.service import run_ascending_channel_async, get_scan_status
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):

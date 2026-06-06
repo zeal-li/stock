@@ -6,41 +6,80 @@ A股/港股/美股实时行情监控面板，支持指数分时走势、资金�
 
 ```
 stock/
+├── .gitignore
+├── README.md
+├── note.md
+├── note2.md
+├── build_exe.py                       # PyInstaller 打包入口
+├── gitpush.bat
+├── 鑫多多.spec                         # PyInstaller spec 文件
+│
 ├── back_end/                          # 🔧 后端（Flask）
-│   ├── app.py                         # 路由 + 启动 + 后台定时器
-│   ├── services/                      # 公共服务模块
-│   │   ├── __init__.py                # 代理配置（REQUEST_PROXIES）
+│   ├── app.py                         # 主入口：路由 + 启动 + 后台定时器
+│   ├── requirements.txt
+│   ├── start.bat / stop.bat / restart.bat
+│   │
+│   ├── common/                        # 公共模块
+│   │   ├── __init__.py
 │   │   ├── utils.py                   # 格式化 + is_etf 等
-│   │   ├── market_data.py             # 行情 + K线 + 分时
-│   │   ├── money_flow.py              # 资金流 + 融资融券 + 恐慌指数
-│   │   ├── finance.py                 # 商誉率 + 质押率
-│   │   ├── search.py                  # 股票搜索
-│   │   ├── watchlist.py               # 自选股 SQLite CRUD
-│   │   └── technical_screen.py         # 技术选股（上升通道等）
-│   ├── market_db/                     # 全市场股票数据库
-│   │   ├── db.py                      # SQLite 表结构 + CRUD
-│   │   └── sync.py                    # 股票列表同步 + K线增量更新
+│   │   └── finance.py                 # 商誉率 + 质押率
+│   │
 │   ├── data/                          # 运行时数据（.gitignore）
 │   │   ├── stock_list.db              # 在市的股票列表
-│   │   └── stock_detail_list.db       # K线 + 股票元信息
-│   ├── requirements.txt
-│   ├── build_exe.py                   # PyInstaller 打包脚本
-│   ├── start.bat / stop.bat / restart.bat
-├── front_end/                         # 🎨 前端
+│   │   ├── stock_detail_list.db       # K线 + 股票元信息
+│   │   ├── money_flow.db              # 资金流、融资融券历史数据
+│   │   └── watchlist.db               # 自选股持久化
+│   │
+│   ├── market_db/                     # 全市场股票数据库
+│   │   ├── __init__.py
+│   │   ├── db.py                      # SQLite 表结构 + CRUD
+│   │   └── sync.py                    # 股票列表同步 + K线增量更新
+│   │
+│   ├── money_flow/                    # 资金流向模块
+│   │   ├── __init__.py
+│   │   ├── market.py                  # 大盘行情（上证指数/分时）
+│   │   ├── fund_flow.py               # 主力资金净流入
+│   │   ├── margin.py                  # 融资融券
+│   │   ├── fear_index.py              # 恐慌指数
+│   │   ├── risk_index.py              # 风险指数
+│   │   ├── turnover.py                # 换手率
+│   │   └── storage.py                 # 数据库持久化
+│   │
+│   ├── stock_pick/                    # 选股模块
+│   │   ├── __init__.py
+│   │   └── service.py
+│   │
+│   ├── technical_screen/              # 技术选股模块
+│   │   ├── __init__.py
+│   │   └── service.py                 # 上升通道扫描（基于本地 K 线缓存）
+│   │
+│   └── watchlist/                     # 自选股模块
+│       ├── __init__.py
+│       └── service.py                 # 自选股 SQLite CRUD
+│
+├── front_end/                         # 🎨 前端（原生 HTML/CSS/JS）
 │   ├── templates/
-│   │   └── index.html                 # 页面 + 导航 + 初始化 + 技术选股 UI
+│   │   └── index.html                 # 主页面：导航 + 各模块初始化
 │   └── static/
 │       ├── style.css
-│       ├── app.js
 │       └── js/
-│           ├── common.js              # 交易时间判断 / 缓存清理
-│           ├── charts.js              # 图表渲染
-│           ├── auto-refresh.js        # 自动刷新（10s / 60s）
-│           ├── stock-pick.js          # 选股 + 自选股（搜索/缓存/渲染）
-│           └── kline-popup.js         # K 线弹窗（日/周/月/分时/五日）
-├── .gitignore
-├── build_exe.py                        # 与 back_end 同级入口
-└── README.md
+│           ├── common.js              # 公共工具：交易时间判断 / 缓存清理
+│           ├── kline/                 # K线图表模块
+│           │   ├── popup.js           # K线弹窗主逻辑
+│           │   ├── chart.js           # 日K/周K/月K（Lightweight Charts）
+│           │   ├── minute.js          # 分时走势图
+│           │   └── fiveday.js         # 五日走势图
+│           ├── money_flow/            # 资金流向前端
+│           │   ├── charts.js          # 资金流图表渲染（ECharts）
+│           │   └── refresh.js         # 数据刷新逻辑
+│           ├── stock_pick/            # 选股前端
+│           │   └── service.js         # 搜索 + 缓存 + 渲染
+│           └── watchlist/             # 自选股前端
+│               └── service.js         # 自选列表 + 刷新 + 加选天数
+│
+├── build/                             # PyInstaller 构建中间产物
+├── dist/                              # PyInstaller 分发输出
+└── venv/                              # Python 虚拟环境（gitignore）
 ```
 
 ## 功能页面
