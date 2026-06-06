@@ -491,11 +491,16 @@ def technical_ascending_channel_status():
 
 # ==================== 市场数据库 ====================
 
-@app.route('/api/market-db/init/<market>', methods=['POST'])
-def market_db_init(market):
-    from market_db.sync import init_market
-    result = init_market(market)
+@app.route('/api/market-db/init/<seg_key>', methods=['POST'])
+def market_db_init(seg_key):
+    from market_db.sync import init_segment
+    result = init_segment(seg_key)
     return jsonify(result)
+
+@app.route('/api/market-db/segments')
+def market_db_segments():
+    from market_db.sync import get_segments_info
+    return jsonify(get_segments_info())
 
 @app.route('/api/market-db/status')
 def market_db_status():

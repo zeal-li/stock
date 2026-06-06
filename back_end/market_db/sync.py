@@ -1,6 +1,6 @@
 """全市场数据同步
 启动时：
-  1. 刷新 stock_list.db：按市场拉取在市的股票列表（有日期判断，同日不重复拉）
+  1. 刷新 stock_list.db：按 segment 拉取在市的股票列表（有日期判断，同日不重复拉）
   2. 同步 stock_detail_list.db：遍历已有股票，缺数据全量拉/有数据增量拉
   3. 清理：detail 里 list 里没有的股票 → 退市，删除
 """
@@ -16,18 +16,39 @@ from .db import (
     detail_klines_insert, detail_remove_stock,
 )
 
+# 市场分段 — key 用作 market 字段值
+SEGMENTS = {
+    'sh_main': {'label': '沪A',   'prefix': ('600', '601', '603', '605')},
+    'sz_main': {'label': '深A',   'prefix': ('000', '001', '002', '003')},
+    'gem':     {'label': '创业板', 'prefix': ('300', '301')},
+    'star':    {'label': '科创板', 'prefix': ('688',)},
+    'bj':      {'label': '北交所', 'prefix': ('83', '87', '88')},
+    'xsb':     {'label': '新三板', 'prefix': ('43',)},
+    'sz_etf':  {'label': '深ETF',  'prefix': ('159', '16')},
+    'sh_etf':  {'label': '沪ETF',  'prefix': ('51',)},
+}
+
 
 def _today_str():
     return datetime.date.today().strftime('%Y-%m-%d')
 
 
+def _code_to_segment(code):
+    """代码 → segment key"""
+    for key, seg in SEGMENTS.items():
+        for p in seg['prefix']:
+            if code.startswith(p):
+                return key
+    return None
+
+
 # =========== 步骤 1：刷新股票列表 ===========
 
 def _fetch_active_stocks():
-    """从 akshare 获取全市场在市的 A 股 + ETF，返回 [(code, market, name), ...]"""
+    """从 akshare 获取全市场在市的 A 股 + ETF"""
     import akshare as ak
 
-    all_rows = []
+    all_rows = []  # [(code, seg_key, name), ...]
 
     # —— A 股 ——
     print("[sync] 获取 A 股列表...")
@@ -49,16 +70,11 @@ def _fetch_active_stocks():
         name = str(row.get('名称', row.get('name', '')))
         if not code.isdigit() or len(code) != 6:
             continue
-        if code.startswith(('15', '16')):
-            market = '0'
-        elif code.startswith('51'):
-            market = '1'
-        elif code.startswith(('6',)):
-            market = '1'
-        else:
-            market = '0'
-        all_rows.append((code, market, name))
-    print(f"[sync] A 股: {len(all_rows)} 只")
+        seg = _code_to_segment(code)
+        if seg is None:
+            continue
+        all_rows.append((code, seg, name))
+    print(f"[sync] A 股有效: {len(all_rows)} 只")
 
     # —— ETF ——
     print("[sync] 获取 ETF 列表...")
@@ -66,7 +82,7 @@ def _fetch_active_stocks():
         df_etf = ak.fund_etf_spot_em()
     except Exception as e:
         print(f"[sync] ETF 列表获取失败: {e}")
-        return all_rows  # ETF 失败不影响 A 股
+        return all_rows
 
     etf_count = 0
     for _, row in df_etf.iterrows():
@@ -74,28 +90,24 @@ def _fetch_active_stocks():
         name = str(row.get('名称', row.get('name', '')))
         if not code.isdigit() or len(code) != 6:
             continue
-        if code.startswith(('15', '16')):
-            market = '0'
-        elif code.startswith('51'):
-            market = '1'
-        else:
+        seg = _code_to_segment(code)
+        if seg is None:
             continue
-        all_rows.append((code, market, name))
+        all_rows.append((code, seg, name))
         etf_count += 1
     print(f"[sync] ETF: {etf_count} 只，总计 {len(all_rows)} 只")
     return all_rows
 
 
 def _refresh_stock_list():
-    """刷新 stock_list.db：只更新已存在的市场类型，不新增"""
+    """刷新 stock_list.db：只更新已存在的 segment"""
     today = _today_str()
     markets = list_markets()
 
     if not markets:
-        print("[sync] stock_list.db 为空，跳过列表刷新（需手动初始化市场类型）")
+        print("[sync] stock_list.db 为空，跳过列表刷新")
         return
 
-    # 检查是否所有 market 今天已同步
     all_synced = all(list_sync_date_get(m) == today for m in markets)
     if all_synced:
         print("[sync] 股票列表已是最新（今日已更新），跳过")
@@ -107,22 +119,20 @@ def _refresh_stock_list():
         print("[sync] 获取失败，保留现有列表")
         return
 
-    # 按 market 分组
     by_market = {}
-    for code, market, name in all_rows:
-        by_market.setdefault(market, []).append((code, name))
+    for code, seg, name in all_rows:
+        by_market.setdefault(seg, []).append((code, name))
 
-    # 只更新 stock_list.db 中已存在的 market
     for m in markets:
         rows = by_market.get(m, [])
         list_replace_market(m, rows)
         list_sync_date_set(m, today)
-        print(f"[sync] 市场 {m} 股票列表已更新: {len(rows)} 只")
+        print(f"[sync] {SEGMENTS.get(m, {}).get('label', m)} 列表已更新: {len(rows)} 只")
 
 
 # =========== 步骤 2：同步 K 线 ===========
 
-def _fetch_kline(code, market, period, start_date, end_date):
+def _fetch_kline(code, seg_key, period, start_date, end_date):
     """从 akshare 获取单只股票 K 线"""
     import akshare as ak
     for attempt in range(3):
@@ -134,7 +144,7 @@ def _fetch_kline(code, market, period, start_date, end_date):
             rows = []
             for _, row in df.iterrows():
                 rows.append((
-                    code, market, period,
+                    code, seg_key, period,
                     str(row['日期'])[:10],
                     float(row['开盘']), float(row['最高']), float(row['最低']),
                     float(row['收盘']), float(row['成交量']), float(row['成交额'])
@@ -153,16 +163,14 @@ def _sync_one_stock(code, market, name, periods=('daily', 'weekly', 'monthly')):
     max_date = info['latest_kline_date'] if info else None
 
     if max_date and max_date >= today:
-        return  # 今天已是最新，跳过
+        return
 
     all_rows = []
     for period in periods:
         if max_date and max_date != '':
-            # 增量：从最后一天 + 1 天开始
             last = datetime.date.fromisoformat(max_date)
             start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
         else:
-            # 全量
             start = '19900101'
         end = today.replace('-', '')
         rows = _fetch_kline(code, market, period, start, end)
@@ -171,8 +179,7 @@ def _sync_one_stock(code, market, name, periods=('daily', 'weekly', 'monthly')):
 
     if all_rows:
         detail_klines_insert(all_rows)
-        # 更新 latest_kline_date
-        latest = max(r[3] for r in all_rows)  # date 是第 4 列
+        latest = max(r[3] for r in all_rows)
     else:
         latest = max_date or ''
 
@@ -180,7 +187,7 @@ def _sync_one_stock(code, market, name, periods=('daily', 'weekly', 'monthly')):
 
 
 def _sync_klines():
-    """遍历 stock_list.db，增量同步 K 线到 stock_detail_list.db"""
+    """遍历 stock_list.db，增量同步 K 线"""
     stocks = list_stocks_all()
     if not stocks:
         print("[sync] 股票列表为空，跳过 K 线同步")
@@ -213,10 +220,8 @@ def _sync_klines():
 # =========== 步骤 3：清理退市 ===========
 
 def _cleanup_delisted():
-    """detail DB 中在 list DB 里不存在的股票 → 退市，删除"""
     active = set((s[0], s[1]) for s in list_stocks_all())
     if not active:
-        print("[sync] 股票列表为空，跳过退市清理")
         return
 
     detail_stocks = detail_info_all()
@@ -232,32 +237,35 @@ def _cleanup_delisted():
 
 # =========== 初始化新市场 ===========
 
-def init_market(market):
-    """初始化一个新市场：拉取股票列表 + 全量同步 K 线"""
-    if market in list_markets():
-        print(f"[sync] 市场 {market} 已存在，跳过初始化")
+def init_segment(seg_key):
+    """初始化一个市场分段：拉取股票列表 + 全量同步 K 线"""
+    if seg_key not in SEGMENTS:
+        return {'success': False, 'error': '无效的市场分段'}
+
+    if seg_key in list_markets():
+        print(f"[sync] {SEGMENTS[seg_key]['label']} 已存在，跳过初始化")
         return {'success': False, 'error': '市场已存在'}
 
-    print(f"[sync] 初始化新市场: {market}")
+    prefix = SEGMENTS[seg_key]['prefix']
+    label = SEGMENTS[seg_key]['label']
+    print(f"[sync] 初始化: {label}")
+
     all_rows = _fetch_active_stocks()
     if all_rows is None:
         return {'success': False, 'error': '无法获取股票列表'}
 
-    # 过滤出该市场
-    rows = [(c, n) for c, m, n in all_rows if m == market]
+    rows = [(c, n) for c, s, n in all_rows if s == seg_key]
     if not rows:
-        return {'success': False, 'error': f'市场 {market} 无股票'}
+        return {'success': False, 'error': f'{label} 无股票'}
 
     today = _today_str()
-    list_replace_market(market, rows)
-    list_sync_date_set(market, today)
-    print(f"[sync] 市场 {market} 股票列表已写入: {len(rows)} 只")
+    list_replace_market(seg_key, rows)
+    list_sync_date_set(seg_key, today)
+    print(f"[sync] {label} 股票列表已写入: {len(rows)} 只")
 
-    # 立即增量同步 K 线
-    stocks = [(c, market, n) for c, n in rows]
+    stocks = [(c, seg_key, n) for c, n in rows]
     print(f"[sync] 开始全量同步 K 线 ({len(stocks)} 只，4 线程)...")
 
-    import time
     t0 = time.time()
     done = 0
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -273,38 +281,40 @@ def init_market(market):
                 bar = '█' * int(30 * done / len(stocks)) + '░' * (30 - int(30 * done / len(stocks)))
                 print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {done}/{len(stocks)}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
     print()
-
-    # 清理退市
     _cleanup_delisted()
-    print(f"[sync] 市场 {market} 初始化完成，耗时 {time.time()-t0:.0f}s")
+    print(f"[sync] {label} 初始化完成，耗时 {time.time()-t0:.0f}s")
     return {'success': True, 'stocks': len(stocks)}
+
+
+def get_segments_info():
+    """返回各分段状态"""
+    markets = list_markets()
+    today = _today_str()
+    result = []
+    for key, seg in SEGMENTS.items():
+        synced = key in markets
+        fresh = list_sync_date_get(key) == today if synced else False
+        count = 0
+        if synced:
+            conn_detail = __import__('sqlite3').connect(
+                __import__('os').path.join(__import__('os').path.dirname(__import__('os').path.dirname(__file__)), 'data', 'stock_detail_list.db'))
+            count = conn_detail.execute('SELECT COUNT(DISTINCT code) FROM klines WHERE market=?', (key,)).fetchone()[0]
+            conn_detail.close()
+        result.append({'key': key, 'label': seg['label'], 'synced': synced, 'fresh': fresh, 'kline_count': count})
+    return result
 
 
 # =========== 启动入口 ===========
 
 def _startup_worker():
-    """后台线程执行全量启动同步"""
-    print("[sync] ===== 启动数据同步 =====")
-
-    try:
-        _refresh_stock_list()
-    except RuntimeError as e:
-        print(f"[sync] 致命错误: {e}")
-        return
-
+    """后台线程：只更新已有市场，不新增"""
+    print("[sync] ===== 启动增量同步 =====")
+    _refresh_stock_list()
     _sync_klines()
     _cleanup_delisted()
     print("[sync] ===== 同步完成 =====\n")
 
 
-def init_stock_list_only():
-    """首次启动：仅初始化股票列表（不拉 K 线）"""
-    print("[sync] 初始化股票列表...")
-    _refresh_stock_list()
-    print("[sync] 股票列表就绪")
-
-
 def start_startup_sync():
-    """启动后台同步线程"""
     t = threading.Thread(target=_startup_worker, daemon=True, name='market-sync')
     t.start()

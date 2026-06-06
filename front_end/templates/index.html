@@ -76,23 +76,25 @@
             <div id="page-tech-pick" style="display:none;">
                 <div class="page-header">
                     <h1 class="page-title">📊 技术选股</h1>
-                    <button class="refresh-btn" onclick="runTechScreen('ascending-channel')" id="techScreenBtn">上升通道</button>
                 </div>
+                <!-- 市场选择 -->
+                <div class="index-card" style="padding:12px 15px;margin-bottom:6px;">
+                    <span style="color:#8b8b9e;margin-right:8px;">市场:</span>
+                    <select id="techMarket" style="cursor:pointer;font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;">
+                        <option value="">-- 选择市场 --</option>
+                    </select>
+                    <button class="refresh-btn" style="margin-left:6px;" onclick="loadMarket()" id="techLoadBtn">加载</button>
+                    <span id="techMarketStatus" style="color:#8b8b9e;margin-left:10px;font-size:12px;"></span>
+                </div>
+                <!-- 选股策略 -->
+                <div class="index-card" style="padding:12px 15px;margin-bottom:6px;">
+                    <span style="color:#8b8b9e;margin-right:8px;">策略:</span>
+                    <button class="refresh-btn" onclick="runTechScreen()" id="techScreenBtn" disabled>上升通道</button>
+                    <span id="techScreenStatus" style="color:#8b8b9e;margin-left:10px;font-size:12px;">请先加载市场数据</span>
+                </div>
+                <!-- 结果列表 -->
                 <div class="index-card" style="padding:15px;">
-                    <div id="techScreenStatus" style="color:#888;text-align:center;padding:20px;">点击上方按钮开始扫描</div>
-                    <div id="techScreenResult" style="margin-top:8px;"></div>
-                </div>
-                <div class="index-card" style="padding:15px; margin-top:15px;">
-                    <div class="chart-title" style="margin-bottom:10px;">📥 加载市场数据</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
-                        <button class="refresh-btn" onclick="syncMarketSegment('sh_main')" style="font-size:11px;padding:4px 10px;">沪市主板</button>
-                        <button class="refresh-btn" onclick="syncMarketSegment('sz_main')" style="font-size:11px;padding:4px 10px;">深市主板</button>
-                        <button class="refresh-btn" onclick="syncMarketSegment('gem')" style="font-size:11px;padding:4px 10px;">创业板</button>
-                        <button class="refresh-btn" onclick="syncMarketSegment('star')" style="font-size:11px;padding:4px 10px;">科创板</button>
-                        <button class="refresh-btn" onclick="syncMarketSegment('sz_etf')" style="font-size:11px;padding:4px 10px;">深市ETF</button>
-                        <button class="refresh-btn" onclick="syncMarketSegment('sh_etf')" style="font-size:11px;padding:4px 10px;">沪市ETF</button>
-                    </div>
-                    <div id="marketSyncStatus" style="color:#888;font-size:12px;">就绪</div>
+                    <div id="techScreenResult" style="margin-top:4px;"></div>
                 </div>
             </div>
 
@@ -180,6 +182,54 @@
 
         // ---- 技术选股 ----
         var _techPollTimer = null;
+        var _segData = [];
+
+        fetch('/api/market-db/segments').then(function(r){return r.json()}).then(function(list){
+            _segData = list;
+            var sel = document.getElementById('techMarket');
+            list.forEach(function(s){
+                var opt = document.createElement('option');
+                opt.value = s.key;
+                opt.textContent = s.label + (s.synced ? (s.fresh ? ' ✓' : ' ✓') : '');
+                opt.style.color = s.synced ? '#4ade80' : '#8b8b9e';
+                sel.appendChild(opt);
+            });
+            var firstSynced = list.find(function(s){return s.synced;});
+            if (firstSynced) {
+                sel.value = firstSynced.key;
+                document.getElementById('techMarketStatus').textContent = firstSynced.label + ': ' + firstSynced.kline_count + ' 只有K线';
+                document.getElementById('techScreenBtn').disabled = false;
+            }
+        }).catch(function(){});
+
+        function loadMarket() {
+            var sel = document.getElementById('techMarket');
+            var key = sel.value;
+            if (!key) { alert('请先选择市场'); return; }
+            var status = document.getElementById('techMarketStatus');
+            var btn = document.getElementById('techLoadBtn');
+            status.textContent = '正在加载...';
+            status.style.color = '#fbbf24';
+            btn.disabled = true;
+            fetch('/api/market-db/init/' + key, { method: 'POST' })
+                .then(function(r){return r.json()})
+                .then(function(data){
+                    if (data.success) {
+                        status.textContent = '已加载 ' + data.stocks + ' 只';
+                        status.style.color = '#4ade80';
+                        document.getElementById('techScreenBtn').disabled = false;
+                    } else {
+                        status.textContent = data.error || '已存在';
+                        status.style.color = '#e94560';
+                    }
+                })
+                .catch(function(e){
+                    status.textContent = '请求出错: ' + e.message;
+                    status.style.color = '#e94560';
+                })
+                .finally(function(){ btn.disabled = false; });
+        }
+
         function _techRenderTable(data) {
             var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>价格</th><th>评分</th><th>通道上轨</th><th>通道下轨</th><th>位置%</th><th>通道宽%</th><th>量比</th></tr></thead><tbody>';
             data.forEach(function(s) {
@@ -200,7 +250,8 @@
             html += '</tbody></table></div>';
             document.getElementById('techScreenResult').innerHTML = html;
         }
-        async function runTechScreen(type) {
+
+        async function runTechScreen() {
             var status = document.getElementById('techScreenStatus');
             var btn = document.getElementById('techScreenBtn');
             if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
@@ -217,9 +268,10 @@
                         var pd = await pr.json();
                         if (pd.running) {
                             status.textContent = '扫描中... ' + pd.done + '/' + pd.total + ' | 已找到 ' + pd.results.length + ' 只';
+                            _techRenderTable(pd.results);
                         } else {
                             clearInterval(_techPollTimer); _techPollTimer = null;
-                            status.textContent = '共找到 ' + pd.results.length + ' 只股票';
+                            status.textContent = '已完成，共找到 ' + pd.results.length + ' 只';
                             status.style.color = '#4ade80';
                             btn.disabled = false;
                             if (pd.results.length > 0) _techRenderTable(pd.results);
