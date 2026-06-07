@@ -681,15 +681,16 @@ var KlinePopup = (function() {
                 })
                 .catch(function() { return null; });
 
-        // ETF 没有主营构成和题材概念，直接返回空
-        var isEtf2 = code && (code.startsWith('51') || code.startsWith('15'));
-        var pBizComp = isEtf2 ? Promise.resolve([])
+        // ETF/LOF/基金 没有主营构成和题材概念，直接返回空
+        var stockType = getStockType(code, market);
+        var isFund = stockType.indexOf('ETF') >= 0 || stockType.indexOf('基') >= 0;
+        var pBizComp = isFund ? Promise.resolve([])
             : fetch('/api/stock-biz-comp?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
             .then(function(r) { return r.json(); })
             .then(function(d) { return (d.success ? d.data : []); })
             .catch(function() { return []; });
 
-        var pConcept = isEtf2 ? Promise.resolve([])
+        var pConcept = isFund ? Promise.resolve([])
             : fetch('/api/stock-concepts?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
             .then(function(r) { return r.json(); })
             .then(function(d) { return (d.success ? d.data : []); })
