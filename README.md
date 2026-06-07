@@ -444,7 +444,7 @@ app.run()
 
 | 时机 | 触发 | API | 说明 |
 |------|------|-----|------|
-| 打开弹窗 | 点击股票名称 | `stock-quotes` + `stock-kline(day)` + `goodwill` + `stock-extra` + `stock-biz-comp` | 5 个 API 并行请求（A股才有主营构成）；有 localStorage 缓存则跳过 |
+| 打开弹窗 | 点击股票名称 | `stock-quotes` + `stock-kline(day)` + `goodwill` + `stock-extra` + `stock-biz-comp` | 5 个 API 并行请求；有 localStorage 缓存则跳过 |
 | 弹窗头部行情 | `setInterval(_refreshHeaderData, 10000)` | `stock-quotes` + `stock-extra` | 交易时段每 10s |
 | 切换到分时图 | `_loadMinuteChart()` | `stock-minute` + `setInterval(_refreshMinuteData, 60000)` | 交易时段每 60s |
 | 切换到五日分时 | `_loadFiveDayMinute()` | `stock-minute(days=5)` + `setInterval(_refreshFiveDayData, 60000)` | 交易时段每 60s |
@@ -511,7 +511,6 @@ app.run()
 |------|------|
 | A 股 K 线成交额 / 换手率（补充腾讯接口缺少的字段） | `d.10jqka.com.cn/v2/line/stock_zh_a_hist` |
 | 全市场成交额分时 | `dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data` |
-| A 股主营构成（产品分类、营收、毛利率） | `basic.10jqka.com.cn/basicapi/operate/index/v1/product_index_query/` |
 
 ### 新浪财经
 

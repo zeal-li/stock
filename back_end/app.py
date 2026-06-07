@@ -205,72 +205,55 @@ def stock_extra():
         return jsonify({'success': False, 'error': str(e)})
 
 
-# ==================== 主营构成（同花顺） ====================
+# ==================== 主营构成（东方财富） ====================
 
 @app.route('/api/stock-biz-comp')
 def stock_biz_comp():
-    """股票主营构成（A股，按产品分类，取最新报告期）"""
+    """股票主营构成（按产品分类，取最新报告期）"""
     code = request.args.get('code', '')
     market = request.args.get('market', '')
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
-    if market not in ('0', '1', '2', '90'):
-        return jsonify({'success': True, 'data': []})
     try:
-        return _biz_comp_a(code, market)
+        prefix = {'0': 'SZ', '1': 'SH', '2': 'SH'}.get(str(market), 'SZ')
+        url = f"https://emweb.securities.eastmoney.com/PC_HSF10/BusinessAnalysis/PageAjax?code={prefix}{code}"
+        r = requests.get(url, headers={
+            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.eastmoney.com/',
+        }, timeout=10, proxies=REQUEST_PROXIES)
+        data = r.json()
+        zygcfx = data.get('zygcfx', [])
+        if not zygcfx:
+            return jsonify({'success': True, 'data': []})
+
+        # 取最新报告期的产品分类(MAINOP_TYPE='2'，注意是字符串比较)
+        products = [x for x in zygcfx if x.get('MAINOP_TYPE') == '2']
+        if not products:
+            return jsonify({'success': True, 'data': []})
+
+        # 按报告期递减排序，取最新
+        products.sort(key=lambda x: str(x.get('REPORT_DATE', '')), reverse=True)
+        latest_date = str(products[0].get('REPORT_DATE', ''))
+
+        result = []
+        for p in products:
+            if str(p.get('REPORT_DATE', '')) != latest_date:
+                continue
+            name = (p.get('ITEM_NAME') or '').strip()
+            # 过滤掉"合计""内部抵消""其他(补充)"等无意义项
+            if not name or '抵消' in name or '合计' in name:
+                continue
+            income = p.get('MAIN_BUSINESS_INCOME')
+            ratio = p.get('MBI_RATIO')
+            gross = p.get('GROSS_RPOFIT_RATIO')
+            result.append({
+                'name': name,
+                'income': _fmt_biz_income(income),
+                'income_ratio': f"{float(ratio) * 100:.2f}%" if ratio is not None else '-',
+                'gross_profit': f"{float(gross) * 100:.2f}%" if gross is not None and gross != '-' else '-',
+            })
+        return jsonify({'success': True, 'data': result})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-
-
-def _biz_comp_a(code, market):
-    """A股主营构成：同花顺 operate API"""
-    params = {
-        'code': code, 'market': '33', 'type': 'stock',
-        'account': '1', 'timeField': 'date',
-        'analysisTypes': 'product',
-        'sortIndex': 'income', 'currency': 'CNY', 'level': '1',
-        'locale': 'zh_CN',
-    }
-    r = requests.get(
-        'https://basic.10jqka.com.cn/basicapi/operate/index/v1/product_index_query/',
-        params=params, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://basic.10jqka.com.cn/'},
-        timeout=15, proxies=REQUEST_PROXIES,
-    )
-    d = r.json()
-    if d.get('status_code') != 0:
-        return jsonify({'success': True, 'data': []})
-
-    data = d.get('data', [])
-    products = [x for x in data if x.get('analysis_type') == 'product']
-    if not products or not products[0].get('time_operate_index_item_list'):
-        return jsonify({'success': True, 'data': []})
-
-    # 取最新报告期
-    items = products[0]['time_operate_index_item_list']
-    latest_time = items[0].get('time', '')
-    item = items[0].get('product_index_item_list', [])
-
-    result = []
-    for p in item:
-        name = (p.get('product_name') or '').strip()
-        if not name or '抵消' in name or '合计' in name:
-            continue
-        income = None
-        gross = None
-        income_ratio = None
-        for idx in p.get('index_analysis_list', []):
-            if idx.get('index_id') == 'income':
-                income = float(idx.get('index_value', 0))
-                income_ratio = float(idx.get('account', 0)) * 100
-            elif idx.get('index_id') == 'gross_profit_rate':
-                gross = float(idx.get('index_value', 0)) * 100
-        result.append({
-            'name': name,
-            'income': _fmt_biz_income(income),
-            'income_ratio': f"{income_ratio:.2f}%" if income_ratio is not None else '-',
-            'gross_profit': f"{gross:.2f}%" if gross is not None else '-',
-        })
-    return jsonify({'success': True, 'data': result})
 
 
 def _fmt_biz_income(v):
