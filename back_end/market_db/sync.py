@@ -324,6 +324,10 @@ _YAHOO_MIN_INTERVAL = 0.15  # 全局最低请求间隔（秒），约 6~7 req/s
 _sync_fail_count = 0
 _sync_fail_lock = threading.Lock()
 
+# 正在同步的市场集合（按市场粒度互斥，不同市场可并行）
+_syncing_markets = set()  # 元素: seg_key 如 'us_main'，或 '*' 表示全市场
+_syncing_markets_lock = threading.Lock()
+
 
 def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
     """Yahoo Finance K 线（港股/美股），与 app.py 对齐：
@@ -483,13 +487,14 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
         raise
 
 
-def _sync_klines():
-    """遍历 stock_list.db，增量同步 K 线"""
+def _sync_klines(markets=None):
+    """遍历 stock_list.db，增量同步 K 线。markets 可选：只同步指定市场列表"""
     global _sync_status
     stocks = list_stocks_all()
+    if markets:
+        stocks = [s for s in stocks if s[1] in markets]
     if not stocks:
         print("[sync] 股票列表为空，跳过 K 线同步")
-        _sync_status['running'] = False
         return
 
     global _sync_fail_count
@@ -574,6 +579,12 @@ def init_segment(seg_key):
 
     if _sync_status['running']:
         return {'success': False, 'error': '已有同步任务运行中'}
+
+    # 按市场粒度检查冲突：不同市场可并行
+    with _syncing_markets_lock:
+        if '*' in _syncing_markets or seg_key in _syncing_markets:
+            return {'success': False, 'error': '该市场正在同步中'}
+        _syncing_markets.add(seg_key)
 
     _sync_status['running'] = True
     _sync_status['label'] = SEGMENTS[seg_key]['label']
@@ -669,6 +680,8 @@ def _run_init(seg_key):
         if _sync_status['phase'] != 'cancelled':
             _sync_status['running'] = False
             _sync_status['phase'] = 'done'
+        with _syncing_markets_lock:
+            _syncing_markets.discard(seg_key)
 
 def get_init_status():
     return dict(_sync_status)
@@ -714,9 +727,8 @@ def clear_market(seg_key):
         return {'success': False, 'error': '该市场无数据可清除'}
 
     # 只阻断同市场的并发清库（不同市场操作不同行，互不干扰）
-    if _sync_status['running']:
-        sync_seg = _sync_status.get('seg_key')
-        if sync_seg is None or sync_seg == seg_key:
+    with _syncing_markets_lock:
+        if '*' in _syncing_markets or seg_key in _syncing_markets:
             return {'success': False, 'error': '正在同步中，请先终止加载后再清库'}
 
     label = SEGMENTS[seg_key]['label']
@@ -738,6 +750,8 @@ def clear_market(seg_key):
 def _startup_worker():
     """后台线程：只更新已有市场，不新增"""
     global _sync_status
+    with _syncing_markets_lock:
+        _syncing_markets.add('*')  # 全市场标记，与所有市场冲突
     _sync_status['running'] = True
     _sync_status['label'] = '增量同步'
     _sync_status['cancel'] = False
@@ -749,6 +763,8 @@ def _startup_worker():
         _sync_status['running'] = False
         _sync_status['phase'] = 'cancelled'
         _sync_status['cancel'] = False
+        with _syncing_markets_lock:
+            _syncing_markets.discard('*')
         print("[sync] ===== 同步被终止 =====\n")
         return
     _sync_klines()
@@ -756,6 +772,8 @@ def _startup_worker():
         _sync_status['running'] = False
         _sync_status['phase'] = 'cancelled'
         _sync_status['cancel'] = False
+        with _syncing_markets_lock:
+            _syncing_markets.discard('*')
         print("[sync] ===== 同步被终止 =====\n")
         return
     _sync_status['phase'] = 'cleanup'
@@ -766,9 +784,86 @@ def _startup_worker():
         list_sync_date_set(m, today)
     _sync_status['running'] = False
     _sync_status['phase'] = 'done'
+    with _syncing_markets_lock:
+        _syncing_markets.discard('*')
     print("[sync] ===== 同步完成 =====\n")
+
+
+# =========== 收市后定时增量同步 ===========
+
+import datetime as _dt_module
+
+# 收市后增量同步时间表 (UTC+8 北京时间)
+# (hour, minute): (label, [markets])
+_CLOSE_SCHEDULE = [
+    (14, 30, '港股', ['hk_main']),
+    (15, 30, 'A股', ['sh_main', 'sz_main', 'gem', 'star', 'sz_etf', 'sh_etf', 'bj']),
+    (4, 30, '美股', ['us_main']),
+]
+
+_last_scheduled_sync = {}  # {group_label: date_str}
+
+
+def _schedule_loop():
+    """后台线程：每 60 秒检查，收市 30 分钟后触发指定市场增量同步"""
+    global _sync_status
+    print("[sync] 定时同步调度已启动")
+    while True:
+        try:
+            now = _dt_module.datetime.now()
+            today_str = now.strftime('%Y-%m-%d')
+            wd = now.weekday()
+
+            # 周末跳过
+            if wd >= 5:
+                time.sleep(60)
+                continue
+
+            for h, m, label, candidate_markets in _CLOSE_SCHEDULE:
+                if now.hour == h and now.minute == m:
+                    if _last_scheduled_sync.get(label) == today_str:
+                        continue  # 今天已同步过
+
+                    # 只同步 stock_list.db 里已有的市场，没加载的不触发
+                    existing = [mk for mk in candidate_markets if mk in list_markets()]
+                    if not existing:
+                        continue
+
+                    # 按市场粒度检查冲突：不同市场可并行
+                    with _syncing_markets_lock:
+                        target_set = set(existing)
+                        overlap = target_set & _syncing_markets
+                        if '*' in _syncing_markets or overlap:
+                            continue
+                        _syncing_markets.update(existing)
+
+                    print(f"\n[sync] ===== 定时同步: {label} =====")
+                    _last_scheduled_sync[label] = today_str
+                    _sync_status['running'] = True
+                    _sync_status['cancel'] = False
+                    _sync_status['label'] = f'{label}定时'
+                    _sync_status['phase'] = 'kline'
+
+                    try:
+                        _sync_klines(markets=existing)
+                        _cleanup_delisted()
+                        for m in existing:
+                            list_sync_date_set(m, today_str)
+                    finally:
+                        _sync_status['running'] = False
+                        _sync_status['phase'] = 'done'
+                        with _syncing_markets_lock:
+                            _syncing_markets.difference_update(existing)
+                    print(f"[sync] ===== 定时同步: {label} 完成 =====\n")
+
+            time.sleep(60)
+        except Exception as e:
+            print(f"[sync] 定时调度异常: {e}")
+            time.sleep(60)
 
 
 def start_startup_sync():
     t = threading.Thread(target=_startup_worker, daemon=True, name='market-sync')
     t.start()
+    # 同时启动收市定时同步
+    threading.Thread(target=_schedule_loop, daemon=True, name='market-schedule').start()
