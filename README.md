@@ -183,14 +183,83 @@ CREATE TABLE market_data (
 
 ### 市场分段定义
 
-| key | label | 代码前缀 |
+| key | label | 代码前缀 / 来源 |
 |-----|-------|---------|
 | sh_main | 沪A | 600/601/603/605 |
 | sz_main | 深A | 000/001/002/003 |
 | gem | 创业板 | 300/301 |
 | star | 科创板 | 688 |
+| bj | 北交所 | 83/87/88 |
+| xsb | 新三板 | 43 |
 | sz_etf | 深ETF | 159/16/18 |
 | sh_etf | 沪ETF | 5 |
+| hk_main | 港股 | 东方财富 API（fs=m:116+t:3） |
+| us_main | 美股 | NASDAQ 官方 API |
+
+### 数据同步流程
+
+#### 启动增量同步（全市场）
+
+应用启动 2 秒后自动触发，只更新 `stock_list.db` **已存在**的市场：
+
+```
+_startup_worker()
+    ↓
+_refresh_stock_list()         → 同日不重复拉列表
+    ↓
+_sync_klines()                → 对比 latest_kline_date，只拉增量
+    ↓
+_cleanup_delisted()           → 清理 detail 中已退市的股票
+    ↓
+list_sync_date_set()          → 更新各市场同步日期
+```
+
+- 股票列表同日不重复拉取（按 `sync_log.last_sync_date` 判断）
+- K 线增量：`max_date >= 最近交易日` 则跳过；差 ≤7 天只拉日线，≤31 天拉日线+周线
+
+#### 手动初始化新市场
+
+前端选择市场 → 点击"加载" → 后台异步执行：
+
+```
+init_segment(seg_key)
+    ↓
+_fetch_stocks_by_segment()    → 拉取完整股票列表（分页）
+    ↓
+list_replace_market()         → 写入 stock_list.db
+    ↓
+全量 K 线同步（4 线程）        → 每只股票拉日/周/月线，写入 klines + stock_info
+    ↓
+_cleanup_delisted()
+```
+
+- A 股/ETF 数据来源：腾讯 K 线 API（A股）+ 同花顺 API（成交额/换手率）
+- 港股/美股 K 线：Yahoo Finance（query1.finance.yahoo.com，需系统代理）
+- 美股股票列表：NASDAQ 官方 screener API
+- 支持"终止"操作：取消后自动回滚已写入的列表和 K 线数据
+
+#### 收市后定时增量同步
+
+后台线程每 60 秒检查北京时间，收市 30 分钟后自动触发**已有市场**的增量 K 线同步：
+
+| 市场 | 收市 | 触发 | 候选市场 |
+|------|------|------|---------|
+| 港股 | 14:00 | 14:30 | hk_main |
+| A股 | 15:00 | 15:30 | sh_main, sz_main, gem, star, sz_etf, sh_etf, bj |
+| 美股 | 04:00 | 04:30 | us_main |
+
+- **只同步 `stock_list.db` 里已有的市场**，未加载的自动跳过
+- 周末跳过，同日不重复触发
+- **不同市场可并行**：加载美股时港股定时同步不受影响
+- 与手动加载互斥：检测到已有同步任务运行中会自动跳过
+
+#### K 线数据源
+
+| 市场 | 股票列表 | K 线 |
+|------|---------|------|
+| A 股（沪/深/创业/科创/北交/三板/ETF） | 东方财富 push2delay | 腾讯 K 线 + 同花顺（成交额/换手率） |
+| 港股 | 东方财富 push2delay | Yahoo Finance（需代理） |
+| 美股 | NASDAQ API | Yahoo Finance（需代理） |
 
 ## 前端 localStorage 缓存
 

@@ -7,6 +7,13 @@ var _curMarketKey = null;
 function _onMarketSelect() {
     var key = document.getElementById('techMarket').value;
     _curMarketKey = key;
+
+    // 切市场 → 清掉旧市场的筛选结果、轮询、两种状态提示
+    if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
+    document.getElementById('techScreenResult').innerHTML = '';
+    document.getElementById('techMarketStatus').textContent = '';
+    document.getElementById('techScreenStatus').textContent = '';
+
     if (!key) return;
 
     // 正在加载的市场切回来时不覆盖状态，轮询还在更新进度条
