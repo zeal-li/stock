@@ -44,6 +44,7 @@ var KlinePopup = (function() {
                         '<span id="klCode" style="font-size:17px;color:#888;"></span>' +
                         '<span id="klPrice" style="font-size:14px;"></span>' +
                         '<span id="klChange" style="font-size:13px;"></span>' +
+                        '<span id="klConcept" style="font-size:11px;color:#c0a060;"></span>' +
                     '</div>' +
                     '<div style="display:flex;align-items:center;gap:10px;">' +
                     '<span id="klWatchlistBtn" style="cursor:pointer;font-size:13px;padding:0 6px;line-height:1;white-space:nowrap;" onclick="KlinePopup._toggleWatchlist()"></span>' +
@@ -619,6 +620,7 @@ var KlinePopup = (function() {
         document.getElementById('klCode').textContent = '(' + code + ') ' + getStockType(code, market);
         document.getElementById('klPrice').textContent = '';
         document.getElementById('klChange').textContent = '';
+        document.getElementById('klConcept').textContent = '';
         document.getElementById('klParams').innerHTML = '加载中...';
         document.getElementById('klBizComp').textContent = '';
 
@@ -684,12 +686,24 @@ var KlinePopup = (function() {
             .then(function(d) { return (d.success ? d.data : []); })
             .catch(function() { return []; });
 
-        Promise.all([pQuote, pKline, pGoodwill, pExtra, pBizComp]).then(function(results) {
+        var pConcept = fetch('/api/stock-concepts?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return (d.success ? d.data : []); })
+            .catch(function() { return []; });
+
+        Promise.all([pQuote, pKline, pGoodwill, pExtra, pBizComp, pConcept]).then(function(results) {
             var quote = results[0] || {};
             var kdata = results[1];
             var goodwill = results[2];
             var extra = results[3];
             var bizComp = results[4];
+            var concepts = results[5];
+
+            // 显示概念题材（取前2个）
+            var ce = document.getElementById('klConcept');
+            if (ce && concepts && concepts.length > 0) {
+                ce.textContent = concepts.slice(0, 2).join(' | ');
+            }
             if (goodwill) quote.goodwill = goodwill;
             if (extra) { quote.volume_ratio = extra.volume_ratio; quote.bid_ratio = extra.bid_ratio; }
 

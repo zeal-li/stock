@@ -205,6 +205,34 @@ def stock_extra():
         return jsonify({'success': False, 'error': str(e)})
 
 
+# ==================== 概念题材 ====================
+
+@app.route('/api/stock-concepts')
+def stock_concepts():
+    """股票核心概念题材"""
+    code = request.args.get('code', '')
+    market = request.args.get('market', '')
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    if market not in ('0', '1', '2', '90'):
+        return jsonify({'success': True, 'data': []})
+    try:
+        prefix = {'0': 'SZ', '1': 'SH', '2': 'SH'}.get(str(market), 'SZ')
+        url = f"https://emweb.securities.eastmoney.com/PC_HSF10/CoreConception/PageAjax?code={prefix}{code}"
+        r = requests.get(url, headers={
+            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.eastmoney.com/',
+        }, timeout=10, proxies=REQUEST_PROXIES)
+        d = r.json()
+        hxtc = d.get('hxtc', [])
+        # 取核心题材关键词，排除"经营范围"和KEYWORD==KEY_CLASSIF的占位标签
+        keywords = [x.get('KEYWORD', '') for x in hxtc
+                    if x.get('KEY_CLASSIF') != '经营范围'
+                    and x.get('KEYWORD', '') != x.get('KEY_CLASSIF', '')]
+        return jsonify({'success': True, 'data': keywords})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 # ==================== 主营构成（东方财富） ====================
 
 @app.route('/api/stock-biz-comp')
