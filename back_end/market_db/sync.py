@@ -26,6 +26,8 @@ SEGMENTS = {
     'star':    {'label': '科创板', 'prefix': ('688',)},
     'bj':      {'label': '北交所', 'prefix': ('83', '87', '88')},
     'xsb':     {'label': '新三板', 'prefix': ('43',)},
+    'hk_main': {'label': '港股',   'fs': 'm:116+t:3',       'api': 'eastmoney'},
+    'us_main': {'label': '美股',   'fs': 'm:105,m:106,m:107',       'api': 'eastmoney'},
 }
 
 
@@ -34,8 +36,10 @@ def _today_str():
 
 
 def _code_to_segment(code):
-    """代码 → segment key"""
+    """代码 → segment key（仅 A 股/ETF 按前缀匹配，港股/美股留空由调用方指定）"""
     for key, seg in SEGMENTS.items():
+        if 'prefix' not in seg:
+            continue
         for p in seg['prefix']:
             if code.startswith(p):
                 return key
@@ -44,6 +48,61 @@ def _code_to_segment(code):
 
 # =========== 步骤 1：刷新股票列表 ===========
 
+def _fetch_us_stocks():
+    """从 NASDAQ 官方 screener API 拉取全量美股列表"""
+    import requests
+    import time as _time
+
+    url = 'https://api.nasdaq.com/api/screener/stocks'
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
+    params = {'tableonly': 'true', 'download': 'true'}
+
+    print(f"[sync] 拉取 美股 列表 (NASDAQ API)...")
+    for attempt in range(3):
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=30)
+            if r.status_code != 200:
+                if attempt < 2:
+                    _time.sleep(3 * (attempt + 1))
+                    continue
+                print(f"[sync] 美股 NASDAQ API HTTP {r.status_code}")
+                return []
+            jd = r.json()
+            rows = (jd.get('data') or {}).get('rows') or []
+            if not rows:
+                print(f"[sync] 美股 NASDAQ API 返回空")
+                return []
+            result = []
+            for row in rows:
+                code = str(row.get('symbol', '')).strip()
+                name = str(row.get('name', '')).strip()
+                price_str = str(row.get('lastsale', '')).replace('$', '').strip()
+                if not code or not name:
+                    continue
+                # 排除优先股/权证等非普通股（含 ^ / 等特殊符号）
+                if any(c in code for c in ('^', '/', '.')):
+                    continue
+                try:
+                    price = float(price_str) if price_str else 0
+                except ValueError:
+                    price = 0
+                if price <= 0:
+                    continue
+                result.append((code, name))
+            print(f"[sync] 美股: {len(result)} 只")
+            return result
+        except Exception as e:
+            if attempt < 2:
+                _time.sleep(3 * (attempt + 1))
+            else:
+                print(f"[sync] 美股 NASDAQ API 失败: {e}")
+    return []
+
+
 def _fetch_stocks_by_segment(seg_key):
     """只拉取指定分段的市场股票列表"""
     import requests
@@ -51,14 +110,22 @@ def _fetch_stocks_by_segment(seg_key):
 
     seg = SEGMENTS[seg_key]
     label = seg['label']
+
+    # 美股用 NASDAQ 官方 API（东方财富覆盖不全）
+    if seg_key == 'us_main':
+        return _fetch_us_stocks()
+
     url = 'https://push2delay.eastmoney.com/api/qt/clist/get'
     headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
 
-    # 根据分段选 fs 过滤器
+    # 根据分段选 fs 过滤器和代码处理方式
+    is_overseas = seg_key == 'hk_main'
     if seg_key in ('sh_main', 'sz_main', 'gem', 'star'):
         fs_filter = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
     elif seg_key in ('sz_etf', 'sh_etf'):
         fs_filter = 'b:MK0021,b:MK0022,b:MK0023,b:MK0024'
+    elif is_overseas:
+        fs_filter = seg['fs']
     else:
         print(f"[sync] {label} 暂不支持（API 无此市场数据）")
         return []
@@ -89,21 +156,32 @@ def _fetch_stocks_by_segment(seg_key):
         items = diff.values() if isinstance(diff, dict) else (diff if isinstance(diff, list) else [])
         if not items:
             break
+        total_count = data.get('total', 0)
+        if is_overseas and total_count:
+            print(f"\r[sync] {label} 第{page}页: +{len(items)} 只 (API总量 {total_count})", end='', flush=True)
         for row in items:
-            code = str(row.get('f12', '')).zfill(6)
+            code = str(row.get('f12', ''))
             name = str(row.get('f14', ''))
             price = row.get('f2')
             # 退市/长期停牌：价格为 '-' 或 None，排除
             if price is None or price == '-' or str(price).strip() == '':
                 continue
-            if len(code) != 6 or not code.isdigit():
-                continue
-            seg = _code_to_segment(code)
-            if seg != seg_key:
-                continue
-            if seg_key in ('sz_etf', 'sh_etf'):
-                if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
+            if is_overseas:
+                # 港股: 代码如 "00700"，去掉前导零后补4位 → Yahoo Finance 格式
+                code = code.strip().lstrip('0') or code.strip()
+                code = code.zfill(4)
+                if not code.isdigit():
                     continue
+            else:
+                code = code.zfill(6)
+                if len(code) != 6 or not code.isdigit():
+                    continue
+                seg_chk = _code_to_segment(code)
+                if seg_chk != seg_key:
+                    continue
+                if seg_key in ('sz_etf', 'sh_etf'):
+                    if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
+                        continue
             all_rows.append((code, name))
         page += 1
         _time.sleep(0.1)
@@ -154,8 +232,12 @@ def _refresh_stock_list():
 # =========== 步骤 2：同步 K 线 ===========
 
 def _fetch_kline(code, seg_key, period, start_date, end_date):
-    """从腾讯 API 获取 K 线（前复权，增量时按需拉取条数以减少请求量）"""
+    """获取 K 线：A股用腾讯 API，港股/美股用 Yahoo Finance"""
     import requests as _rq
+
+    if seg_key in ('hk_main', 'us_main'):
+        return _fetch_kline_yahoo(code, seg_key, period, start_date, end_date)
+
     c = str(code)
     pfx = 'sh' if c.startswith(('6', '9')) else 'sz'
     tp_map = {'daily': ('day', 800), 'weekly': ('week', 200), 'monthly': ('month', 40)}
@@ -232,6 +314,108 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     return []
 
 
+# ---- Yahoo Finance 限流 ----
+
+_yahoo_rate_lock = threading.Lock()
+_yahoo_last_req = 0.0
+_YAHOO_MIN_INTERVAL = 0.15  # 全局最低请求间隔（秒），约 6~7 req/s
+
+# 统计同步失败数（线程安全）
+_sync_fail_count = 0
+_sync_fail_lock = threading.Lock()
+
+
+def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
+    """Yahoo Finance K 线（港股/美股），与 app.py 对齐：
+    - 用 query1.finance.yahoo.com（无需 crumb/cookie）
+    - 临时移除 no_proxy，允许走系统代理访问被墙的 Yahoo"""
+    global _yahoo_last_req, _sync_fail_count
+    import requests as _rq
+    import datetime as _dt
+    import os as _os
+
+    # 构建 Yahoo Finance symbol
+    if seg_key == 'hk_main':
+        symbol = str(int(code)).zfill(4) + '.HK'
+    else:
+        symbol = code
+
+    yh_intv = {'daily': '1d', 'weekly': '1wk', 'monthly': '1mo'}.get(period, '1d')
+
+    # DEBUG: 仅首次打印
+    if not hasattr(_fetch_kline_yahoo, '_debug_done'):
+        _fetch_kline_yahoo._debug_done = True
+        print(f"[sync] DEBUG _fetch_kline_yahoo 首次: symbol={symbol} period={period} start={start_date} end={end_date}", flush=True)
+
+    for attempt in range(4):
+        # 限流：全局最低间隔，避免被 Yahoo 封 IP
+        with _yahoo_rate_lock:
+            elapsed = time.time() - _yahoo_last_req
+            if elapsed < _YAHOO_MIN_INTERVAL:
+                time.sleep(_YAHOO_MIN_INTERVAL - elapsed)
+            _yahoo_last_req = time.time()
+
+        # 临时移除 no_proxy，让 requests 走系统代理（中国环境访问 Yahoo 需要）
+        _old_no = _os.environ.pop('no_proxy', None)
+        _old_NO = _os.environ.pop('NO_PROXY', None)
+        try:
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=max&interval={yh_intv}"
+            r = _rq.get(url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            }, timeout=15)
+
+            if r.status_code == 404:
+                return []  # 股票代码不存在，不重试
+
+            if r.status_code != 200:
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                return []
+
+            result = (r.json().get('chart', {}).get('result') or [None])[0]
+            if not result:
+                return []
+            timestamps = result.get('timestamp') or []
+            quotes = (result.get('indicators', {}).get('quote') or [None])[0]
+            if not quotes or not timestamps:
+                return []
+            rows = []
+            for i, ts in enumerate(timestamps):
+                o = quotes['open'][i]
+                if o is None:
+                    continue
+                dt_val = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
+                date_str = dt_val.strftime('%Y%m%d')
+                if start_date and date_str < start_date:
+                    continue
+                if end_date and date_str > end_date:
+                    continue
+                rows.append((
+                    code, seg_key, period,
+                    date_str,
+                    round(float(o), 3),
+                    round(float(quotes['high'][i] or 0), 3),
+                    round(float(quotes['low'][i] or 0), 3),
+                    round(float(quotes['close'][i] or 0), 3),
+                    int(quotes['volume'][i] or 0),
+                    round(float(quotes['close'][i] or 0) * int(quotes['volume'][i] or 0), 2),
+                ))
+            return rows
+        except Exception:
+            if attempt < 3:
+                time.sleep(1.5 * (attempt + 1))
+            else:
+                with _sync_fail_lock:
+                    _sync_fail_count += 1
+        finally:
+            if _old_no is not None:
+                _os.environ['no_proxy'] = _old_no
+            if _old_NO is not None:
+                _os.environ['NO_PROXY'] = _old_NO
+    return []
+
+
 def _latest_possible_trading_day():
     """估算最近的交易日：周末回退到周五，避免非交易日触发无意义的增量拉取"""
     today = datetime.date.today()
@@ -253,6 +437,11 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
     if max_date and max_date >= latest_trading:
         return
 
+    # DEBUG: 仅首只打印，确认执行到了 fetch 逻辑
+    if not hasattr(_sync_one_stock, '_debug_done'):
+        _sync_one_stock._debug_done = True
+        print(f"\n[sync] DEBUG _sync_one_stock 首只: code={code} market={market} name={name} max_date={max_date} latest_trading={latest_trading} periods={periods}", flush=True)
+
     # 增量：只差几天时，周线/月线无需重拉（新周期尚未生成）
     if max_date:
         try:
@@ -264,29 +453,34 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
         elif gap is not None and gap <= 31:
             periods = ('daily', 'weekly')
 
-    all_rows = []
-    for period in periods:
-        if max_date and max_date != '':
-            last = datetime.date.fromisoformat(max_date)
-            start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
-        else:
-            start = '19900101'
-        end = latest_trading.replace('-', '')
-        rows = _fetch_kline(code, market, period, start, end)
-        for r in rows:
-            all_rows.append(r)
+    try:
+        all_rows = []
+        for period in periods:
+            if max_date and max_date != '':
+                last = datetime.date.fromisoformat(max_date)
+                start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
+            else:
+                start = '19900101'
+            end = latest_trading.replace('-', '')
+            rows = _fetch_kline(code, market, period, start, end)
+            for r in rows:
+                all_rows.append(r)
 
-    if all_rows:
-        latest = max(r[3] for r in all_rows)
-        detail_sync_atomic(code, market, name, all_rows, latest)
-        print(f"\r[sync]  ✔ {code} {name} → {latest} (+{len(all_rows)}条)", flush=True)
-    else:
-        # 无新数据：保留旧日期（下次还会重试，直到 API 有数据或列表被清理）
-        if max_date:
-            detail_info_upsert(code, market, name or code, max_date)
-            print(f"\r[sync]  ~ {code} {name} 无新数据 (已有 {max_date})", flush=True)
+        if all_rows:
+            latest = max(r[3] for r in all_rows)
+            detail_sync_atomic(code, market, name, all_rows, latest)
+            print(f"\r[sync]  ✔ {code} {name} → {latest} (+{len(all_rows)}条)", flush=True)
         else:
-            print(f"\r[sync]  ✘ {code} {name} API 返回空 (periods={periods}, start={start if max_date else '19900101'})", flush=True)
+            if max_date:
+                detail_info_upsert(code, market, name or code, max_date)
+                print(f"\r[sync]  ~ {code} {name} 无新数据 (已有 {max_date})", flush=True)
+            else:
+                print(f"\r[sync]  ✘ {code} {name} API 返回空 (periods={periods}, start={start if max_date else '19900101'})", flush=True)
+    except Exception as _e:
+        if not hasattr(_sync_one_stock, '_err_printed'):
+            _sync_one_stock._err_printed = True
+            print(f"\n[sync] !!! _sync_one_stock 异常 [{code}]: {type(_e).__name__}: {_e}", flush=True)
+        raise
 
 
 def _sync_klines():
@@ -297,6 +491,9 @@ def _sync_klines():
         print("[sync] 股票列表为空，跳过 K 线同步")
         _sync_status['running'] = False
         return
+
+    global _sync_fail_count
+    _sync_fail_count = 0
 
     # 预加载，避免每条股票都开一次 DB 连接
     max_date_map = detail_info_date_map()
@@ -336,7 +533,11 @@ def _sync_klines():
                 bar = '█' * int(30 * _sync_status['done'] / total) + '░' * (30 - int(30 * _sync_status['done'] / total))
                 print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {_sync_status['done']}/{total}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
     print()
-    print(f"[sync] K 线同步完成，耗时 {time.time()-t0:.0f}s")
+    el = time.time() - t0
+    if _sync_fail_count > 0:
+        print(f"[sync] K 线同步完成 (失败 {_sync_fail_count} 只)，耗时 {el:.0f}s")
+    else:
+        print(f"[sync] K 线同步完成，耗时 {el:.0f}s")
 
 
 # =========== 步骤 3：清理退市 ===========
@@ -418,6 +619,8 @@ def _run_init(seg_key):
         _sync_status['total'] = len(stocks)
         _sync_status['done'] = 0
         _sync_status['phase'] = 'kline'
+        global _sync_fail_count
+        _sync_fail_count = 0
         print(f"[sync] 开始全量同步 K 线 ({len(stocks)} 只，4 线程)...")
 
         t0 = time.time()
@@ -457,7 +660,11 @@ def _run_init(seg_key):
 
         _cleanup_delisted()
         list_sync_date_set(seg_key, _today_str())
-        print(f"[sync] {label} 初始化完成，耗时 {time.time()-t0:.0f}s")
+        el = time.time() - t0
+        if _sync_fail_count > 0:
+            print(f"[sync] {label} 初始化完成 (K线失败 {_sync_fail_count} 只)，耗时 {el:.0f}s")
+        else:
+            print(f"[sync] {label} 初始化完成，耗时 {el:.0f}s")
     finally:
         if _sync_status['phase'] != 'cancelled':
             _sync_status['running'] = False

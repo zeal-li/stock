@@ -434,40 +434,54 @@ def stock_kline():
                         row['turnover'] = ex['turnover']
                     rows.append(row)
         elif market in ('116', '106'):
-            # 港股/美股 → Yahoo Finance（需走系统代理，不能 no_proxy）
-            import os as _os
-            _old_no = _os.environ.pop('no_proxy', None)
-            _old_NO = _os.environ.pop('NO_PROXY', None)
-            try:
-                if market == '116':
-                    symbol = str(int(code)).zfill(4) + '.HK'
-                else:
-                    symbol = code
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval={yh_intv}"
-                r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-                result = (r.json().get('chart', {}).get('result') or [None])[0]
-                if not result:
-                    return jsonify({'success': False, 'error': '无数据'})
-                timestamps = result.get('timestamp') or []
-                quotes = (result.get('indicators', {}).get('quote') or [None])[0]
-                if not quotes:
-                    return jsonify({'success': False, 'error': '无数据'})
-                for i, ts in enumerate(timestamps):
-                    o = quotes['open'][i]
-                    if o is None:
-                        continue
-                    dt = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
+            # 港股/美股 → 本地 DB（由 sync 提前拉取），无缓存时再走 Yahoo
+            from market_db.db import detail_klines_get
+            db_rows = detail_klines_get(code, market, tx_period, limit=360)
+            if db_rows:
+                for k in db_rows:
                     rows.append({
-                        'time': dt.strftime('%Y-%m-%d'),
-                        'open': round(float(o), 3),
-                        'close': round(float(quotes['close'][i] or 0), 3),
-                        'high': round(float(quotes['high'][i] or 0), 3),
-                        'low': round(float(quotes['low'][i] or 0), 3),
-                        'volume': int(quotes['volume'][i] or 0),
+                        'time': k['date'][:4] + '-' + k['date'][4:6] + '-' + k['date'][6:8],
+                        'open': k['open'], 'close': k['close'],
+                        'high': k['high'], 'low': k['low'],
+                        'volume': int(k['volume']),
+                        'amount': k['amount'],
                     })
-            finally:
-                if _old_no is not None: _os.environ['no_proxy'] = _old_no
-                if _old_NO is not None: _os.environ['NO_PROXY'] = _old_NO
+            else:
+                # 本地无数据，实时拉 Yahoo
+                import os as _os
+                _old_no = _os.environ.pop('no_proxy', None)
+                _old_NO = _os.environ.pop('NO_PROXY', None)
+                try:
+                    if market == '116':
+                        symbol = str(int(code)).zfill(4) + '.HK'
+                    else:
+                        symbol = code
+                    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval={yh_intv}"
+                    r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                    result = (r.json().get('chart', {}).get('result') or [None])[0]
+                    if not result:
+                        return jsonify({'success': False, 'error': '无数据'})
+                    timestamps = result.get('timestamp') or []
+                    quotes = (result.get('indicators', {}).get('quote') or [None])[0]
+                    if not quotes:
+                        return jsonify({'success': False, 'error': '无数据'})
+                    for i, ts in enumerate(timestamps):
+                        o = quotes['open'][i]
+                        if o is None:
+                            continue
+                        dt = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
+                        rows.append({
+                            'time': dt.strftime('%Y-%m-%d'),
+                            'open': round(float(o), 3),
+                            'close': round(float(quotes['close'][i] or 0), 3),
+                            'high': round(float(quotes['high'][i] or 0), 3),
+                            'low': round(float(quotes['low'][i] or 0), 3),
+                            'volume': int(quotes['volume'][i] or 0),
+                            'amount': 0,
+                        })
+                finally:
+                    if _old_no is not None: _os.environ['no_proxy'] = _old_no
+                    if _old_NO is not None: _os.environ['NO_PROXY'] = _old_NO
         else:
             return jsonify({'success': False, 'error': '暂不支持该市场K线'})
 
