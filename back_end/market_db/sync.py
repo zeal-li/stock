@@ -245,6 +245,9 @@ def _latest_possible_trading_day():
 
 def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('daily', 'weekly', 'monthly')):
     """同步单只股票所有周期的 K 线（max_date_map 和 latest_trading 由调用方预加载，避免逐只查 DB）"""
+    if _sync_status.get('cancel'):
+        return
+
     max_date = max_date_map.get((code, market), None)
 
     if max_date and max_date >= latest_trading:
@@ -318,6 +321,8 @@ def _sync_klines():
     with ThreadPoolExecutor(max_workers=4) as pool:
         futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], max_date_map, latest_trading): s for s in to_sync}
         for fut in as_completed(futs):
+            if _sync_status.get('cancel'):
+                break
             try:
                 fut.result()
             except Exception:
@@ -354,7 +359,7 @@ def _cleanup_delisted():
 
 # =========== 初始化新市场 ===========
 
-_sync_status = {'running': False, 'label': '', 'total': 0, 'done': 0, 'phase': ''}
+_sync_status = {'running': False, 'label': '', 'total': 0, 'done': 0, 'phase': '', 'cancel': False, 'seg_key': None}
 
 def init_segment(seg_key):
     """初始化一个市场分段：拉取股票列表 + 全量同步 K 线"""
@@ -371,6 +376,7 @@ def init_segment(seg_key):
 
     _sync_status['running'] = True
     _sync_status['label'] = SEGMENTS[seg_key]['label']
+    _sync_status['seg_key'] = seg_key
     threading.Thread(target=_run_init, args=(seg_key,), daemon=True).start()
     return {'success': True, 'message': '初始化已启动'}
 
@@ -379,6 +385,7 @@ def _run_init(seg_key):
     try:
         label = SEGMENTS[seg_key]['label']
         _sync_status['phase'] = 'list'
+        _sync_status['cancel'] = False
         print(f"[sync] 初始化: {label}")
 
         rows = _fetch_stocks_by_segment(seg_key)
@@ -386,8 +393,26 @@ def _run_init(seg_key):
             _sync_status['running'] = False
             return
 
+        # 检查点 1：列表拉完但尚未写入 DB
+        if _sync_status.get('cancel'):
+            _sync_status['running'] = False
+            _sync_status['phase'] = 'cancelled'
+            _sync_status['cancel'] = False
+            print(f"[sync] {label} 加载已被终止")
+            return
+
         list_replace_market(seg_key, rows)
         print(f"[sync] {label} 股票列表已写入: {len(rows)} 只")
+
+        # 检查点 1.5：列表已写入 DB，检测到取消则回滚
+        if _sync_status.get('cancel'):
+            list_replace_market(seg_key, [])
+            list_sync_date_set(seg_key, None)
+            _sync_status['running'] = False
+            _sync_status['phase'] = 'cancelled'
+            _sync_status['cancel'] = False
+            print(f"[sync] {label} 加载已被终止（列表已回滚）")
+            return
 
         stocks = [(c, seg_key, n) for c, n in rows]
         _sync_status['total'] = len(stocks)
@@ -396,12 +421,15 @@ def _run_init(seg_key):
         print(f"[sync] 开始全量同步 K 线 ({len(stocks)} 只，4 线程)...")
 
         t0 = time.time()
-        # 新市场，所有股票都没有历史 K 线
         max_date_map = {}
         latest_trading = _latest_possible_trading_day()
+        cancelled = False
         with ThreadPoolExecutor(max_workers=4) as pool:
             futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], max_date_map, latest_trading): s for s in stocks}
             for fut in as_completed(futs):
+                if _sync_status.get('cancel'):
+                    cancelled = True
+                    break
                 try:
                     fut.result()
                 except Exception:
@@ -415,15 +443,40 @@ def _run_init(seg_key):
                     bar = '█' * int(30 * _sync_status['done'] / len(stocks)) + '░' * (30 - int(30 * _sync_status['done'] / len(stocks)))
                     print(f"\r[sync] K线 [{bar}] {pct:5.1f}% {_sync_status['done']}/{len(stocks)}  耗时 {el:.0f}s 预计剩余 {eta:.0f}s", end='', flush=True)
         print()
+
+        # 检查点 2：K 线同步中被取消，回滚所有数据
+        if cancelled:
+            detail_clear_market(seg_key)
+            list_replace_market(seg_key, [])
+            list_sync_date_set(seg_key, None)
+            _sync_status['running'] = False
+            _sync_status['phase'] = 'cancelled'
+            _sync_status['cancel'] = False
+            print(f"[sync] {label} K线同步已被终止，数据已回滚")
+            return
+
         _cleanup_delisted()
         list_sync_date_set(seg_key, _today_str())
         print(f"[sync] {label} 初始化完成，耗时 {time.time()-t0:.0f}s")
     finally:
-        _sync_status['running'] = False
-        _sync_status['phase'] = 'done'
+        if _sync_status['phase'] != 'cancelled':
+            _sync_status['running'] = False
+            _sync_status['phase'] = 'done'
 
 def get_init_status():
     return dict(_sync_status)
+
+
+def cancel_init():
+    """终止当前运行中的同步任务"""
+    global _sync_status
+    if not _sync_status['running']:
+        return {'success': False, 'error': '没有运行中的同步任务'}
+    if _sync_status.get('cancel'):
+        return {'success': False, 'error': '正在终止中，请稍候'}
+    _sync_status['cancel'] = True
+    label = _sync_status.get('label', '')
+    return {'success': True, 'message': '正在终止' + (label + ' ' if label else '') + '数据加载...'}
 
 
 def get_segments_info():
@@ -453,6 +506,12 @@ def clear_market(seg_key):
     if seg_key not in list_markets():
         return {'success': False, 'error': '该市场无数据可清除'}
 
+    # 只阻断同市场的并发清库（不同市场操作不同行，互不干扰）
+    if _sync_status['running']:
+        sync_seg = _sync_status.get('seg_key')
+        if sync_seg is None or sync_seg == seg_key:
+            return {'success': False, 'error': '正在同步中，请先终止加载后再清库'}
+
     label = SEGMENTS[seg_key]['label']
     print(f"[sync] 清除 {label} 数据...")
 
@@ -474,10 +533,24 @@ def _startup_worker():
     global _sync_status
     _sync_status['running'] = True
     _sync_status['label'] = '增量同步'
+    _sync_status['cancel'] = False
+    _sync_status['seg_key'] = None  # startup 全市场同步，清库全部拦截
     print("[sync] ===== 启动增量同步 =====")
     _sync_status['phase'] = 'list'
     _refresh_stock_list()
+    if _sync_status.get('cancel'):
+        _sync_status['running'] = False
+        _sync_status['phase'] = 'cancelled'
+        _sync_status['cancel'] = False
+        print("[sync] ===== 同步被终止 =====\n")
+        return
     _sync_klines()
+    if _sync_status.get('cancel'):
+        _sync_status['running'] = False
+        _sync_status['phase'] = 'cancelled'
+        _sync_status['cancel'] = False
+        print("[sync] ===== 同步被终止 =====\n")
+        return
     _sync_status['phase'] = 'cleanup'
     _cleanup_delisted()
     # 全部完成后才更新时间戳

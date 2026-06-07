@@ -8,6 +8,16 @@ function _onMarketSelect() {
     var key = document.getElementById('techMarket').value;
     _curMarketKey = key;
     if (!key) return;
+
+    // 正在加载的市场切回来时不覆盖状态，轮询还在更新进度条
+    if (_initPollTimer && _loadingMarketKey === key) {
+        document.getElementById('techLoadBtn').textContent = '终止';
+        return;
+    }
+
+    // 切到其他市场，按钮改回"加载"
+    document.getElementById('techLoadBtn').textContent = '加载';
+
     var item = _segData.find(function(s){return s.key === key;});
     var status = document.getElementById('techMarketStatus');
     if (item && item.synced) {
@@ -50,47 +60,137 @@ function _refreshSegments() {
 _refreshSegments();
 
 var _initPollTimer = null;
+var _loadingMarketKey = null;
+
 function loadMarket() {
     var sel = document.getElementById('techMarket');
     var key = sel.value;
     if (!key) { alert('请先选择市场'); return; }
     var status = document.getElementById('techMarketStatus');
     var btn = document.getElementById('techLoadBtn');
+
+    // 当前市场正在加载 → 点按钮是"终止"
+    if (_initPollTimer && _loadingMarketKey === key) {
+        cancelLoad();
+        return;
+    }
+
+    // 正在加载其他市场：放请求到后端，后端会拒绝，不杀轮询
+    if (_initPollTimer && _loadingMarketKey && _loadingMarketKey !== key) {
+        fetch('/api/market-db/init/' + key, { method: 'POST' })
+            .then(function(r){return r.json()})
+            .then(function(){
+                var label = _segData.find(function(s){return s.key === _loadingMarketKey;});
+                status.textContent = (label ? label.label : _loadingMarketKey) + ' 正在加载中，请等待完成后再加载其他市场';
+                status.style.color = '#f97316';
+            })
+            .catch(function(e){
+                status.textContent = '请求出错: ' + e.message;
+                status.style.color = '#e94560';
+            });
+        return;
+    }
+
+    // 正常加载流程
     if (_initPollTimer) clearInterval(_initPollTimer);
+    _loadingMarketKey = key;
+    btn.textContent = '终止';
     status.textContent = '正在拉取列表...';
     status.style.color = '#fbbf24';
-    btn.disabled = true;
     fetch('/api/market-db/init/' + key, { method: 'POST' })
         .then(function(r){return r.json()})
         .then(function(data){
             if (!data.success) {
                 status.textContent = data.error || '已存在';
                 status.style.color = '#e94560';
-                btn.disabled = false;
+                btn.textContent = '加载';
+                _loadingMarketKey = null;
                 return;
             }
             _initPollTimer = setInterval(function(){
                 fetch('/api/market-db/init/status')
                     .then(function(r){return r.json()})
                     .then(function(s){
+                        var currentMarket = document.getElementById('techMarket').value;
+                        var loadingKey = _loadingMarketKey;
+                        if (s.phase === 'cancelled') {
+                            clearInterval(_initPollTimer); _initPollTimer = null;
+                            _loadingMarketKey = null;
+                            btn.textContent = '加载';
+                            btn.disabled = false;
+                            document.getElementById('techClearBtn').disabled = false;
+                            if (currentMarket === loadingKey) {
+                                _refreshSegments().then(function() {
+                                    status.textContent = '加载已被终止';
+                                    status.style.color = '#f97316';
+                                });
+                            } else {
+                                _refreshSegments();
+                            }
+                            return;
+                        }
+                        // 已发送终止请求，等待后端清理
+                        if (s.cancel) {
+                            if (currentMarket === loadingKey) {
+                                status.textContent = '正在终止加载（数据将自动清除）...';
+                                status.style.color = '#fbbf24';
+                            }
+                            return;
+                        }
                         if (s.running) {
-                            var bar = '', w = 20, f = Math.floor(w * s.done / s.total);
-                            for (var i=0;i<w;i++) bar += i<=f ? '\u2588' : '\u2591';
-                            status.textContent = s.phase === 'list' ? '拉取列表...' : ('K线 ' + bar + ' ' + s.done + '/' + s.total);
+                            // 只在当前选中的是加载中的市场时才更新进度条
+                            if (currentMarket === loadingKey) {
+                                var bar = '', w = 20, f = Math.floor(w * s.done / s.total);
+                                for (var i=0;i<w;i++) bar += i<=f ? '\u2588' : '\u2591';
+                                status.textContent = s.phase === 'list' ? '拉取列表...' : ('K线 ' + bar + ' ' + s.done + '/' + s.total);
+                            }
                         } else {
                             clearInterval(_initPollTimer); _initPollTimer = null;
-                            btn.disabled = false;
-                            document.getElementById('techScreenBtn').disabled = false;
-                            _refreshSegments().then(function() {
-                                status.textContent = '加载完成，共 ' + s.total + ' 只';
-                                status.style.color = '#4ade80';
-                            });
+                            _loadingMarketKey = null;
+                            btn.textContent = '加载';
+                            if (currentMarket === loadingKey) {
+                                document.getElementById('techScreenBtn').disabled = false;
+                                _refreshSegments().then(function() {
+                                    status.textContent = '加载完成，共 ' + s.total + ' 只';
+                                    status.style.color = '#4ade80';
+                                });
+                            } else {
+                                _refreshSegments();
+                            }
                         }
                     });
             }, 1000);
         })
         .catch(function(e){
             status.textContent = '请求出错: ' + e.message;
+            status.style.color = '#e94560';
+            btn.textContent = '加载';
+            _loadingMarketKey = null;
+        });
+}
+
+function cancelLoad() {
+    var segItem = _segData.find(function(s){return s.key === _loadingMarketKey;});
+    var segLabel = segItem ? segItem.label : _loadingMarketKey;
+    if (!confirm('确定要终止【' + segLabel + '】数据加载吗？')) return;
+    var status = document.getElementById('techMarketStatus');
+    var btn = document.getElementById('techLoadBtn');
+    btn.disabled = true;
+    status.textContent = '正在终止...';
+    status.style.color = '#fbbf24';
+    fetch('/api/market-db/init/cancel', { method: 'POST' })
+        .then(function(r){return r.json()})
+        .then(function(data){
+            if (!data.success) {
+                status.textContent = data.error || '终止失败';
+                status.style.color = '#e94560';
+                btn.disabled = false;
+                return;
+            }
+            // 轮询会检测到 cancelled 状态，自动清理
+        })
+        .catch(function(e){
+            status.textContent = '终止出错: ' + e.message;
             status.style.color = '#e94560';
             btn.disabled = false;
         });
@@ -104,13 +204,32 @@ function clearMarket() {
     if (!confirm('确定要清除【' + label + '】的全部数据吗？\n\n此操作不可撤销，将删除该市场的股票列表、K线数据及同步记录。')) {
         return;
     }
+
+    // 正在加载的市场 → 终止加载即可（取消时已回滚数据），不需要额外清库
+    if (_loadingMarketKey === key) {
+        if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
+        document.getElementById('techScreenResult').innerHTML = '';
+        var loadBtnLocal = document.getElementById('techLoadBtn');
+        var clearBtnLocal = document.getElementById('techClearBtn');
+        var screenBtnLocal = document.getElementById('techScreenBtn');
+        loadBtnLocal.disabled = true;
+        clearBtnLocal.disabled = true;
+        screenBtnLocal.disabled = true;
+        var statusEl = document.getElementById('techMarketStatus');
+        statusEl.textContent = '正在终止加载...';
+        statusEl.style.color = '#fbbf24';
+        fetch('/api/market-db/init/cancel', { method: 'POST' })
+            .then(function(r){return r.json()})
+            .catch(function(){});
+        // 轮询会检测到 cancel → cancelled，自动显示状态 + 清理
+        return;
+    }
+
     var status = document.getElementById('techMarketStatus');
     var loadBtn = document.getElementById('techLoadBtn');
     var clearBtn = document.getElementById('techClearBtn');
     var screenBtn = document.getElementById('techScreenBtn');
 
-    // 停止所有轮询
-    if (_initPollTimer) { clearInterval(_initPollTimer); _initPollTimer = null; }
     if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
 
     status.textContent = '正在清除数据...';

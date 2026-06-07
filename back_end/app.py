@@ -492,6 +492,12 @@ def technical_ascending_channel_status():
 
 # ==================== 市场数据库 ====================
 
+@app.route('/api/market-db/init/cancel', methods=['POST'])
+def market_db_init_cancel():
+    from market_db.sync import cancel_init
+    result = cancel_init()
+    return jsonify(result)
+
 @app.route('/api/market-db/init/<seg_key>', methods=['POST'])
 def market_db_init(seg_key):
     from market_db.sync import init_segment
