@@ -120,7 +120,7 @@ def _fetch_stocks_by_segment(seg_key):
 
     # 根据分段选 fs 过滤器和代码处理方式
     is_overseas = seg_key == 'hk_main'
-    if seg_key in ('sh_main', 'sz_main', 'gem', 'star'):
+    if seg_key in ('sh_main', 'sz_main', 'gem', 'star', 'bj', 'xsb'):
         fs_filter = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
     elif seg_key in ('sz_etf', 'sh_etf'):
         fs_filter = 'b:MK0021,b:MK0022,b:MK0023,b:MK0024'
@@ -603,6 +603,10 @@ def _run_init(seg_key):
         rows = _fetch_stocks_by_segment(seg_key)
         if not rows:
             _sync_status['running'] = False
+            _sync_status['phase'] = 'error'
+            _sync_status['error'] = f'{label} 暂不支持（API 无此市场数据）'
+            _sync_status['total'] = 0
+            _sync_status['done'] = 0
             return
 
         # 检查点 1：列表拉完但尚未写入 DB
@@ -677,7 +681,7 @@ def _run_init(seg_key):
         else:
             print(f"[sync] {label} 初始化完成，耗时 {el:.0f}s")
     finally:
-        if _sync_status['phase'] != 'cancelled':
+        if _sync_status['phase'] not in ('cancelled', 'error'):
             _sync_status['running'] = False
             _sync_status['phase'] = 'done'
         with _syncing_markets_lock:
@@ -700,7 +704,7 @@ def cancel_init():
 
 
 def get_segments_info():
-    """返回各分段状态"""
+    """返回各分段状态，含当前加载状态"""
     markets = list_markets()
     today = _today_str()
     result = []
@@ -714,7 +718,12 @@ def get_segments_info():
             count = conn_detail.execute('SELECT COUNT(DISTINCT code) FROM klines WHERE market=?', (key,)).fetchone()[0]
             conn_detail.close()
         result.append({'key': key, 'label': seg['label'], 'synced': synced, 'fresh': fresh, 'kline_count': count})
-    return result
+    return {
+        'segments': result,
+        'init_running': _sync_status.get('running', False),
+        'init_seg_key': _sync_status.get('seg_key'),
+        'init_phase': _sync_status.get('phase'),
+    }
 
 
 # =========== 清库 ===========
