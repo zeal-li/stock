@@ -125,7 +125,7 @@ def stock_quotes():
         params = {
             'fltt': 2, 'invt': 2,
             # f115=市盈率TTM(滚动市盈率), f15=最高, f16=最低, f17=今开, f18=昨收, f38=总股本, f39=流通股本
-            'fields': 'f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f38,f39,f115',
+            'fields': 'f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f38,f39,f100,f115',
             'secids': secids,
             'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
         }
@@ -164,6 +164,7 @@ def stock_quotes():
                     'float_cap': fmt_cap(row.get('f21')),
                     'total_shares': fmt_cap(row.get('f38')),
                     'float_shares': fmt_cap(row.get('f39')),
+                    'industry': row.get('f100', '').replace('、', '·') if row.get('f100') else '',
                 }
         return jsonify({'success': True, 'data': result})
     except Exception as e:
@@ -202,6 +203,90 @@ def stock_extra():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+# ==================== 主营构成（同花顺） ====================
+
+@app.route('/api/stock-biz-comp')
+def stock_biz_comp():
+    """股票主营构成（A股，按产品分类，取最新报告期）"""
+    code = request.args.get('code', '')
+    market = request.args.get('market', '')
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    if market not in ('0', '1', '2', '90'):
+        return jsonify({'success': True, 'data': []})
+    try:
+        return _biz_comp_a(code, market)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+def _biz_comp_a(code, market):
+    """A股主营构成：同花顺 operate API"""
+    params = {
+        'code': code, 'market': '33', 'type': 'stock',
+        'account': '1', 'timeField': 'date',
+        'analysisTypes': 'product',
+        'sortIndex': 'income', 'currency': 'CNY', 'level': '1',
+        'locale': 'zh_CN',
+    }
+    r = requests.get(
+        'https://basic.10jqka.com.cn/basicapi/operate/index/v1/product_index_query/',
+        params=params, headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://basic.10jqka.com.cn/'},
+        timeout=15, proxies=REQUEST_PROXIES,
+    )
+    d = r.json()
+    if d.get('status_code') != 0:
+        return jsonify({'success': True, 'data': []})
+
+    data = d.get('data', [])
+    products = [x for x in data if x.get('analysis_type') == 'product']
+    if not products or not products[0].get('time_operate_index_item_list'):
+        return jsonify({'success': True, 'data': []})
+
+    # 取最新报告期
+    items = products[0]['time_operate_index_item_list']
+    latest_time = items[0].get('time', '')
+    item = items[0].get('product_index_item_list', [])
+
+    result = []
+    for p in item:
+        name = (p.get('product_name') or '').strip()
+        if not name or '抵消' in name or '合计' in name:
+            continue
+        income = None
+        gross = None
+        income_ratio = None
+        for idx in p.get('index_analysis_list', []):
+            if idx.get('index_id') == 'income':
+                income = float(idx.get('index_value', 0))
+                income_ratio = float(idx.get('account', 0)) * 100
+            elif idx.get('index_id') == 'gross_profit_rate':
+                gross = float(idx.get('index_value', 0)) * 100
+        result.append({
+            'name': name,
+            'income': _fmt_biz_income(income),
+            'income_ratio': f"{income_ratio:.2f}%" if income_ratio is not None else '-',
+            'gross_profit': f"{gross:.2f}%" if gross is not None else '-',
+        })
+    return jsonify({'success': True, 'data': result})
+
+
+def _fmt_biz_income(v):
+    """格式化营收金额：1402亿 / 452.3亿 / 33.42亿"""
+    if v is None or v == '-' or v == '':
+        return '-'
+    try:
+        v = float(v)
+        if v >= 1e12:
+            return f"{v / 1e12:.2f}万亿"
+        if v >= 1e8:
+            return f"{v / 1e8:.2f}亿"
+        return f"{v / 1e4:.2f}万"
+    except Exception:
+        return str(v)
+
 
 # ==================== 分时 ====================
 

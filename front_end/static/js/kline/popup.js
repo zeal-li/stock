@@ -50,6 +50,7 @@ var KlinePopup = (function() {
                     '<span style="color:#666;font-size:20px;cursor:pointer;padding:0 6px;line-height:1;" onclick="KlinePopup.close()">✕</span>' +
                     '</div>' +
                 '</div>' +
+                '<div id="klBizComp" style="padding:2px 16px 4px;background:#1a1a2e;flex-shrink:0;font-size:11px;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>' +
                 '<div id="klParams" style="padding:6px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:11px;color:#8b8b9e;">加载中...</div>' +
                 '<div id="klPeriodBar" style="display:none;padding:4px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;align-items:center;gap:6px;font-size:11px;color:#8b8b9e;">' +
                     '<button id="klBtnMinute" onclick="KlinePopup._toggleMinute()" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">分时</button>' +
@@ -484,6 +485,21 @@ var KlinePopup = (function() {
         _observer = result.observer;
     }
 
+    // ---- 填充主营构成 ----
+    function _fillBizComp(data) {
+        var el = document.getElementById('klBizComp');
+        if (!data || data.length === 0) {
+            if (el) el.textContent = '';
+            return;
+        }
+        var parts = [];
+        for (var i = 0; i < data.length; i++) {
+            var p = data[i];
+            parts.push(p.name + p.income + '/' + p.gross_profit);
+        }
+        if (el) el.textContent = parts.join('  ');
+    }
+
     // ---- 填充头部信息 ----
     function _fillHeader(quote) {
         var priceEl = document.getElementById('klPrice');
@@ -604,6 +620,7 @@ var KlinePopup = (function() {
         document.getElementById('klPrice').textContent = '';
         document.getElementById('klChange').textContent = '';
         document.getElementById('klParams').innerHTML = '加载中...';
+        document.getElementById('klBizComp').textContent = '';
 
         // 重置指标栏为默认 K 线模式（防止上次分时模式的 innerHTML 残留）
         var indBar = document.getElementById('klIndBar');
@@ -662,13 +679,21 @@ var KlinePopup = (function() {
                 })
                 .catch(function() { return null; });
 
-        Promise.all([pQuote, pKline, pGoodwill, pExtra]).then(function(results) {
+        var pBizComp = fetch('/api/stock-biz-comp?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
+            .then(function(r) { return r.json(); })
+            .then(function(d) { return (d.success ? d.data : []); })
+            .catch(function() { return []; });
+
+        Promise.all([pQuote, pKline, pGoodwill, pExtra, pBizComp]).then(function(results) {
             var quote = results[0] || {};
             var kdata = results[1];
             var goodwill = results[2];
             var extra = results[3];
+            var bizComp = results[4];
             if (goodwill) quote.goodwill = goodwill;
             if (extra) { quote.volume_ratio = extra.volume_ratio; quote.bid_ratio = extra.bid_ratio; }
+
+            _fillBizComp(bizComp);
 
             if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
                 _klinesData = kdata.data.klines;
