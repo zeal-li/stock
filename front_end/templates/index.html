@@ -37,7 +37,7 @@
                 </div>
                 <div class="nav-item" data-page="earnings">
                     <span class="nav-icon">📋</span>
-                    <span>业绩披露</span>
+                    <span>业绩报告</span>
                 </div>
                 <div class="nav-item" data-page="announce">
                     <span class="nav-icon">📢</span>
@@ -101,7 +101,12 @@
 
             <!-- 解禁列表页面 -->
             <div id="page-unlock-list" style="display:none;">
-                <div class="page-header"><h1 class="page-title">🔓 解禁列表</h1></div>
+                <div class="page-header">
+                    <h1 class="page-title">🔓 解禁列表</h1>
+                    <select id="unlockStockFilter" onchange="loadUnlockList()" style="font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;margin-left:12px;">
+                        <option value="">全部股票</option>
+                    </select>
+                </div>
                 <div class="index-card" style="padding:30px;">
                     <div id="unlockListContent"></div>
                 </div>
@@ -109,13 +114,25 @@
 
             <!-- 业绩披露页面 -->
             <div id="page-earnings" style="display:none;">
-                <div class="page-header"><h1 class="page-title">📋 业绩披露</h1></div>
-                <div class="index-card" style="padding:40px;text-align:center;color:#888;">功能开发中...</div>
+                <div class="page-header">
+                    <h1 class="page-title">📋 业绩报告</h1>
+                    <select id="earningsStockFilter" onchange="loadEarningsList()" style="font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;margin-left:12px;">
+                        <option value="">全部股票</option>
+                    </select>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div id="earningsContent"></div>
+                </div>
             </div>
 
             <!-- 公司公告页面 -->
             <div id="page-announce" style="display:none;">
-                <div class="page-header"><h1 class="page-title">📢 公司公告</h1></div>
+                <div class="page-header">
+                    <h1 class="page-title">📢 公司公告</h1>
+                    <select id="announceStockFilter" onchange="loadAnnounceList()" style="font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;margin-left:12px;">
+                        <option value="">全部股票</option>
+                    </select>
+                </div>
                 <div class="index-card" style="padding:30px;">
                     <div id="announceContent"></div>
                 </div>
@@ -166,6 +183,34 @@
             '情绪面=恐慌指数+红盘率得分 | 涨跌结构=涨跌家数差得分' +
             '</div>';
 
+        // 填充三个页面的股票筛选下拉框
+        function populateStockFilters() {
+            var allStocks = [];
+            if (typeof watchlistStocks !== 'undefined') {
+                watchlistStocks.forEach(function(s) { allStocks.push({code: s.code, name: s.name || s.code}); });
+            }
+            if (typeof pickedStocks !== 'undefined') {
+                pickedStocks.forEach(function(s) { allStocks.push({code: s.code, name: s.name || s.code}); });
+            }
+            // 去重
+            var seen = {};
+            allStocks = allStocks.filter(function(s) { return seen.hasOwnProperty(s.code) ? false : (seen[s.code] = true); });
+            allStocks.sort(function(a, b) { return a.code.localeCompare(b.code); });
+
+            ['unlockStockFilter', 'earningsStockFilter', 'announceStockFilter'].forEach(function(id) {
+                var sel = document.getElementById(id);
+                if (!sel) return;
+                var curVal = sel.value;
+                var html = '<option value="">全部股票</option>';
+                allStocks.forEach(function(s) {
+                    var label = s.code + ' ' + (s.name && s.name !== s.code ? s.name : '');
+                    var selected = s.code === curVal ? ' selected' : '';
+                    html += '<option value="' + s.code + '"' + selected + '>' + label + '</option>';
+                });
+                sel.innerHTML = html;
+            });
+        }
+
         // 左侧导航
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', function() {
@@ -182,8 +227,9 @@
                 document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
                 document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
-                if (page === 'unlock-list') loadUnlockList();
-                if (page === 'announce') loadAnnounceList();
+                if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }
+                if (page === 'earnings') { populateStockFilters(); loadEarningsList(); }
+                if (page === 'announce') { populateStockFilters(); loadAnnounceList(); }
             });
         });
 
@@ -202,6 +248,7 @@
     <script src="/static/js/technical_screen/page.js"></script>
     <script src="/static/js/unlock-list/service.js"></script>
     <script src="/static/js/announce/service.js"></script>
+    <script src="/static/js/earnings/service.js"></script>
 
     <!-- 启动（所有 JS 加载完毕后执行） -->
     <script>

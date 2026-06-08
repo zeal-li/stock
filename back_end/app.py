@@ -755,6 +755,219 @@ def lifting_list():
         return jsonify({'success': False, 'error': str(e)})
 
 
+# ==================== 业绩披露 ====================
+
+def _stock_f10_url(code):
+    """根据股票代码构造东方财富F10链接"""
+    prefix = 'SH' if code.startswith(('6', '9')) else 'SZ'
+    return f'https://emweb.securities.eastmoney.com/pc_hsf10/pages/index.html?type=web&code={prefix}{code}&color=r'
+
+
+def _report_period_type(date_str):
+    """根据报告期日期返回类型：2025年年报/2026年一季报 等"""
+    if not date_str:
+        return ''
+    d = str(date_str)[:10]
+    year = d[:4] if len(d) >= 4 else ''
+    if '-12-31' in d:
+        return f'{year}年年报'
+    if '-06-30' in d:
+        return f'{year}年半年报'
+    if '-03-31' in d:
+        return f'{year}年一季报'
+    if '-09-30' in d:
+        return f'{year}年三季报'
+    return ''
+
+
+@app.route('/api/earnings')
+def earnings_list():
+    """获取自选股+选股列表中股票的业绩报告（东方财富：业绩预告 + 业绩快报 + 业绩报表）"""
+    try:
+        target_codes = _collect_target_codes()
+        if not target_codes:
+            return jsonify({'success': True, 'data': []})
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://data.eastmoney.com/',
+        }
+        code_list_str = ','.join(f'"{c}"' for c in sorted(target_codes))
+
+        from datetime import datetime as _dt, timedelta
+        cutoff = (_dt.now() - timedelta(days=730)).strftime('%Y-%m-%d')
+
+        # 生成近两年的所有报告期日期（03-31/06-30/09-30/12-31）
+        cutoff_year = int(cutoff[:4])
+        this_year = _dt.now().year
+        rpt_dates = []
+        for y in range(cutoff_year, this_year + 1):
+            for md in ('03-31', '06-30', '09-30', '12-31'):
+                d = f'{y}-{md}'
+                if d >= cutoff:
+                    rpt_dates.append(d)
+        rpt_dates_str = ','.join(f'"{d}"' for d in rpt_dates)
+
+        result = []
+
+        # ① 业绩预告
+        params1 = {
+            'reportName': 'RPT_PUBLIC_OP_NEWPREDICT',
+            'columns': 'SECURITY_CODE,SECURITY_NAME_ABBR,NOTICE_DATE,REPORT_DATE,PREDICT_TYPE,PREDICT_AMT_LOWER,PREDICT_AMT_UPPER,PREYEAR_SAME_PERIOD,PREDICT_CONTENT',
+            'filter': f'(SECURITY_CODE in ({code_list_str}))',
+            'pageSize': 500,
+            'pageNumber': 1,
+            'sortColumns': 'NOTICE_DATE',
+            'sortTypes': '-1',
+        }
+        r1 = requests.get('https://datacenter-web.eastmoney.com/api/data/v1/get',
+                         params=params1, headers=headers, timeout=15, proxies=REQUEST_PROXIES)
+        data1 = r1.json()
+        items1 = (data1.get('result') or {}).get('data') or []
+
+        # 过滤掉"每股收益"行；同(code,report_date)只保留一条
+        seen = set()
+        for item in items1:
+            code = str(item.get('SECURITY_CODE', ''))
+            if code not in target_codes:
+                continue
+            notice_date = (str(item.get('NOTICE_DATE') or ''))[:10]
+            if not notice_date or notice_date < cutoff:
+                continue
+            report_date = (str(item.get('REPORT_DATE') or ''))[:10]
+            content = str(item.get('PREDICT_CONTENT') or '')
+            key = (code, report_date)
+            if key in seen:
+                continue
+            # 跳过每股收益(EPS)类预告
+            if '每股收益' in content:
+                continue
+            seen.add(key)
+            period = _report_period_type(report_date)
+            result.append({
+                'code': code,
+                'name': str(item.get('SECURITY_NAME_ABBR') or ''),
+                'row_type': '业绩预告',
+                'sub_type': str(item.get('PREDICT_TYPE') or ''),
+                'notice_date': notice_date,
+                'report_date': report_date,
+                'period': period,
+                'profit_lower': item.get('PREDICT_AMT_LOWER'),
+                'profit_upper': item.get('PREDICT_AMT_UPPER'),
+                'last_profit': item.get('PREYEAR_SAME_PERIOD'),
+                'content': content,
+                'detail_url': _stock_f10_url(code) + '#/yjyg',
+            })
+
+        # ② 业绩快报
+        params2 = {
+            'reportName': 'RPT_FCI_PERFORMANCEE',
+            'columns': 'SECURITY_CODE,SECURITY_NAME_ABBR,REPORT_DATE,UPDATE_DATE,BASIC_EPS,PARENT_NETPROFIT,TOTAL_OPERATE_INCOME,YSTZ,JLRTBZCL',
+            'filter': f'(SECURITY_CODE in ({code_list_str})) AND (REPORT_DATE in ({rpt_dates_str}))',
+            'pageSize': 500,
+            'pageNumber': 1,
+            'sortColumns': 'UPDATE_DATE',
+            'sortTypes': '-1',
+        }
+        r2 = requests.get('https://datacenter-web.eastmoney.com/api/data/v1/get',
+                         params=params2, headers=headers, timeout=15, proxies=REQUEST_PROXIES)
+        data2 = r2.json()
+        items2 = (data2.get('result') or {}).get('data') or []
+
+        seen2 = set()
+        for item in items2:
+            code = str(item.get('SECURITY_CODE', ''))
+            if code not in target_codes:
+                continue
+            update_date = (str(item.get('UPDATE_DATE') or ''))[:10]
+            if not update_date:
+                continue
+            report_date = (str(item.get('REPORT_DATE') or ''))[:10]
+            if report_date < cutoff:
+                continue
+            key = (code, report_date)
+            if key in seen2:
+                continue
+            seen2.add(key)
+            period = _report_period_type(report_date)
+            result.append({
+                'code': code,
+                'name': str(item.get('SECURITY_NAME_ABBR') or ''),
+                'row_type': '业绩快报',
+                'sub_type': period,
+                'notice_date': update_date,
+                'report_date': report_date,
+                'period': period,
+                'eps': item.get('BASIC_EPS'),
+                'profit': item.get('PARENT_NETPROFIT'),
+                'revenue': item.get('TOTAL_OPERATE_INCOME'),
+                'revenue_yoy': item.get('YSTZ'),
+                'profit_yoy': item.get('JLRTBZCL'),
+                'detail_url': _stock_f10_url(code) + '#/cwfx',
+            })
+
+        # ③ 业绩报表
+        params3 = {
+            'reportName': 'RPT_LICO_FN_CPD',
+            'columns': 'SECURITY_CODE,SECURITY_NAME_ABBR,REPORTDATE,UPDATE_DATE,BASIC_EPS,PARENT_NETPROFIT,TOTAL_OPERATE_INCOME,YSTZ,SJLTZ',
+            'filter': f'(SECURITY_CODE in ({code_list_str})) AND (REPORTDATE in ({rpt_dates_str}))',
+            'pageSize': 500,
+            'pageNumber': 1,
+            'sortColumns': 'REPORTDATE',
+            'sortTypes': '-1',
+        }
+        r3 = requests.get('https://datacenter-web.eastmoney.com/api/data/v1/get',
+                         params=params3, headers=headers, timeout=15, proxies=REQUEST_PROXIES)
+        data3 = r3.json()
+        items3 = (data3.get('result') or {}).get('data') or []
+
+        seen3 = set()
+        for item in items3:
+            code = str(item.get('SECURITY_CODE', ''))
+            if code not in target_codes:
+                continue
+            reportdate = (str(item.get('REPORTDATE') or ''))[:10]
+            if not reportdate or reportdate < cutoff:
+                continue
+            key = (code, reportdate)
+            if key in seen3:
+                continue
+            seen3.add(key)
+            update_date = (str(item.get('UPDATE_DATE') or ''))[:10]
+            period = _report_period_type(reportdate)
+            result.append({
+                'code': code,
+                'name': str(item.get('SECURITY_NAME_ABBR') or ''),
+                'row_type': '业绩报表',
+                'sub_type': period,
+                'notice_date': update_date,
+                'report_date': reportdate,
+                'period': period,
+                'eps': item.get('BASIC_EPS'),
+                'profit': item.get('PARENT_NETPROFIT'),
+                'revenue': item.get('TOTAL_OPERATE_INCOME'),
+                'revenue_yoy': item.get('YSTZ'),
+                'profit_yoy': item.get('SJLTZ'),
+                'detail_url': _stock_f10_url(code) + '#/cwfx',
+            })
+
+        # 按股票分组排序（同股票聚在一起，按最新披露日降序），组内按日期降序
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for r_item in result:
+            groups[r_item['code']].append(r_item)
+        sorted_codes = sorted(groups, key=lambda c: max(r['notice_date'] for r in groups[c]), reverse=True)
+        result = []
+        for code in sorted_codes:
+            result.extend(sorted(groups[code], key=lambda r: r['notice_date'], reverse=True))
+
+        return jsonify({'success': True, 'data': result})
+
+    except Exception as e:
+        logger.error(f"获取业绩披露失败: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
 # ==================== 启动 ====================
 
 if __name__ == '__main__':

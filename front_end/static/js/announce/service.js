@@ -46,7 +46,13 @@ function loadAnnounceList() {
         .then(function(res) { return res.json(); })
         .then(function(data) {
             if (data.success) {
-                renderAnnounceList(data.data);
+                var code = document.getElementById('announceStockFilter');
+                var filterCode = code ? code.value : '';
+                var records = data.data;
+                if (filterCode) {
+                    records = records.filter(function(r) { return String(r.code) === filterCode; });
+                }
+                renderAnnounceList(records);
             } else {
                 container.innerHTML = '<div style="text-align:center;color:#e94560;padding:40px;">' + (data.error || '获取失败') + '</div>';
             }
