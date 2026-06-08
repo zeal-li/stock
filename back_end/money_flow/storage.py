@@ -95,6 +95,18 @@ def _is_trading_time():
     return (555 <= t <= 695) or (775 <= t <= 905)
 
 
+def _is_cache_from_today(cached_row, today_str):
+    """检查缓存是否来自今天，兼容 meta 为时间戳(float)或日期字符串"""
+    if not cached_row:
+        return False
+    meta = cached_row[1]
+    if isinstance(meta, (int, float)):
+        cached_day = datetime.datetime.fromtimestamp(meta).strftime('%Y-%m-%d')
+        return cached_day == today_str
+    # 日期字符串，直接比较
+    return meta == today_str
+
+
 def _background_poller():
     """后台线程：启动时检查日期，非当日则全量抓取；交易时段按频率刷新"""
     from money_flow.market import _fetch_and_cache_major_indices, _fetch_and_cache_breadth, _fetch_and_cache_sh_minute, _fetch_and_cache_daily_closes
@@ -104,9 +116,9 @@ def _background_poller():
 
     today = datetime.date.today().strftime('%Y-%m-%d')
 
-    # 检查是否已有当日数据
+    # 检查是否已有当日数据（兼容 meta 为时间戳或日期字符串）
     cached = db_get(_MAJOR_INDICES_KEY)
-    need_full_fetch = not cached or (isinstance(cached[1], str) and cached[1] != today)
+    need_full_fetch = not _is_cache_from_today(cached, today)
     if need_full_fetch:
         _fetch_and_cache_major_indices()
         _fetch_and_cache_breadth()

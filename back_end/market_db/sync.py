@@ -231,6 +231,12 @@ def _refresh_stock_list():
 
 # =========== 步骤 2：同步 K 线 ===========
 
+def _parse_date(date_str):
+    """将 'YYYYMMDD' 字符串转为 date 对象"""
+    import datetime as _dt
+    return _dt.datetime.strptime(date_str, '%Y%m%d').date()
+
+
 def _fetch_kline(code, seg_key, period, start_date, end_date):
     """获取 K 线：A股用腾讯 API，港股/美股用 Yahoo Finance"""
     import requests as _rq
@@ -245,8 +251,8 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     # 增量场景：计算实际需要的条数，减少不必要的网络传输
     if start_date and start_date != '19900101' and end_date:
         try:
-            start_dt = datetime.date.fromisoformat(start_date[:4] + '-' + start_date[4:6] + '-' + start_date[6:8])
-            end_dt = datetime.date.fromisoformat(end_date[:4] + '-' + end_date[4:6] + '-' + end_date[6:8])
+            start_dt = _parse_date(start_date)
+            end_dt = _parse_date(end_date)
             delta_days = (end_dt - start_dt).days
             if period == 'daily':
                 need = min(delta_days + 10, 800)  # 按间隔天数 + 缓冲
@@ -430,12 +436,6 @@ def _latest_possible_trading_day():
     elif wd == 6:    # 周日 → 周五
         return (today - datetime.timedelta(days=2)).strftime('%Y%m%d')
     return today.strftime('%Y%m%d')
-
-
-def _parse_date(date_str):
-    """将 'YYYYMMDD' 字符串转为 date 对象"""
-    import datetime as _dt
-    return _dt.datetime.strptime(date_str, '%Y%m%d').date()
 
 
 def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('daily', 'weekly', 'monthly'), force_today=False):
