@@ -1,6 +1,6 @@
 # 鑫多多
 
-A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股（SQLite 持久化）、K 线弹窗、融资融券、恐慌/风险指数、技术选股。
+A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股（SQLite 持久化）、K 线弹窗、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告。
 
 ## 目录结构
 
@@ -72,6 +72,14 @@ stock/
 │           ├── money_flow/            # 资金流向前端
 │           │   ├── charts.js          # 资金流图表渲染（ECharts）
 │           │   └── refresh.js         # 数据刷新逻辑
+│           ├── technical_screen/      # 技术选股前端
+│           │   └── page.js            # 市场选择 + 选股按钮 + 结果渲染
+│           ├── unlock-list/           # 解禁列表前端
+│           │   └── service.js         # 解禁数据获取 + 表格渲染 + 股票筛选
+│           ├── announce/               # 公司公告前端
+│           │   └── service.js         # 公告获取 + 表格渲染 + 股票筛选 + 颜色标记
+│           ├── earnings/              # 业绩报告前端
+│           │   └── service.js         # 业绩预告/快报/报表获取 + 渲染 + 股票筛选
 │           ├── stock_pick/            # 选股前端
 │           │   └── service.js         # 搜索 + 缓存 + 渲染
 │           └── watchlist/             # 自选股前端
@@ -91,9 +99,9 @@ stock/
 | 选股 | 多市场股票搜索（A股/港股/美股）、实时行情查询 | ✅ |
 | 技术选股 | 按市场分段异步加载 K 线、**上升通道**扫描（线性回归评分排序） | ✅ |
 | K 线弹窗 | LightweightCharts 蜡烛图、日K/周K/月K、分时图、五日分时、MA/布林线（A股/港股/美股通用） | ✅ |
-| 解禁列表 | 限售股解禁信息 | 🚧 |
-| 业绩披露 | 上市公司业绩公告 | 🚧 |
-| 公司公告 | 上市公司公告信息 | 🚧 |
+| 解禁列表 | 限售股解禁信息（近一月），支持股票筛选 | ✅ |
+| 业绩报告 | 业绩预告 + 业绩快报 + 业绩报表（近两年），支持年报/半年报/一季报/三季报细分，支持股票筛选 | ✅ |
+| 公司公告 | 上市公司公告信息（最近 15 天），按重要性颜色标记，支持股票筛选 | ✅ |
 | 异动中心 | 盘面异动监控 | 🚧 |
 
 ## SQLite 数据库表结构
@@ -375,6 +383,11 @@ app.run()
 | `GET /api/stock-kline` | 个股K线（日/周/月） | A股：腾讯（前复权）+ 同花顺（成交额/换手率）；港股美股：Yahoo Finance |
 | `GET /api/search-stock` | 股票搜索（名称/代码）+ 实时行情 | 东方财富 searchapi |
 | `GET /api/goodwill` | 商誉率 + 质押率（10 线程并发） | 东方财富 财务报表 + 数据中心 |
+| `GET /api/stock-concepts` | 单只股票核心概念题材 | 东方财富 CoreConception |
+| `GET /api/stock-biz-comp` | 单只股票主营构成（按产品分类） | 东方财富 BusinessAnalysis |
+| `GET /api/lifting` | 自选股+选股列表限售股解禁（近一月） | adata 库 |
+| `GET /api/announcements` | 自选股+选股列表公司公告（近 15 天） | 东方财富 公告 API |
+| `GET /api/earnings` | 自选股+选股列表业绩报告（近两年）：业绩预告 + 业绩快报 + 业绩报表 | 东方财富 数据中心 |
 
 ### 聚合计算（基于缓存）
 
@@ -459,6 +472,27 @@ app.run()
 | 加载市场数据 | 点击"加载"按钮 | `POST market-db/init/{key}` + `GET init/status`（每 1s 轮询进度） | 手动 |
 | 运行选股 | 点击"上升通道"按钮 | `POST ascending-channel` + `GET status`（每 2s 轮询进度） | 手动 |
 
+#### 解禁列表页
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 导航切换 | `loadUnlockList()` | `GET /api/lifting?codes={codes}` | 收集自选+选股代码 → 调 adata 获取近一月解禁 → 表格渲染 |
+| 股票筛选 | 下拉框 onchange | 复用已加载数据前端过滤 | 仅显示选中股票 |
+
+#### 业绩报告页
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 导航切换 | `loadEarningsList()` | `GET /api/earnings?codes={codes}` | 收集自选+选股代码 → 并行调三个东方财富数据中心 API → 按股票分组排序渲染 |
+| 股票筛选 | 下拉框 onchange | 复用已加载数据前端过滤 | 仅显示选中股票 |
+
+#### 公司公告页
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 导航切换 | `loadAnnounceList()` | `GET /api/announcements?codes={codes}` | 收集自选+选股代码 → 调东方财富公告 API（近 15 天）→ 按公告类型颜色标记渲染 |
+| 股票筛选 | 下拉框 onchange | 复用已加载数据前端过滤 | 仅显示选中股票 |
+
 #### 前端定时器汇总
 
 | 定时器 | 间隔 | 作用域 | 条件 |
@@ -497,6 +531,12 @@ app.run()
 | 股票搜索 | `searchapi.eastmoney.com/api/suggest/get` |
 | 商誉率 | `emweb.securities.eastmoney.com/PC_HSF10/FinanceAnalysis/FinanceAnalysis` + `NewFinanceAnalysis/ZYZWNewFinanceAnalysis` |
 | 质押率 | `datacenter-web.eastmoney.com/api/data/v1/get` |
+| 股票核心概念题材 | `emweb.securities.eastmoney.com/PC_HSF10/CoreConception/PageAjax` |
+| 主营构成（按产品分类） | `emweb.securities.eastmoney.com/PC_HSF10/BusinessAnalysis/PageAjax` |
+| 公司公告 | `np-anotice-stock.eastmoney.com/api/security/ann` |
+| 业绩预告 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_PUBLIC_OP_NEWPREDICT） |
+| 业绩快报 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_FCI_PERFORMANCEE） |
+| 业绩报表 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_LICO_FN_CPD） |
 
 ### 腾讯证券
 
@@ -524,6 +564,12 @@ app.run()
 |------|------|
 | 港股 / 美股 K 线（日/周/月） | `query1.finance.yahoo.com/v8/finance/chart/{symbol}` |
 | 港股 / 美股多日分时 | `query1.finance.yahoo.com/v8/finance/chart/{symbol}` |
+
+### adata（Python 库）
+
+| 数据 | 接口 |
+|------|------|
+| 限售股解禁（近一月） | `adata.sentiment.stock_lifting_last_month()` |
 
 ### 交易所
 
