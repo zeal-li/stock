@@ -1,6 +1,6 @@
 # 鑫多多
 
-A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股（SQLite 持久化）、K 线弹窗、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告。
+A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股（SQLite 持久化）、K 线弹窗、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告、异动中心。
 
 ## 目录结构
 
@@ -53,6 +53,10 @@ stock/
 │   │   ├── __init__.py
 │   │   └── service.py                 # 上升通道扫描（基于本地 K 线缓存）
 │   │
+│   ├── abnormal_center/               # 异动中心模块
+│   │   ├── __init__.py
+│   │   └── service.py                 # 异动预测/监控 API 代理 + 股票异动分析
+│   │
 │   └── watchlist/                     # 自选股模块
 │       ├── __init__.py
 │       └── service.py                 # 自选股 SQLite CRUD
@@ -80,6 +84,8 @@ stock/
 │           │   └── service.js         # 公告获取 + 表格渲染 + 股票筛选 + 颜色标记
 │           ├── earnings/              # 业绩报告前端
 │           │   └── service.js         # 业绩预告/快报/报表获取 + 渲染 + 股票筛选
+│           ├── abnormal/              # 异动中心前端
+│           │   └── service.js         # 异动预测/监控 + 异动分析器 + 搜索历史
 │           ├── stock_pick/            # 选股前端
 │           │   └── service.js         # 搜索 + 缓存 + 渲染
 │           └── watchlist/             # 自选股前端
@@ -102,7 +108,7 @@ stock/
 | 解禁列表 | 限售股解禁信息（近一月），支持股票筛选 | ✅ |
 | 业绩报告 | 业绩预告 + 业绩快报 + 业绩报表（近两年），支持年报/半年报/一季报/三季报细分，支持股票筛选 | ✅ |
 | 公司公告 | 上市公司公告信息（最近 15 天），按重要性颜色标记，支持股票筛选 | ✅ |
-| 异动中心 | 盘面异动监控 | 🚧 |
+| 异动中心 | 异动预测（接近异常波动阈值的股票）+ 异动监控（已触发交易所监控的股票）+ 异动分析器（单股偏离度/回撤/均线偏离分析） | ✅ |
 
 ## SQLite 数据库表结构
 
@@ -323,7 +329,7 @@ _cleanup_delisted()
 
 ### 缓存清理
 
-清除缓存按钮调用 `clearAllCaches()` 清除 `kl_cache` / `stockCache` / `watchlistCache` 三个 key，同时立即刷新页面列表。
+清除缓存按钮调用 `clearAllCaches()` 清除 `kl_cache` / `stockCache` / `watchlistCache` / `abnormal-calc-history-v1` / `stock-search-history-v1` 五个 key，同时立即刷新页面列表。
 
 ## 数据同步流程
 
@@ -388,6 +394,9 @@ app.run()
 | `GET /api/lifting` | 自选股+选股列表限售股解禁（近一月） | adata 库 |
 | `GET /api/announcements` | 自选股+选股列表公司公告（近 15 天） | 东方财富 公告 API |
 | `GET /api/earnings` | 自选股+选股列表业绩报告（近两年）：业绩预告 + 业绩快报 + 业绩报表 | 东方财富 数据中心 |
+| `GET /api/abnormal/prediction` | 异动预测（接近交易所异常波动阈值的股票，按 今日/次日/未标记 分组） | 悟道数据（stock.quicktiny.cn） |
+| `GET /api/abnormal/monitor` | 异动监控（已被交易所重点监控的股票列表，含统计） | 悟道数据（stock.quicktiny.cn） |
+| `POST /api/abnormal/analyze` | 异动分析器（单只股票偏离度/回撤/均线偏离/涨跌停价测算） | 腾讯 K 线 API + 本地计算 |
 
 ### 聚合计算（基于缓存）
 
@@ -493,6 +502,16 @@ app.run()
 | 导航切换 | `loadAnnounceList()` | `GET /api/announcements?codes={codes}` | 收集自选+选股代码 → 调东方财富公告 API（近 15 天）→ 按公告类型颜色标记渲染 |
 | 股票筛选 | 下拉框 onchange | 复用已加载数据前端过滤 | 仅显示选中股票 |
 
+#### 异动中心
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 导航切换 | `loadAbnormalCenter()` | 按当前 Tab 调用对应 API | 三个 Tab 懒加载：切换 Tab 时才请求数据 |
+| 切换 Tab | `switchAbnormalTab(tab)` | 按需调用 | 预测/监控 Tab 每次切换重新拉取最新数据 |
+| 分析器搜索 | 输入框 oninput（防抖） | `search-stock` | 实时搜索股票名称/代码 |
+| 分析器执行 | 点击"分析"按钮 | `POST abnormal/analyze` | 调腾讯 K 线 → 计算偏离度/回撤/均线等指标 → 渲染分析卡片 |
+| 分析器历史 | 每次分析自动保存 | localStorage | 上限 10 条，重复去重，点击历史标签快捷重新分析 |
+
 #### 前端定时器汇总
 
 | 定时器 | 间隔 | 作用域 | 条件 |
@@ -511,8 +530,10 @@ app.run()
 | `kl_cache` | K线弹窗 | K线/分时/五日/行情/商誉/量比委比 | 纯缓存 | 跨天全删；交易时段关闭弹窗清除非商誉缓存 |
 | `stockCache` | 选股页 | 已选股票列表 + 商誉/质押 | 纯缓存，后端无持久化 | 跨天商誉失效，列表保留 |
 | `watchlistCache` | 自选股页 | 自选股数据补充（商誉/质押） | API 为权威来源（`watchlist.db`），缓存仅作补充 | 跨天商誉失效；API 返回的列表覆盖缓存中多余条目 |
+| `abnormal-calc-history-v1` | 异动中心（分析器） | 搜索历史 [{code, name, market}] | 纯前端持久化，上限 10 条 | 跨天保留 |
+| `stock-search-history-v1` | 选股页 | 搜索历史 [{code, name, market}] | 纯前端持久化，上限 10 条 | 跨天保留 |
 
-手动清理：点击"清理缓存"按钮 → 删除全部三个 key → 重新加载列表。
+手动清理：点击"清理缓存"按钮 → 删除全部五个 key → 重新加载列表。
 
 ## 数据源
 
@@ -570,6 +591,15 @@ app.run()
 | 数据 | 接口 |
 |------|------|
 | 限售股解禁（近一月） | `adata.sentiment.stock_lifting_last_month()` |
+
+### 悟道数据（Wudao Ashare）
+
+| 数据 | 接口 |
+|------|------|
+| 异动预测（接近交易所异常波动阈值） | `stock.quicktiny.cn/api/ladder/exchange-monitor/prediction` |
+| 异动监控（已触发交易所监控） | `stock.quicktiny.cn/api/ladder/exchange-monitor/list?type=all` |
+
+> 开源项目：[github.com/jcdreamjc/wudao-ashare](https://github.com/jcdreamjc/wudao-ashare)，专为 AI Agent 设计的 A 股实时数据套件（26 个 API），本项目仅代理其中异动相关接口。
 
 ### 交易所
 
