@@ -107,6 +107,14 @@ def _is_cache_from_today(cached_row, today_str):
     return meta == today_str
 
 
+def _effective_today_str():
+    """返回有效的"今天"日期：开盘前（<9:00）退回昨天，因为当天数据还不存在"""
+    now = datetime.datetime.now()
+    if now.weekday() < 5 and now.hour < 9:
+        return (now - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+    return now.strftime('%Y-%m-%d')
+
+
 def _background_poller():
     """后台线程：启动时检查日期，非当日则全量抓取；交易时段按频率刷新"""
     from money_flow.market import _fetch_and_cache_major_indices, _fetch_and_cache_breadth, _fetch_and_cache_sh_minute, _fetch_and_cache_daily_closes
@@ -114,7 +122,7 @@ def _background_poller():
     from money_flow.turnover import _fetch_and_cache_turnover
     from money_flow.margin import _fetch_and_cache_margin
 
-    today = datetime.date.today().strftime('%Y-%m-%d')
+    today = _effective_today_str()
 
     # 检查是否已有当日数据（兼容 meta 为时间戳或日期字符串）
     cached = db_get(_MAJOR_INDICES_KEY)

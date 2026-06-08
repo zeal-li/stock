@@ -16,7 +16,7 @@ from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
 import logging
 logger = logging.getLogger(__name__)
-from technical_screen.service import run_ascending_channel_async, get_scan_status
+from technical_screen.service import run_scan_async, run_ascending_channel_async, get_scan_status, get_strategies
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock
 
 import sys as _sys, os as _os
@@ -590,11 +590,17 @@ def stock_kline():
 
 # ==================== 技术选股 ====================
 
+@app.route('/api/technical/strategies')
+def technical_strategies():
+    """返回可用策略列表"""
+    return jsonify({'success': True, 'data': get_strategies()})
+
 @app.route('/api/technical/ascending-channel', methods=['POST'])
 def technical_ascending_channel_start():
-    """启动扫描"""
+    """启动扫描（支持 strategy 参数）"""
     market = request.args.get('market', '')
-    result = run_ascending_channel_async(market=market)
+    strategy_key = request.args.get('strategy', 'ascending_channel')
+    result = run_scan_async(strategy_key, market=market)
     return jsonify(result)
 
 @app.route('/api/technical/ascending-channel/status')

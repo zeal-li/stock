@@ -3,6 +3,47 @@
 var _techPollTimer = null;
 var _segData = [];
 var _curMarketKey = null;
+var _strategies = [];
+var _curStrategyKey = null;
+
+function _loadStrategies() {
+    return fetch('/api/technical/strategies').then(function(r){return r.json()}).then(function(data){
+        _strategies = data.data || [];
+        if (_strategies.length > 0 && !_curStrategyKey) {
+            _selectStrategy(_strategies[0].key);
+        }
+        _renderStrategyList();
+    }).catch(function(){});
+}
+
+function _renderStrategyList() {
+    var list = document.getElementById('techStrategyList');
+    var html = '';
+    _strategies.forEach(function(s) {
+        var active = s.key === _curStrategyKey ? ' style="background:#fbbf24;color:#000;"' : ' style="background:#1a1a2e;border:1px solid #0f3460;color:#ccc;cursor:pointer;"';
+        html += '<span' + active + ' onclick="_selectStrategy(\'' + s.key + '\')" title="' + s.desc + '">' + s.name + '</span>';
+    });
+    list.innerHTML = html;
+}
+
+function _selectStrategy(key) {
+    var s = _strategies.find(function(x){return x.key === key;});
+    if (!s) return;
+    _curStrategyKey = key;
+    var nameEl = document.getElementById('techStrategyName');
+    nameEl.textContent = s.name;
+    nameEl.style.display = 'inline';
+    document.getElementById('techStrategyPicker').style.display = 'none';
+    document.getElementById('techScreenStatus').textContent = '';
+    _renderStrategyList();
+}
+
+function toggleStrategyPicker() {
+    var picker = document.getElementById('techStrategyPicker');
+    var isVisible = picker.style.display === 'block';
+    picker.style.display = isVisible ? 'none' : 'block';
+    if (!isVisible) _renderStrategyList();
+}
 
 function _onMarketSelect() {
     var key = document.getElementById('techMarket').value;
@@ -94,6 +135,7 @@ function _refreshSegments() {
 }
 
 _refreshSegments();
+_loadStrategies();
 
 var _initPollTimer = null;
 var _loadingMarketKey = null;
@@ -348,13 +390,14 @@ function _techRenderTable(data) {
 async function runTechScreen() {
     var status = document.getElementById('techScreenStatus');
     var btn = document.getElementById('techScreenBtn');
+    if (!_curStrategyKey) { status.textContent = '请先选择策略'; status.style.color = '#e94560'; return; }
     if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
     status.textContent = '启动扫描...';
     status.style.color = '#fbbf24';
     btn.disabled = true;
     try {
         var mkt = document.getElementById('techMarket').value;
-        var res = await fetch('/api/technical/ascending-channel?market=' + encodeURIComponent(mkt), { method: 'POST' });
+        var res = await fetch('/api/technical/ascending-channel?market=' + encodeURIComponent(mkt) + '&strategy=' + encodeURIComponent(_curStrategyKey), { method: 'POST' });
         var data = await res.json();
         if (!data.success) { status.textContent = data.error; status.style.color = '#e94560'; btn.disabled = false; return; }
         _techPollTimer = setInterval(async function() {

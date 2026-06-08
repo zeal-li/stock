@@ -427,10 +427,17 @@ def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
 
 
 def _latest_possible_trading_day():
-    """估算最近的交易日：周末回退到周五，避免非交易日触发无意义的增量拉取
+    """估算最近的交易日：开盘前退回上一交易日，周末退回周五
     返回 'YYYYMMDD' 格式，与 stock_info.latest_kline_date 保持一致"""
-    today = datetime.date.today()
+    now = datetime.datetime.now()
+    today = now.date()
     wd = today.weekday()  # 0=Mon ... 6=Sun
+
+    # 工作日但未到 9:00（A股 9:15 开盘），最新 K 线还停留在昨天
+    if wd < 5 and now.hour < 9:
+        today = today - datetime.timedelta(days=1)
+        wd = today.weekday()
+
     if wd == 5:      # 周六 → 周五
         return (today - datetime.timedelta(days=1)).strftime('%Y%m%d')
     elif wd == 6:    # 周日 → 周五
