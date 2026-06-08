@@ -9,6 +9,9 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+    <!-- 汉堡菜单（移动端） -->
+    <button class="hamburger" onclick="toggleSidebar()">☰</button>
+    <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
     <div class="container">
         <div class="sidebar">
             <div class="logo">
@@ -211,6 +214,20 @@
             });
         }
 
+        // 移动端侧边栏折叠
+        function toggleSidebar() {
+            var sidebar = document.querySelector('.sidebar');
+            var overlay = document.querySelector('.sidebar-overlay');
+            var isOpen = sidebar.classList.contains('show');
+            if (isOpen) {
+                sidebar.classList.remove('show');
+                overlay.classList.remove('show');
+            } else {
+                sidebar.classList.add('show');
+                overlay.classList.add('show');
+            }
+        }
+
         // 左侧导航
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', function() {
@@ -230,6 +247,11 @@
                 if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }
                 if (page === 'earnings') { populateStockFilters(); loadEarningsList(); }
                 if (page === 'announce') { populateStockFilters(); loadAnnounceList(); }
+                // 移动端点击导航后自动收回侧边栏
+                var sidebar = document.querySelector('.sidebar');
+                if (sidebar.classList.contains('show')) {
+                    toggleSidebar();
+                }
             });
         });
 
