@@ -6,6 +6,8 @@ function clearAllCaches() {
         localStorage.removeItem('kl_cache');
         localStorage.removeItem('stockCache');
         localStorage.removeItem('watchlistCache');
+        localStorage.removeItem('abnormal-calc-history-v1');
+        localStorage.removeItem('stock-search-history-v1');
     } catch(e) {}
     // 刷新页面上的列表（从已空的缓存重新加载）
     try { loadPickedStocks(); } catch(e) {}

@@ -144,7 +144,7 @@
             <!-- 异动中心页面 -->
             <div id="page-abnormal" style="display:none;">
                 <div class="page-header"><h1 class="page-title">⚡ 异动中心</h1></div>
-                <div class="index-card" style="padding:40px;text-align:center;color:#888;">功能开发中...</div>
+                <div id="abnormal-main"></div>
             </div>
 
             <!-- 选股页面 -->
@@ -159,6 +159,7 @@
                         </div>
                         <div id="searchResults" style="position:absolute; left:0; right:0; top:56px; z-index:10; background:#16213e; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);"></div>
                     </div>
+                    <div id="searchHistory" style="margin-top:8px;"></div>
                     <div id="pickedStocks" style="margin-top:8px;"></div>
                 </div>
             </div>
@@ -247,6 +248,7 @@
                 if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }
                 if (page === 'earnings') { populateStockFilters(); loadEarningsList(); }
                 if (page === 'announce') { populateStockFilters(); loadAnnounceList(); }
+                if (page === 'abnormal') loadAbnormalCenter();
                 // 移动端点击导航后自动收回侧边栏
                 var sidebar = document.querySelector('.sidebar');
                 if (sidebar.classList.contains('show')) {
@@ -271,6 +273,7 @@
     <script src="/static/js/unlock-list/service.js"></script>
     <script src="/static/js/announce/service.js"></script>
     <script src="/static/js/earnings/service.js"></script>
+    <script src="/static/js/abnormal/service.js"></script>
 
     <!-- 启动（所有 JS 加载完毕后执行） -->
     <script>

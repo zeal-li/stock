@@ -17,6 +17,7 @@ from watchlist.service import get_all, add, remove as wl_remove
 import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_ascending_channel_async, get_scan_status
+from abnormal_center.service import get_prediction, get_monitor, analyze_stock
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -966,6 +967,26 @@ def earnings_list():
     except Exception as e:
         logger.error(f"获取业绩披露失败: {e}")
         return jsonify({'success': False, 'error': str(e)})
+
+
+# ==================== 异动中心 ====================
+
+@app.route('/api/abnormal/prediction')
+def abnormal_prediction():
+    """异动预测：接近异常波动阈值的股票"""
+    return jsonify(get_prediction())
+
+@app.route('/api/abnormal/monitor')
+def abnormal_monitor():
+    """异动监控：已被交易所重点监控的股票"""
+    return jsonify(get_monitor())
+
+@app.route('/api/abnormal/analyze', methods=['POST'])
+def abnormal_analyze():
+    """异动分析器：单只股票异常分析"""
+    code = request.form.get('code', '').strip()
+    market = request.form.get('market', '').strip()
+    return jsonify(analyze_stock(code, market))
 
 
 # ==================== 启动 ====================

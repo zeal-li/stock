@@ -8,6 +8,41 @@ var selectedSearchIdx = -1;
 // 已选股票
 var pickedStocks = [];
 
+// 搜索历史
+var searchHistory = [];
+var SEARCH_HISTORY_KEY = 'stock-search-history-v1';
+var SEARCH_HISTORY_LIMIT = 10;
+
+function loadSearchHistory() {
+    try {
+        searchHistory = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
+    } catch(e) { searchHistory = []; }
+}
+
+function saveSearchHistory(code, name, market) {
+    searchHistory = searchHistory.filter(function(s) { return s.code !== code; });
+    searchHistory.unshift({ code: code, name: name, market: market });
+    searchHistory = searchHistory.slice(0, SEARCH_HISTORY_LIMIT);
+    try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searchHistory)); } catch(e) {}
+    renderSearchHistory();
+}
+
+function renderSearchHistory() {
+    var div = document.getElementById('searchHistory');
+    if (!div) return;
+    if (searchHistory.length === 0) { div.innerHTML = ''; return; }
+    var html = '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">' +
+        '<span style="color:#666;font-size:12px;">最近搜索:</span>';
+    searchHistory.forEach(function(s) {
+        var label = s.name || s.code;
+        html += '<span style="padding:3px 10px;background:#0f3460;border-radius:4px;color:#ccc;font-size:11px;cursor:pointer;" ' +
+            'onclick="pickStock(\'' + s.code + '\',\'' + (s.name || '').replace(/'/g, '\\\'') + '\',\'' + (s.market || '') + '\')">' +
+            label + '</span>';
+    });
+    html += '</div>';
+    div.innerHTML = html;
+}
+
 // 股票搜索（防抖）
 function debounceSearch() {
     clearTimeout(searchTimer);
@@ -111,6 +146,8 @@ function createStock(code, name, market, goodwill, info) {
 }
 
 function loadPickedStocks() {
+    loadSearchHistory();
+    renderSearchHistory();
     try {
         let stocks = null;
         const raw = JSON.parse(localStorage.getItem('stockCache') || 'null');
@@ -141,6 +178,7 @@ async function pickStock(code, name, market) {
     if (pickedStocks.find(s => s.code === code)) return;
     pickedStocks.push(createStock(code, name, market));
     saveCache();
+    saveSearchHistory(code, name, market);
     document.getElementById('searchInput').value = '';
     document.getElementById('searchResults').innerHTML = '';
     searchResultsData = []; selectedSearchIdx = -1;
