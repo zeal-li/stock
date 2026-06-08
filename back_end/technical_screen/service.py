@@ -3,6 +3,7 @@ import os, json, threading, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .strategies.ascending_channel import calc as ascending_channel_calc
+from .strategies.extreme_shrink_doji import calc as extreme_shrink_doji_calc
 
 # 策略注册表：{key: {name, calc, desc}}
 STRATEGIES = {
@@ -10,6 +11,11 @@ STRATEGIES = {
         'name': '上升通道',
         'calc': ascending_channel_calc,
         'desc': '基于线性回归检测股价是否处于上升通道中，通道斜率向上、拟合度高、价格位于中下轨且成交量配合为佳',
+    },
+    'extreme_shrink_doji': {
+        'name': '极致缩量十字星',
+        'calc': extreme_shrink_doji_calc,
+        'desc': '检测出现十字星且成交量极低的股票，实体极小、上下影线均衡、缩至地量，往往预示变盘',
     },
 }
 
@@ -114,7 +120,9 @@ def _do_scan(strategy_key, market, max_workers):
             for future in as_completed(futures):
                 try:
                     r = future.result()
-                    if r: results.append(r)
+                    if r:
+                        r['market'] = market
+                        results.append(r)
                 except Exception:
                     pass
                 _scan_state['done'] += 1

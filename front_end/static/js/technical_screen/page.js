@@ -9,9 +9,6 @@ var _curStrategyKey = null;
 function _loadStrategies() {
     return fetch('/api/technical/strategies').then(function(r){return r.json()}).then(function(data){
         _strategies = data.data || [];
-        if (_strategies.length > 0 && !_curStrategyKey) {
-            _selectStrategy(_strategies[0].key);
-        }
         _renderStrategyList();
     }).catch(function(){});
 }
@@ -30,12 +27,24 @@ function _selectStrategy(key) {
     var s = _strategies.find(function(x){return x.key === key;});
     if (!s) return;
     _curStrategyKey = key;
-    var nameEl = document.getElementById('techStrategyName');
-    nameEl.textContent = s.name;
-    nameEl.style.display = 'inline';
+    var el = document.getElementById('techStrategyName');
+    el.innerHTML = '<span>' + s.name + '</span><span style="cursor:pointer;margin-left:4px;color:#888;font-size:12px;" onclick="event.stopPropagation();_clearStrategy();">\u00d7</span>';
+    el.style.display = 'inline-flex';
+    el.style.alignItems = 'center';
     document.getElementById('techStrategyPicker').style.display = 'none';
     document.getElementById('techScreenStatus').textContent = '';
     _renderStrategyList();
+}
+
+function _clearStrategy() {
+    _curStrategyKey = null;
+    var el = document.getElementById('techStrategyName');
+    el.style.display = 'none';
+    el.innerHTML = '';
+    // 清掉之前的扫描结果
+    if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
+    document.getElementById('techScreenResult').innerHTML = '';
+    document.getElementById('techScreenStatus').textContent = '';
 }
 
 function toggleStrategyPicker() {
@@ -365,25 +374,41 @@ function clearMarket() {
         });
 }
 
-function _techRenderTable(data) {
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>价格</th><th>评分</th><th>通道上轨</th><th>通道下轨</th><th>位置%</th><th>通道宽%</th><th>量比</th></tr></thead><tbody>';
-    data.forEach(function(s) {
-        var d = s.detail || {};
+var _marketLabels = {
+    'sh_main': '沪A', 'sz_main': '深A', 'gem': '创业板', 'star': '科创板',
+    'bj': '北交所', 'sh_etf': '沪ETF', 'sz_etf': '深ETF', 'hk_main': '港股', 'us_main': '美股'
+};
+
+async function _techRenderTable(results) {
+    if (!results || results.length === 0) {
+        document.getElementById('techScreenResult').innerHTML = '';
+        return;
+    }
+    // 拉实时行情
+    var quotes = {};
+    try {
+        var secids = results.map(function(s) { return s.market + '.' + s.code; }).join(',');
+        var qr = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(secids));
+        var qd = await qr.json();
+        if (qd.success) quotes = qd.data;
+    } catch(e) {}
+
+    var rowsHtml = '';
+    results.forEach(function(s) {
         var c = String(s.code);
-        var mk = (/^(6|9|5|11)/.test(c)) ? '1' : '0';
-        html += '<tr>' +
-            '<td><span style="color:#888;">' + s.code + '</span></td>' +
-            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + mk + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
-            '<td><span style="color:#ddd;">' + s.price + '</span></td>' +
+        var mk = s.market || '';
+        var popupMk = (/^(6|9|5|11)/.test(c)) ? '1' : '0';
+        var q = quotes[mk + '.' + c] || {};
+        var price = q.price || s.price || '-';
+        rowsHtml += '<tr>' +
+            '<td><span style="color:#888;">' + c + '</span></td>' +
+            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + c + '\',\'' + popupMk + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
+            '<td><span style="color:#8b8b9e;">' + (_marketLabels[mk] || mk) + '</span></td>' +
+            '<td><span style="color:#ddd;">' + price + '</span></td>' +
             '<td><span style="color:#fbbf24;font-weight:bold;">' + s.score + '</span></td>' +
-            '<td><span style="color:#ef5350;">' + d.upper + '</span></td>' +
-            '<td><span style="color:#26a69a;">' + d.lower + '</span></td>' +
-            '<td><span style="color:#ddd;">' + d.pos + '%</span></td>' +
-            '<td><span style="color:#ddd;">' + d.channel_width_pct + '%</span></td>' +
-            '<td><span style="color:#ddd;">' + d.vol_ratio + '</span></td>' +
         '</tr>';
     });
-    html += '</tbody></table></div>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>评分</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
     document.getElementById('techScreenResult').innerHTML = html;
 }
 

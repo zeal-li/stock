@@ -92,13 +92,14 @@
                 </div>
                 <!-- 选股策略 -->
                 <div class="index-card" style="padding:12px 15px;margin-bottom:6px;">
-                    <button class="refresh-btn" onclick="runTechScreen()" id="techScreenBtn" disabled>搜索</button>
-                    <button class="refresh-btn" style="margin-left:4px;width:28px;text-align:center;padding:0;font-size:16px;" onclick="toggleStrategyPicker()" id="techStrategyAddBtn">+</button>
-                    <span id="techStrategyName" style="display:none;margin-left:6px;padding:2px 8px;background:#0f3460;border-radius:3px;font-size:12px;color:#fbbf24;"></span>
+                    <span style="color:#8b8b9e;margin-right:8px;">策略:</span>
+                    <button class="refresh-btn" onclick="runTechScreen()" id="techScreenBtn" disabled style="padding:6px 14px;font-size:13px;">搜索</button>
+                    <button class="refresh-btn" style="margin-left:6px;width:28px;text-align:center;padding:0;font-size:16px;" onclick="toggleStrategyPicker()" id="techStrategyAddBtn">+</button>
+                    <span id="techScreenStatus" style="color:#8b8b9e;margin-left:10px;font-size:12px;"></span>
+                    <div id="techStrategyName" style="display:none;margin-top:6px;padding:2px 8px;background:#0f3460;border-radius:3px;font-size:12px;color:#fbbf24;width:fit-content;"></div>
                     <div id="techStrategyPicker" style="display:none;margin-top:8px;">
                         <div id="techStrategyList" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
                     </div>
-                    <div id="techScreenStatus" style="color:#8b8b9e;margin-top:8px;font-size:12px;"></div>
                 </div>
                 <!-- 结果列表 -->
                 <div class="index-card" style="padding:15px;">
