@@ -102,7 +102,9 @@
             <!-- 解禁列表页面 -->
             <div id="page-unlock-list" style="display:none;">
                 <div class="page-header"><h1 class="page-title">🔓 解禁列表</h1></div>
-                <div class="index-card" style="padding:40px;text-align:center;color:#888;">功能开发中...</div>
+                <div class="index-card" style="padding:30px;">
+                    <div id="unlockListContent"></div>
+                </div>
             </div>
 
             <!-- 业绩披露页面 -->
@@ -178,6 +180,7 @@
                 document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
                 document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
+                if (page === 'unlock-list') loadUnlockList();
             });
         });
 
@@ -194,6 +197,7 @@
     <script src="/static/js/kline/popup.js"></script>
     <script src="/static/js/money_flow/refresh.js"></script>
     <script src="/static/js/technical_screen/page.js"></script>
+    <script src="/static/js/unlock-list/service.js"></script>
 
     <!-- 启动（所有 JS 加载完毕后执行） -->
     <script>

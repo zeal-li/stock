@@ -14,6 +14,8 @@ from money_flow.margin import get_margin_trading
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
+import logging
+logger = logging.getLogger(__name__)
 from technical_screen.service import run_ascending_channel_async, get_scan_status
 
 import sys as _sys, os as _os
@@ -636,6 +638,50 @@ def market_db_status():
     list_count = len(list_stocks_all())
     detail_count = len(detail_info_all())
     return jsonify({'list_stocks': list_count, 'detail_stocks': detail_count})
+
+
+# ==================== 解禁列表 ====================
+
+@app.route('/api/lifting')
+def lifting_list():
+    """获取自选股+选股列表中股票的限售股解禁信息"""
+    try:
+        # ① 收集自选股代码
+        wl_rows = get_all()
+        wl_codes = {r[0] for r in wl_rows}
+
+        # ② 收集前端传入的选股代码
+        pick_codes_raw = request.args.get('codes', '').split(',')
+        pick_codes = {c.strip() for c in pick_codes_raw if c.strip()}
+
+        target_codes = wl_codes | pick_codes
+        if not target_codes:
+            return jsonify({'success': True, 'data': []})
+
+        # ③ 从 adata 获取近一个月全市场解禁数据
+        import adata
+        df = adata.sentiment.stock_lifting_last_month()
+        if df is None or df.empty:
+            return jsonify({'success': True, 'data': []})
+
+        df = df.where(df.notna(), None)
+        all_records = df.to_dict(orient='records')
+
+        # ④ 只保留自选/选股列表中的股票
+        result = [r for r in all_records if str(r.get('stock_code', '')) in target_codes]
+        # ⑤ 同一股票放一起，按每组最早解禁日排序，组内按日期升序
+        earliest = {}
+        for r in result:
+            code = str(r.get('stock_code', ''))
+            d = r.get('lift_date', '9999-99-99')
+            if code not in earliest or d < earliest[code]:
+                earliest[code] = d
+        result.sort(key=lambda r: (earliest.get(str(r.get('stock_code', '')), '9999-99-99'), r.get('lift_date', '9999-99-99')))
+        return jsonify({'success': True, 'data': result})
+
+    except Exception as e:
+        logger.error(f"获取解禁列表失败: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 
 # ==================== 启动 ====================
