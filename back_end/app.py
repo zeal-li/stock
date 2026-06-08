@@ -489,7 +489,7 @@ def stock_kline():
 
         if market in ('1', '2', '0', '90'):
             prefix = 'sh' if market in ('1', '2') else 'sz'
-            param = f"{prefix}{code},{tx_period},,,360,qfq"
+            param = f"{prefix}{code},{tx_period},,,800,qfq"
             r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
                            params={'param': param},
                            headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
@@ -532,7 +532,7 @@ def stock_kline():
         elif market in ('116', '106'):
             # 港股/美股 → 本地 DB（由 sync 提前拉取），无缓存时再走 Yahoo
             from market_db.db import detail_klines_get
-            db_rows = detail_klines_get(code, market, tx_period, limit=360)
+            db_rows = detail_klines_get(code, market, tx_period, limit=800)
             if db_rows:
                 for k in db_rows:
                     rows.append({
