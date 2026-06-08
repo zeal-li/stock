@@ -421,14 +421,21 @@ def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
 
 
 def _latest_possible_trading_day():
-    """估算最近的交易日：周末回退到周五，避免非交易日触发无意义的增量拉取"""
+    """估算最近的交易日：周末回退到周五，避免非交易日触发无意义的增量拉取
+    返回 'YYYYMMDD' 格式，与 stock_info.latest_kline_date 保持一致"""
     today = datetime.date.today()
     wd = today.weekday()  # 0=Mon ... 6=Sun
     if wd == 5:      # 周六 → 周五
-        return (today - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        return (today - datetime.timedelta(days=1)).strftime('%Y%m%d')
     elif wd == 6:    # 周日 → 周五
-        return (today - datetime.timedelta(days=2)).strftime('%Y-%m-%d')
-    return today.strftime('%Y-%m-%d')
+        return (today - datetime.timedelta(days=2)).strftime('%Y%m%d')
+    return today.strftime('%Y%m%d')
+
+
+def _parse_date(date_str):
+    """将 'YYYYMMDD' 字符串转为 date 对象"""
+    import datetime as _dt
+    return _dt.datetime.strptime(date_str, '%Y%m%d').date()
 
 
 def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('daily', 'weekly', 'monthly'), force_today=False):
@@ -449,7 +456,7 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
     # 增量：只差几天时，周线/月线无需重拉（新周期尚未生成）
     if max_date:
         try:
-            gap = (datetime.date.fromisoformat(latest_trading) - datetime.date.fromisoformat(max_date)).days
+            gap = (_parse_date(latest_trading) - _parse_date(max_date)).days
         except Exception:
             gap = None
         if gap is not None and gap <= 7:
@@ -461,14 +468,14 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
         all_rows = []
         for period in periods:
             if max_date and max_date != '':
-                last = datetime.date.fromisoformat(max_date)
+                last = _parse_date(max_date)
                 if force_today and max_date == latest_trading:
-                    start = max_date.replace('-', '')  # 强制重拉当日完整数据
+                    start = max_date  # 强制重拉当日完整数据
                 else:
                     start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
             else:
                 start = '19900101'
-            end = latest_trading.replace('-', '')
+            end = latest_trading
             rows = _fetch_kline(code, market, period, start, end)
             for r in rows:
                 all_rows.append(r)
