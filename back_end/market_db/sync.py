@@ -431,14 +431,14 @@ def _latest_possible_trading_day():
     return today.strftime('%Y-%m-%d')
 
 
-def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('daily', 'weekly', 'monthly')):
+def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('daily', 'weekly', 'monthly'), force_today=False):
     """同步单只股票所有周期的 K 线（max_date_map 和 latest_trading 由调用方预加载，避免逐只查 DB）"""
     if _sync_status.get('cancel'):
         return
 
     max_date = max_date_map.get((code, market), None)
 
-    if max_date and max_date >= latest_trading:
+    if max_date and max_date >= latest_trading and not force_today:
         return
 
     # DEBUG: 仅首只打印，确认执行到了 fetch 逻辑
@@ -462,7 +462,10 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
         for period in periods:
             if max_date and max_date != '':
                 last = datetime.date.fromisoformat(max_date)
-                start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
+                if force_today and max_date == latest_trading:
+                    start = max_date.replace('-', '')  # 强制重拉当日完整数据
+                else:
+                    start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
             else:
                 start = '19900101'
             end = latest_trading.replace('-', '')
@@ -487,8 +490,9 @@ def _sync_one_stock(code, market, name, max_date_map, latest_trading, periods=('
         raise
 
 
-def _sync_klines(markets=None):
-    """遍历 stock_list.db，增量同步 K 线。markets 可选：只同步指定市场列表"""
+def _sync_klines(markets=None, force_today=False):
+    """遍历 stock_list.db，增量同步 K 线。markets 可选：只同步指定市场列表。
+    force_today=True 时，即使 latest_kline_date == 当天也会重新拉取（收市后定时同步使用）。"""
     global _sync_status
     stocks = list_stocks_all()
     if markets:
@@ -505,7 +509,11 @@ def _sync_klines(markets=None):
     latest_trading = _latest_possible_trading_day()
 
     # 过滤：只同步需要更新的股票
-    to_sync = [s for s in stocks if max_date_map.get((s[0], s[1]), '') < latest_trading]
+    # force_today 时包含当日已同步过的股票，确保收市后拿到完整日K
+    if force_today:
+        to_sync = [s for s in stocks if max_date_map.get((s[0], s[1]), '') <= latest_trading]
+    else:
+        to_sync = [s for s in stocks if max_date_map.get((s[0], s[1]), '') < latest_trading]
     skipped = len(stocks) - len(to_sync)
     total = len(to_sync)
     _sync_status['total'] = total
@@ -521,7 +529,7 @@ def _sync_klines(markets=None):
     t0 = time.time()
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], max_date_map, latest_trading): s for s in to_sync}
+        futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], max_date_map, latest_trading, ('daily', 'weekly', 'monthly'), force_today): s for s in to_sync}
         for fut in as_completed(futs):
             if _sync_status.get('cancel'):
                 break
@@ -854,7 +862,7 @@ def _schedule_loop():
                     _sync_status['phase'] = 'kline'
 
                     try:
-                        _sync_klines(markets=existing)
+                        _sync_klines(markets=existing, force_today=True)
                         _cleanup_delisted()
                         for m in existing:
                             list_sync_date_set(m, today_str)
