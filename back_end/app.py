@@ -640,21 +640,92 @@ def market_db_status():
     return jsonify({'list_stocks': list_count, 'detail_stocks': detail_count})
 
 
+# ==================== 公司公告 ====================
+
+def _collect_target_codes():
+    """收集自选股+选股代码"""
+    wl_rows = get_all()
+    wl_codes = {r[0] for r in wl_rows}
+    pick_codes_raw = request.args.get('codes', '').split(',')
+    pick_codes = {c.strip() for c in pick_codes_raw if c.strip()}
+    return wl_codes | pick_codes
+
+
+@app.route('/api/announcements')
+def announcements_list():
+    """获取自选股+选股列表中股票的公司公告（东方财富，最近15天）"""
+    try:
+        target_codes = _collect_target_codes()
+        if not target_codes:
+            return jsonify({'success': True, 'data': []})
+
+        from datetime import datetime as _dt, timedelta
+        cutoff = (_dt.now() - timedelta(days=15)).strftime('%Y-%m-%d')
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://data.eastmoney.com/',
+        }
+        result = []
+        for page in (1, 2):
+            params = {
+                'page_size': 200,
+                'page_index': page,
+                'ann_type': 'SHA,CYB,SZA,BJA,INV',
+                'client_source': 'web',
+                'f_node': 0,
+                'stock_list': ','.join(sorted(target_codes)),
+            }
+            r = requests.get('https://np-anotice-stock.eastmoney.com/api/security/ann',
+                            params=params, headers=headers, timeout=15, proxies=REQUEST_PROXIES)
+            data = r.json()
+            items = (data.get('data') or {}).get('list') or []
+            if not items:
+                break
+            for item in items:
+                codes = item.get('codes', [])
+                code_info = codes[0] if codes else {}
+                columns = item.get('columns', [])
+                col_info = columns[0] if columns else {}
+                notice_date = (item.get('notice_date') or '')[:10]
+                if notice_date < cutoff:
+                    continue  # 超出15天范围，跳过
+                result.append({
+                    'code': code_info.get('stock_code', ''),
+                    'name': code_info.get('short_name', ''),
+                    'title': item.get('title', ''),
+                    'notice_date': notice_date,
+                    'column_name': col_info.get('column_name', ''),
+                    'art_code': item.get('art_code', ''),
+                    'art_url': f"https://data.eastmoney.com/notices/detail/{code_info.get('stock_code', '')}/{item.get('art_code', '')}.html",
+                })
+            # 如果当前页最后一条已超出15天，不必再翻页
+            last_item = items[-1]
+            last_date = (last_item.get('notice_date') or '')[:10]
+            if last_date < cutoff:
+                break
+
+        # 同一股票放一起，按每组最新公告日排序（降序），组内也按日期降序
+        newest = {}
+        for r in result:
+            code = str(r.get('code', ''))
+            d = r.get('notice_date', '0000-00-00')
+            if code not in newest or d > newest[code]:
+                newest[code] = d
+        result.sort(key=lambda r: (newest.get(str(r.get('code', '')), '0000-00-00'), r.get('notice_date', '0000-00-00')), reverse=True)
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        logger.error(f"获取公告失败: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+
 # ==================== 解禁列表 ====================
 
 @app.route('/api/lifting')
 def lifting_list():
     """获取自选股+选股列表中股票的限售股解禁信息"""
     try:
-        # ① 收集自选股代码
-        wl_rows = get_all()
-        wl_codes = {r[0] for r in wl_rows}
-
-        # ② 收集前端传入的选股代码
-        pick_codes_raw = request.args.get('codes', '').split(',')
-        pick_codes = {c.strip() for c in pick_codes_raw if c.strip()}
-
-        target_codes = wl_codes | pick_codes
+        target_codes = _collect_target_codes()
         if not target_codes:
             return jsonify({'success': True, 'data': []})
 
