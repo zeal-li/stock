@@ -28,26 +28,7 @@ def _fetch_and_cache_margin():
     except Exception as e:
         print(f'[margin] SSE error: {e}')
 
-    # 深交所（汇总数据）
-    szse_rows = []
-    try:
-        # 深交所按日期逐天取
-        r_sz = _rq.get('https://www.szse.cn/api/report/ShowReport/data', params={
-            'SHOWTYPE': 'json',
-            'CATALOGID': '1837_xxpl',
-            'txtStart': start_str[:4] + '-' + start_str[4:6] + '-' + start_str[6:],
-            'txtEnd': end_str[:4] + '-' + end_str[4:6] + '-' + end_str[6:],
-            'tab1PAGENO': '1',
-            'tab1PAGESIZE': '500',
-            'random': '0.5',
-        }, headers={**_MARGIN_HEADERS, 'Referer': 'https://www.szse.cn/'}, timeout=15)
-        sz_data = r_sz.json()
-        if isinstance(sz_data, list) and len(sz_data) > 0:
-            szse_rows = sz_data[0].get('data', [])
-    except Exception as e:
-        print(f'[margin] SZSE error: {e}')
-
-    # 合并
+    # 上交所 + 深交所合并（先放 SSE）
     combined = {}
     for row in sse_rows:
         d = row.get('opDate', '')
@@ -60,21 +41,39 @@ def _fetch_and_cache_margin():
             'buy': float(row.get('rzmre', 0) or 0),
         }
 
-    for row in szse_rows:
-        d = str(row.get('交易日期', row.get('jyDate', row.get('date', '')))).replace('-', '')
-        if not d:
-            continue
-        rz_val = float(row.get('融资余额', row.get('rzye', 0)) or 0)
-        rq_val = float(row.get('融券余额', row.get('rqye', row.get('rqylje', 0))) or 0)
-        total_val = float(row.get('融资融券余额', row.get('rzrqye', 0)) or 0)
-        buy_val = float(row.get('融资买入额', row.get('rzmre', 0)) or 0)
-        if d in combined:
-            combined[d]['rz'] += rz_val
-            combined[d]['rq'] += rq_val
-            combined[d]['total'] += total_val
-            combined[d]['buy'] += buy_val
-        else:
-            combined[d] = {'rz': rz_val, 'rq': rq_val, 'total': total_val, 'buy': buy_val}
+    # 深交所 — 按 SSE 已有日期逐日查询，字段名 jrrzye/jrrjye/jrrzrjye/jrrzmr，单位已是亿
+    szse_dates = sorted(combined.keys())
+    try:
+        session = _rq.Session()
+        session.headers.update({**_MARGIN_HEADERS, 'Referer': 'https://www.szse.cn/'})
+        for d in szse_dates:
+            fmt_date = d[:4] + '-' + d[4:6] + '-' + d[6:8]
+            try:
+                r_sz = session.get('https://www.szse.cn/api/report/ShowReport/data', params={
+                    'SHOWTYPE': 'json',
+                    'CATALOGID': '1837_xxpl',
+                    'txtDate': fmt_date,
+                    'tab1PAGENO': '1',
+                    'tab1PAGESIZE': '500',
+                    'random': '0.5',
+                }, timeout=10)
+                sz_data = r_sz.json()
+                if isinstance(sz_data, list) and len(sz_data) > 0:
+                    rows = sz_data[0].get('data', [])
+                    if rows:
+                        row = rows[0]
+                        def _sz_val(key):
+                            v = str(row.get(key, '0')).replace(',', '')
+                            return float(v) if v else 0.0
+                        # SZSE 已是亿元，×1e8 转回元与 SSE 统一
+                        combined[d]['rz'] += _sz_val('jrrzye') * 1e8
+                        combined[d]['rq'] += _sz_val('jrrjye') * 1e8
+                        combined[d]['total'] += _sz_val('jrrzrjye') * 1e8
+                        combined[d]['buy'] += _sz_val('jrrzmr') * 1e8
+            except Exception:
+                pass
+    except Exception as e:
+        print(f'[margin] SZSE error: {e}')
 
     if not combined:
         return False
