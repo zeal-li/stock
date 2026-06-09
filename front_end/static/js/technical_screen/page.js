@@ -132,7 +132,9 @@ function _onMarketSelect() {
 
     // 切到其他市场，恢复按钮
     document.getElementById('techLoadBtn').textContent = '加载';
+    document.getElementById('techLoadBtn').disabled = false;
     document.getElementById('techUpdateBtn').textContent = '更新';
+    document.getElementById('techUpdateBtn').disabled = false;
 
     var item = _segData.find(function(s){return s.key === key;});
     var status = document.getElementById('techMarketStatus');
@@ -263,14 +265,11 @@ function _pollInitStatus() {
                 _loadingMarketKey = null;
                 btn.textContent = '加载';
                 if (currentMarket === loadingKey) {
+                    status.textContent = '加载完成，共 ' + s.total + ' 只';
+                    status.style.color = '#4ade80';
                     document.getElementById('techScreenBtn').disabled = false;
-                    _refreshSegments().then(function() {
-                        status.textContent = '加载完成，共 ' + s.total + ' 只';
-                        status.style.color = '#4ade80';
-                    });
-                } else {
-                    _refreshSegments();
                 }
+                _refreshSegments();
             }
         });
 }
@@ -428,14 +427,11 @@ function _pollUpdateStatus() {
                 _updatingMarketKey = null;
                 btn.textContent = '更新';
                 if (currentMarket === updatingKey) {
+                    status.textContent = '更新完成，共 ' + s.total + ' 只';
+                    status.style.color = '#4ade80';
                     document.getElementById('techScreenBtn').disabled = false;
-                    _refreshSegments().then(function() {
-                        status.textContent = '更新完成，共 ' + s.total + ' 只';
-                        status.style.color = '#4ade80';
-                    });
-                } else {
-                    _refreshSegments();
                 }
+                _refreshSegments();
             }
         });
 }

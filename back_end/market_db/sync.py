@@ -718,14 +718,14 @@ def update_market(seg_key):
     if _sync_status['running']:
         return {'success': False, 'error': '已有同步任务运行中'}
 
+    # 检查是否需要更新（必须在加锁之前，避免 false 时锁未释放）
+    if not _need_update(seg_key):
+        return {'success': False, 'error': '数据已是最新，无需更新'}
+
     with _syncing_markets_lock:
         if '*' in _syncing_markets or seg_key in _syncing_markets:
             return {'success': False, 'error': '该市场正在操作中'}
         _syncing_markets.add(seg_key)
-
-    # 检查是否需要更新
-    if not _need_update(seg_key):
-        return {'success': False, 'error': '数据已是最新，无需更新'}
 
     _sync_status['running'] = True
     _sync_status['label'] = SEGMENTS[seg_key]['label']
