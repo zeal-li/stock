@@ -624,6 +624,12 @@ def market_db_init(seg_key):
     result = init_segment(seg_key)
     return jsonify(result)
 
+@app.route('/api/market-db/update/<seg_key>', methods=['POST'])
+def market_db_update(seg_key):
+    from market_db.sync import update_market
+    result = update_market(seg_key)
+    return jsonify(result)
+
 @app.route('/api/market-db/clear/<seg_key>', methods=['POST'])
 def market_db_clear(seg_key):
     from market_db.sync import clear_market
@@ -1000,7 +1006,4 @@ def abnormal_analyze():
 
 if __name__ == '__main__':
     start_major_indices_poller()  # 启动后台指数行情轮询
-    from market_db.sync import start_startup_sync
-    import threading
-    threading.Timer(2.0, start_startup_sync).start()  # 延迟 2s，等 Flask 启动完
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)

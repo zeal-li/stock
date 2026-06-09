@@ -584,8 +584,6 @@ var KlinePopup = (function() {
     function _limitRate(code) {
         var c = String(code);
         if (/^30[04]/.test(c) || /^68/.test(c)) return 0.20;
-        if (/^8[34]|^43|^87|^88/.test(c)) return 0.30;  // 北交所/新三板
-        if (/^90/.test(c)) return 0.30;
         return 0.10;
     }
 

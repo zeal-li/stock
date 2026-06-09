@@ -79,7 +79,6 @@ function getStockType(code, market) {
         if (/^12/.test(c)) return '深债';
         return '深市';
     }
-    if (m === '90') return '北交所';
     if (m === '116') return '港股';
     if (m === '106') return '美股';
     if (/^1[0-5]/.test(m) && parseInt(m) >= 105) return '境外';
