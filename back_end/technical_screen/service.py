@@ -3,7 +3,7 @@ import os, json, threading, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .strategies.ascending_channel import calc as ascending_channel_calc
-from .strategies.extreme_shrink_doji import calc as extreme_shrink_doji_calc
+from .strategies.momentum_pullback import calc as momentum_pullback_calc
 
 # 策略注册表：{key: {name, calc, desc}}
 STRATEGIES = {
@@ -12,10 +12,10 @@ STRATEGIES = {
         'calc': ascending_channel_calc,
         'desc': '基于线性回归检测股价是否处于上升通道中，通道斜率向上、拟合度高、价格位于中下轨且成交量配合为佳',
     },
-    'extreme_shrink_doji': {
-        'name': '极致缩量十字星',
-        'calc': extreme_shrink_doji_calc,
-        'desc': '检测出现十字星且成交量极低的股票，实体极小、上下影线均衡、缩至地量，往往预示变盘',
+    'momentum_pullback': {
+        'name': '强势回调',
+        'calc': momentum_pullback_calc,
+        'desc': '多因子共振筛选明日大概率上涨的股票：均线多头排列+高位适度回调+缩量止跌企稳+资金进场痕迹，回踩关键均线支撑时介入',
     },
 }
 
