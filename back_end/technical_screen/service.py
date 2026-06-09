@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .strategies.ascending_channel import calc as ascending_channel_calc
 from .strategies.momentum_pullback import calc as momentum_pullback_calc
+from .strategies.prediction import calc as prediction_calc
 
 # 策略注册表：{key: {name, calc, desc}}
 STRATEGIES = {
@@ -150,6 +151,27 @@ def _do_scan(strategy_keys, market, max_workers):
             # 本阶段开始前更新 total（累加本阶段要扫的数量）
             _scan_state['total'] += len(candidates)
             results = _batch_scan(candidates, strategy_key, market, max_workers)
+
+        # ---- 对最终筛选结果计算预测评分 ----
+        if results:
+            pred_total = len(results)
+            for idx, r in enumerate(results):
+                try:
+                    conn = _kline_conn()
+                    rows = conn.execute(
+                        'SELECT date, open, high, low, close, volume FROM klines '
+                        'WHERE code=? AND period=? ORDER BY date DESC LIMIT 120',
+                        (r['code'], 'daily')).fetchall()
+                    conn.close()
+                    if rows:
+                        klines = [dict(row) for row in reversed(rows)]
+                        pred = prediction_calc(klines)
+                        r['prediction'] = pred
+                except Exception:
+                    r['prediction'] = {'direction': 'bullish', 'score': 0, 'detail': {}}
+                # 阶段性更新中间结果，让前端看到预测评分逐步出现
+                if idx % 5 == 0 or idx == pred_total - 1:
+                    _scan_state['results'] = list(results)
 
         _scan_state['results'] = list(results)
     finally:

@@ -634,6 +634,21 @@ function _doClear(key, sel) {
 
 // =========== 市场标签（已移除北交所） ===========
 
+function _renderPredictionCell(s) {
+    var pred = s.prediction;
+    if (!pred || !pred.direction) {
+        return '<td><span style="color:#777;">--</span></td>';
+    }
+    var score = pred.score || 0;
+    if (score === 0) {
+        return '<td><span style="color:#777;">横盘</span></td>';
+    }
+    var dir = pred.direction;
+    var color = dir === 'bullish' ? '#e53e3e' : '#38a169';
+    var label = dir === 'bullish' ? '看涨' : '看跌';
+    return '<td><span style="color:' + color + ';font-weight:bold;">' + label + ' ' + score + '</span></td>';
+}
+
 var _marketLabels = {
     'sh_main': '沪A', 'sz_main': '深A', 'gem': '创业板', 'star': '科创板',
     'sh_etf': '沪ETF', 'sz_etf': '深ETF', 'hk_main': '港股', 'us_main': '美股'
@@ -665,9 +680,10 @@ async function _techRenderTable(results) {
             '<td><span style="color:#8b8b9e;">' + (_marketLabels[mk] || mk) + '</span></td>' +
             '<td><span style="color:#ddd;">' + price + '</span></td>' +
             '<td><span style="color:#fbbf24;font-weight:bold;">' + s.score + '</span></td>' +
+            _renderPredictionCell(s) +
         '</tr>';
     });
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>评分</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>评分</th><th>预测评分</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
     document.getElementById('techScreenResult').innerHTML = html;
 }
 
