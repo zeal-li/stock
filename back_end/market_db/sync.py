@@ -736,68 +736,159 @@ def update_market(seg_key):
     return {'success': True, 'message': '更新已启动'}
 
 
+def _list_need_refresh(seg_key):
+    """根据 sync_log 时间戳判断股票列表是否需要重新拉取
+
+    规则：如果 sync_log.last_sync_ts 是在"最近一次该市场开盘时间"或之后，
+    那么列表仍是新的（在该市场下一次开盘前都不会有新上市/退市变化）。
+    否则列表可能过时，需要重新拉取。
+    """
+    last_ts_str = list_sync_ts_get(seg_key)
+    if not last_ts_str:
+        # 没有时间戳记录，需要拉取
+        return True
+
+    try:
+        last_ts = datetime.datetime.strptime(last_ts_str, '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return True
+
+    seg_hours = MARKET_HOURS.get(seg_key)
+    if not seg_hours:
+        # 未知市场，保守地需要拉取
+        return True
+
+    open_h, open_m = seg_hours['open']
+    is_cross_day = seg_hours['close'][0] < open_h or (seg_hours['close'][0] == open_h and seg_hours['close'][1] < open_m)
+
+    def _to_minutes(h, m):
+        return h * 60 + m
+    open_min = _to_minutes(open_h, open_m)
+
+    def _is_in_or_after_open(dt):
+        """判断时间是否在开盘时间或之后（美股考虑跨日）"""
+        dt_min = _to_minutes(dt.hour, dt.minute)
+        if is_cross_day:
+            # 美股：开盘在晚上 21:30，dt_min >= open_min 即"已开盘"或之后
+            return dt_min >= open_min
+        else:
+            return dt_min >= open_min
+
+    # 找到"最近一次该市场开盘"的时间点
+    now = datetime.datetime.now()
+    last_open_dt = None
+
+    if is_cross_day:
+        # 美股：开盘在晚上
+        # 找最近一次"今天或昨天的晚上 21:30"
+        # 如果当前时间在开盘前（早上到晚上开盘前），最近开盘是"昨天的 21:30"
+        # 如果当前时间在开盘后（21:30 后），最近开盘是"今天的 21:30"
+        if now.hour * 60 + now.minute < open_min:
+            last_open_date = now.date() - datetime.timedelta(days=1)
+        else:
+            last_open_date = now.date()
+        # 跳过周末：最近一次开盘日
+        while last_open_date.weekday() >= 5:
+            last_open_date -= datetime.timedelta(days=1)
+        last_open_dt = datetime.datetime.combine(last_open_date, datetime.time(open_h, open_m))
+    else:
+        # A股 / 港股：开盘在白天
+        # 找最近一次交易日的 9:30
+        last_open_date = now.date()
+        if now.hour * 60 + now.minute < open_min:
+            # 还没到开盘，最近开盘是"昨天的 9:30"
+            last_open_date = now.date() - datetime.timedelta(days=1)
+        # 跳过周末
+        while last_open_date.weekday() >= 5:
+            last_open_date -= datetime.timedelta(days=1)
+        last_open_dt = datetime.datetime.combine(last_open_date, datetime.time(open_h, open_m))
+
+    # sync_log 时间戳 >= 最近开盘时间 → 列表仍是新的
+    return last_ts < last_open_dt
+
+
 def _run_update(seg_key):
     global _sync_status
     try:
         label = SEGMENTS[seg_key]['label']
-        _sync_status['phase'] = 'list'
+        _sync_status['phase'] = 'check'
         _sync_status['cancel'] = False
         print(f"[sync] 更新: {label}")
 
-        # 1. 拉取最新股票列表
-        rows = _fetch_stocks_by_segment(seg_key)
-        if rows is None:
-            print(f"[sync] {label} 列表拉取失败")
-            _sync_status['running'] = False
-            _sync_status['phase'] = 'error'
-            _sync_status['error'] = f'{label} 列表拉取失败'
-            return
-
-        if _sync_status.get('cancel'):
-            _sync_status['running'] = False
-            _sync_status['phase'] = 'cancelled'
-            _sync_status['cancel'] = False
-            print(f"[sync] {label} 更新已被终止")
-            return
-
-        # 替换列表
-        list_replace_market(seg_key, rows)
-        print(f"[sync] {label} 股票列表已更新: {len(rows)} 只")
-
-        # 2. 增量同步 K 线
-        stocks = list_stocks_by_market().get(seg_key, {})
-        stock_list = [(code, seg_key, name) for code, name in stocks.items()]
-        if not stock_list:
-            print(f"[sync] {label} 股票列表为空，跳过K线同步")
-            list_sync_ts_set(seg_key, _now_ts_str())
-            _sync_status['running'] = False
-            _sync_status['phase'] = 'done'
-            return
-
-        _sync_status['total'] = len(stock_list)
-        _sync_status['done'] = 0
-        _sync_status['phase'] = 'kline'
-        global _sync_fail_count
-        _sync_fail_count = 0
-
-        # 预加载 kline_date_map
+        # 公共变量
         kline_date_map = detail_kline_date_map()
         latest_trading = _latest_possible_trading_day()
+        existing_stocks = list_stocks_by_market().get(seg_key, {})
+        existing_list = [(code, seg_key, name) for code, name in existing_stocks.items()]
 
-        # 过滤需要更新的股票
-        to_update = [s for s in stock_list
-                     if not kline_date_map.get((s[0], s[1]), '') or
-                        kline_date_map.get((s[0], s[1]), '') < latest_trading]
-        skipped = len(stock_list) - len(to_update)
+        # 第一步：检查所有现有股票K线是否都已最新
+        to_update_pre = [s for s in existing_list
+                         if not kline_date_map.get((s[0], s[1]), '') or
+                            kline_date_map.get((s[0], s[1]), '') < latest_trading]
 
-        if not to_update:
-            print(f"[sync] {label} K线已是最新 ({skipped} 只)，无需更新")
+        if existing_list and not to_update_pre:
+            # 所有现有股票K线都已是最新
+            print(f"[sync] {label} K线已是最新 ({len(existing_list)} 只)，无需更新")
             list_sync_ts_set(seg_key, _now_ts_str())
             _cleanup_delisted()
             _sync_status['running'] = False
             _sync_status['phase'] = 'done'
             return
 
+        # 第二步：现有K线未全部最新，再用 sync_log 判断是否需要重拉列表
+        need_refresh_list = _list_need_refresh(seg_key)
+        last_ts_str = list_sync_ts_get(seg_key)
+        print(f"[sync] {label} sync_log 时间戳: {last_ts_str or '无'}, 列表{'需要' if need_refresh_list else '无需'}重拉")
+
+        rows = None
+        if need_refresh_list:
+            # 拉取最新股票列表
+            _sync_status['phase'] = 'list'
+            rows = _fetch_stocks_by_segment(seg_key)
+            if rows is None:
+                print(f"[sync] {label} 列表拉取失败")
+                _sync_status['running'] = False
+                _sync_status['phase'] = 'error'
+                _sync_status['error'] = f'{label} 列表拉取失败'
+                return
+
+            if _sync_status.get('cancel'):
+                _sync_status['running'] = False
+                _sync_status['phase'] = 'cancelled'
+                _sync_status['cancel'] = False
+                print(f"[sync] {label} 更新已被终止")
+                return
+
+            # 替换列表
+            list_replace_market(seg_key, rows)
+            print(f"[sync] {label} 股票列表已更新: {len(rows)} 只")
+        else:
+            # 列表不需要重拉，沿用现有列表
+            rows = existing_list
+
+        # 第三步：基于最终列表重新计算需要更新的股票
+        stock_list = [(code, seg_key, name) for code, name in rows]
+        to_update = [s for s in stock_list
+                     if not kline_date_map.get((s[0], s[1]), '') or
+                        kline_date_map.get((s[0], s[1]), '') < latest_trading]
+
+        if not to_update:
+            # 全部最新
+            print(f"[sync] {label} K线全部已是最新，无需拉取")
+            list_sync_ts_set(seg_key, _now_ts_str())
+            _cleanup_delisted()
+            _sync_status['running'] = False
+            _sync_status['phase'] = 'done'
+            return
+
+        # 第四步：增量同步 K 线
+        _sync_status['total'] = len(stock_list)
+        _sync_status['done'] = 0
+        _sync_status['phase'] = 'kline'
+        global _sync_fail_count
+        _sync_fail_count = 0
+
+        skipped = len(stock_list) - len(to_update)
         print(f"[sync] {label} 增量同步 K 线 (已是最新: {skipped} 只，需要更新: {len(to_update)} 只，4 线程)...")
 
         t0 = time.time()
@@ -829,10 +920,10 @@ def _run_update(seg_key):
             print(f"[sync] {label} 更新已被终止（已完成的数据保留）")
             return
 
-        # 3. 更新 sync_log 时间戳
+        # 第五步：更新 sync_log 时间戳
         list_sync_ts_set(seg_key, _now_ts_str())
 
-        # 4. 清理退市
+        # 第六步：清理退市
         _cleanup_delisted()
 
         el = time.time() - t0
