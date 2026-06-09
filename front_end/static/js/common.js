@@ -84,3 +84,69 @@ function getStockType(code, market) {
     if (/^1[0-5]/.test(m) && parseInt(m) >= 105) return '境外';
     return '';
 }
+
+// 预测评分单元格渲染（复用技术选股页面的规则）
+function _renderPredictionCell(s) {
+    var pred = s.prediction;
+    if (!pred || !pred.direction) {
+        return '<td class="cell-prediction"><span style="color:#777;">--</span></td>';
+    }
+    var score = pred.score || 0;
+    if (score === 0) {
+        return '<td class="cell-prediction"><span style="color:#777;">横盘</span></td>';
+    }
+    var dir = pred.direction;
+    var color = dir === 'bullish' ? '#e53e3e' : '#38a169';
+    var label = dir === 'bullish' ? '看涨' : '看跌';
+    return '<td class="cell-prediction"><span style="color:' + color + ';font-weight:bold;">' + label + ' ' + score + '</span></td>';
+}
+
+// 增量更新预测评分单元格
+function _updatePredictionCell(row, s) {
+    var td = row && row.querySelector('.cell-prediction');
+    if (!td) return;
+    var pred = s.prediction;
+    if (!pred || !pred.direction) {
+        td.innerHTML = '<span style="color:#777;">--</span>';
+        return;
+    }
+    var score = pred.score || 0;
+    if (score === 0) {
+        td.innerHTML = '<span style="color:#777;">横盘</span>';
+        return;
+    }
+    var dir = pred.direction;
+    var color = dir === 'bullish' ? '#e53e3e' : '#38a169';
+    var label = dir === 'bullish' ? '看涨' : '看跌';
+    td.innerHTML = '<span style="color:' + color + ';font-weight:bold;">' + label + ' ' + score + '</span>';
+}
+
+// 请求预测评分
+var _predictionFetching = false;
+async function refreshPredictions(stocks, isWatchlist) {
+    if (_predictionFetching || stocks.length === 0) return;
+    _predictionFetching = true;
+    try {
+        var payload = stocks.map(function(s) { return { code: s.code, market: s.market }; });
+        var res = await fetch('/api/stock-predictions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stocks: payload })
+        });
+        var data = await res.json();
+        if (data.success) {
+            stocks.forEach(function(s) {
+                if (data.data[s.code]) {
+                    s.prediction = data.data[s.code];
+                }
+            });
+            // 增量更新UI
+            stocks.forEach(function(s) {
+                var attr = isWatchlist ? 'data-wcode' : 'data-code';
+                var row = document.querySelector('tr[' + attr + '="' + s.code + '"]');
+                if (row) _updatePredictionCell(row, s);
+            });
+        }
+    } catch(e) { console.log('预测评分刷新失败:', e); }
+    _predictionFetching = false;
+}

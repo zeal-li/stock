@@ -300,7 +300,7 @@ function _joinChgText(s) {
 function renderPicked() {
     const div = document.getElementById('pickedStocks');
     if (pickedStocks.length === 0) { div.innerHTML = ''; return; }
-    let html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>PE(TTM)/PB</th><th>商誉率/质押率</th><th></th></tr></thead><tbody>';
+    let html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>PE(TTM)/PB</th><th>商誉率/质押率</th><th>预测评分</th><th></th></tr></thead><tbody>';
     pickedStocks.forEach(s => {
         const type = getStockType(s.code, s.market);
         const color = _chgColor(s.change);
@@ -316,6 +316,7 @@ function renderPicked() {
             <td class="cell-to"><span style="color:#ddd;">${_pairText(s.turnover, s.amplitude)}</span></td>
             <td class="cell-pepb"><span style="color:#ddd;">${s.pe + '/' + s.pb}</span></td>
             <td class="cell-gw"><span style="color:#ddd;">${s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-'}</span></td>
+            ${_renderPredictionCell(s)}
             <td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="removePicked('${s.code}')">&times;</span></td>
         </tr>`;
     });

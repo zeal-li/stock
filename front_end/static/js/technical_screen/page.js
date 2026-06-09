@@ -634,20 +634,7 @@ function _doClear(key, sel) {
 
 // =========== 市场标签（已移除北交所） ===========
 
-function _renderPredictionCell(s) {
-    var pred = s.prediction;
-    if (!pred || !pred.direction) {
-        return '<td><span style="color:#777;">--</span></td>';
-    }
-    var score = pred.score || 0;
-    if (score === 0) {
-        return '<td><span style="color:#777;">横盘</span></td>';
-    }
-    var dir = pred.direction;
-    var color = dir === 'bullish' ? '#e53e3e' : '#38a169';
-    var label = dir === 'bullish' ? '看涨' : '看跌';
-    return '<td><span style="color:' + color + ';font-weight:bold;">' + label + ' ' + score + '</span></td>';
-}
+
 
 var _marketLabels = {
     'sh_main': '沪A', 'sz_main': '深A', 'gem': '创业板', 'star': '科创板',
