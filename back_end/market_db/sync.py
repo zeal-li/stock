@@ -781,6 +781,15 @@ def clear_market(seg_key):
 def _startup_worker():
     """后台线程：只更新已有市场，不新增"""
     global _sync_status
+
+    today = _today_str()
+    markets = list_markets()
+    # sync_log 已更新的市场 → 今日已完成，跳过；只同步尚未完成的
+    pending = [m for m in markets if list_sync_date_get(m) != today]
+    if not pending and markets:
+        print("[sync] ===== 今日已完成增量同步，跳过 =====")
+        return
+
     with _syncing_markets_lock:
         _syncing_markets.add('*')  # 全市场标记，与所有市场冲突
     _sync_status['running'] = True
@@ -798,7 +807,10 @@ def _startup_worker():
             _syncing_markets.discard('*')
         print("[sync] ===== 同步被终止 =====\n")
         return
-    _sync_klines()
+    if pending:
+        _sync_klines(markets=pending)
+    else:
+        print("[sync] K线已是最新（今日已更新），跳过")
     if _sync_status.get('cancel'):
         _sync_status['running'] = False
         _sync_status['phase'] = 'cancelled'
@@ -810,7 +822,6 @@ def _startup_worker():
     _sync_status['phase'] = 'cleanup'
     _cleanup_delisted()
     # 全部完成后才更新时间戳
-    today = _today_str()
     for m in list_markets():
         list_sync_date_set(m, today)
     _sync_status['running'] = False

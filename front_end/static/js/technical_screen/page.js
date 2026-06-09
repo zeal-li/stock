@@ -4,7 +4,7 @@ var _techPollTimer = null;
 var _segData = [];
 var _curMarketKey = null;
 var _strategies = [];
-var _curStrategyKey = null;
+var _curStrategyKeys = [];  // 多选策略 key 数组
 
 function _loadStrategies() {
     return fetch('/api/technical/strategies').then(function(r){return r.json()}).then(function(data){
@@ -17,17 +17,72 @@ function _renderStrategyList() {
     var list = document.getElementById('techStrategyList');
     var html = '';
     _strategies.forEach(function(s) {
-        var active = s.key === _curStrategyKey ? ' style="background:#fbbf24;color:#000;"' : ' style="background:#1a1a2e;border:1px solid #0f3460;color:#ccc;cursor:pointer;"';
-        html += '<span' + active + ' onclick="_selectStrategy(\'' + s.key + '\')" title="' + s.desc + '">' + s.name + '</span>';
+        var selected = _curStrategyKeys.indexOf(s.key) >= 0;
+        var style = selected ? ' style="background:#fbbf24;color:#000;"' : ' style="background:#1a1a2e;border:1px solid #0f3460;color:#ccc;cursor:pointer;"';
+        html += '<span' + style + ' onclick="_toggleStrategy(\'' + s.key + '\')" title="' + s.desc + '">' + s.name + '</span>';
     });
     list.innerHTML = html;
+    _renderSelectedTags();
+}
+
+function _renderSelectedTags() {
+    var el = document.getElementById('techStrategyTags');
+    var html = '';
+    _curStrategyKeys.forEach(function(key) {
+        var s = _strategies.find(function(x){return x.key === key;});
+        var name = s ? s.name : key;
+        html += '<span class="strategy-tag" style="display:inline-flex;align-items:center;padding:2px 8px;margin:2px;background:#0f3460;border-radius:3px;font-size:12px;color:#fbbf24;">'
+            + name
+            + '<span style="cursor:pointer;margin-left:4px;color:#888;font-size:11px;" onclick="event.stopPropagation();_removeStrategy(\'' + key + '\');">\u00d7</span>'
+            + '</span>';
+    });
+    el.innerHTML = html;
+}
+
+function _toggleStrategy(key) {
+    var idx = _curStrategyKeys.indexOf(key);
+    if (idx >= 0) {
+        _curStrategyKeys.splice(idx, 1);
+    } else {
+        _curStrategyKeys.push(key);
+    }
+    document.getElementById('techScreenStatus').textContent = '';
+    _renderStrategyList();
+    _updateStrategyDisplay();
+}
+
+function _removeStrategy(key) {
+    var idx = _curStrategyKeys.indexOf(key);
+    if (idx >= 0) {
+        _curStrategyKeys.splice(idx, 1);
+    }
+    document.getElementById('techScreenStatus').textContent = '';
+    _renderStrategyList();
+    _updateStrategyDisplay();
+}
+
+function _updateStrategyDisplay() {
+    var el = document.getElementById('techStrategyName');
+    if (_curStrategyKeys.length > 0) {
+        el.style.display = 'block';
+        el.innerHTML = '<span style="font-size:11px;color:#8b8b9e;">已选策略（按先后顺序依次筛选）：</span>'
+            + _curStrategyKeys.map(function(key, i) {
+                var s = _strategies.find(function(x){return x.key === key;});
+                var name = s ? s.name : key;
+                return '<span style="color:#fbbf24;">' + (i + 1) + '. ' + name + '</span>';
+            }).join('<span style="color:#555;margin:0 4px;">→</span>');
+    } else {
+        el.style.display = 'none';
+        el.innerHTML = '';
+    }
 }
 
 function _selectStrategy(key) {
+    // 兼容旧接口：单击策略面板中的策略直接替换为单选
+    _curStrategyKeys = [key];
+    var el = document.getElementById('techStrategyName');
     var s = _strategies.find(function(x){return x.key === key;});
     if (!s) return;
-    _curStrategyKey = key;
-    var el = document.getElementById('techStrategyName');
     el.innerHTML = '<span>' + s.name + '</span><span style="cursor:pointer;margin-left:4px;color:#888;font-size:12px;" onclick="event.stopPropagation();_clearStrategy();">\u00d7</span>';
     el.style.display = 'inline-flex';
     el.style.alignItems = 'center';
@@ -37,10 +92,11 @@ function _selectStrategy(key) {
 }
 
 function _clearStrategy() {
-    _curStrategyKey = null;
+    _curStrategyKeys = [];
     var el = document.getElementById('techStrategyName');
     el.style.display = 'none';
     el.innerHTML = '';
+    document.getElementById('techStrategyTags').innerHTML = '';
     // 清掉之前的扫描结果
     if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
     document.getElementById('techScreenResult').innerHTML = '';
@@ -415,14 +471,15 @@ async function _techRenderTable(results) {
 async function runTechScreen() {
     var status = document.getElementById('techScreenStatus');
     var btn = document.getElementById('techScreenBtn');
-    if (!_curStrategyKey) { status.textContent = '请先选择策略'; status.style.color = '#e94560'; return; }
+    if (_curStrategyKeys.length === 0) { status.textContent = '请先选择策略'; status.style.color = '#e94560'; return; }
     if (_techPollTimer) { clearInterval(_techPollTimer); _techPollTimer = null; }
     status.textContent = '启动扫描...';
     status.style.color = '#fbbf24';
     btn.disabled = true;
     try {
         var mkt = document.getElementById('techMarket').value;
-        var res = await fetch('/api/technical/ascending-channel?market=' + encodeURIComponent(mkt) + '&strategy=' + encodeURIComponent(_curStrategyKey), { method: 'POST' });
+        var strategyParam = _curStrategyKeys.join(',');
+        var res = await fetch('/api/technical/ascending-channel?market=' + encodeURIComponent(mkt) + '&strategy=' + encodeURIComponent(strategyParam), { method: 'POST' });
         var data = await res.json();
         if (!data.success) { status.textContent = data.error; status.style.color = '#e94560'; btn.disabled = false; return; }
         _techPollTimer = setInterval(async function() {

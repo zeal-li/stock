@@ -90,6 +90,8 @@ def list_sync_date_set(market, date_str):
     conn.close()
 
 
+
+
 # ==================== stock_detail_list.db ====================
 
 def _detail_conn():

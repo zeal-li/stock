@@ -597,10 +597,11 @@ def technical_strategies():
 
 @app.route('/api/technical/ascending-channel', methods=['POST'])
 def technical_ascending_channel_start():
-    """启动扫描（支持 strategy 参数）"""
+    """启动扫描（strategy 支持逗号分隔多个策略，如 strategy=ascending_channel,extreme_shrink_doji）"""
     market = request.args.get('market', '')
-    strategy_key = request.args.get('strategy', 'ascending_channel')
-    result = run_scan_async(strategy_key, market=market)
+    strategy_raw = request.args.get('strategy', 'ascending_channel')
+    strategy_keys = [s.strip() for s in strategy_raw.split(',') if s.strip()]
+    result = run_scan_async(strategy_keys, market=market)
     return jsonify(result)
 
 @app.route('/api/technical/ascending-channel/status')

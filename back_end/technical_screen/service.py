@@ -70,18 +70,23 @@ def get_strategies():
     return [{'key': k, 'name': v['name'], 'desc': v['desc']} for k, v in STRATEGIES.items()]
 
 
-def run_scan_async(strategy_key, market=None, max_workers=30):
-    if strategy_key not in STRATEGIES:
-        return {'success': False, 'error': '无效的策略'}
+def run_scan_async(strategy_keys, market=None, max_workers=30):
+    """启动异步扫描，支持多个策略 pipeline 串联筛选"""
+    if isinstance(strategy_keys, str):
+        strategy_keys = [strategy_keys]
+    for sk in strategy_keys:
+        if sk not in STRATEGIES:
+            return {'success': False, 'error': f'无效的策略: {sk}'}
     if not market:
         return {'success': False, 'error': '请先选择市场'}
     if _scan_state['running']:
         return {'success': False, 'error': '扫描进行中'}
     _scan_state['running'] = True
     _scan_state['done'] = 0
+    _scan_state['total'] = 0
     _scan_state['results'] = []
     import threading
-    threading.Thread(target=_do_scan, args=(strategy_key, market, max_workers), daemon=True).start()
+    threading.Thread(target=_do_scan, args=(strategy_keys, market, max_workers), daemon=True).start()
     return {'success': True, 'message': '扫描已启动'}
 
 
@@ -99,34 +104,53 @@ def get_scan_status():
     }
 
 
-def _do_scan(strategy_key, market, max_workers):
+def _batch_scan(stocks, strategy_key, market, max_workers, done_offset=0):
+    """对一批股票执行单策略扫描，返回命中的结果列表，更新 done 进度"""
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_scan_one, c, n, strategy_key): c for c, n in stocks}
+        for future in as_completed(futures):
+            try:
+                r = future.result()
+                if r:
+                    r['market'] = market
+                    results.append(r)
+            except Exception:
+                pass
+            _scan_state['done'] += 1
+            _scan_state['results'] = list(results)
+    return results
+
+
+def _do_scan(strategy_keys, market, max_workers):
     global _scan_state
     try:
         conn = _list_conn()
         rows = conn.execute('SELECT code, name FROM stocks WHERE market=? ORDER BY code', (market,)).fetchall()
         conn.close()
-        stocks = [(r['code'], r['name']) for r in rows]
+        all_stocks = [(r['code'], r['name']) for r in rows]
 
         conn2 = _kline_conn()
         has_kline = set(r['code'] for r in
             conn2.execute('SELECT DISTINCT code FROM klines WHERE period="daily" AND market=?', (market,)).fetchall())
         conn2.close()
-        scan_list = [(c, n) for c, n in stocks if c in has_kline]
+        scan_list = [(c, n) for c, n in all_stocks if c in has_kline]
 
-        _scan_state['total'] = len(scan_list)
+        # pipeline 串联筛选：第一个策略扫全量，后续策略只扫上一轮命中的
         results = []
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_scan_one, c, n, strategy_key): c for c, n in scan_list}
-            for future in as_completed(futures):
-                try:
-                    r = future.result()
-                    if r:
-                        r['market'] = market
-                        results.append(r)
-                except Exception:
-                    pass
-                _scan_state['done'] += 1
-                _scan_state['results'] = list(results)
+        for i, strategy_key in enumerate(strategy_keys):
+            if i == 0:
+                candidates = scan_list
+            else:
+                if not results:
+                    break
+                candidates = [(r['code'], None) for r in results]
+                results = []
+
+            # 本阶段开始前更新 total（累加本阶段要扫的数量）
+            _scan_state['total'] += len(candidates)
+            results = _batch_scan(candidates, strategy_key, market, max_workers)
+
         _scan_state['results'] = list(results)
     finally:
         _scan_state['running'] = False
