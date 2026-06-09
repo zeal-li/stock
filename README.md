@@ -49,9 +49,12 @@ stock/
 │   │   ├── __init__.py
 │   │   └── service.py
 │   │
-│   ├── technical_screen/              # 技术选股模块
-│   │   ├── __init__.py
-│   │   └── service.py                 # 上升通道扫描（基于本地 K 线缓存）
+  │   ├── technical_screen/              # 技术选股模块
+  │   │   ├── __init__.py
+  │   │   ├── service.py                 # 策略扫描引擎（上升通道/强势回调），支持 pipeline 串联
+  │   │   └── strategies/                # 策略实现
+  │   │       ├── ascending_channel.py   # 上升通道：线性回归通道检测
+  │   │       └── momentum_pullback.py   # 强势回调：五因子综合评分
 │   │
 │   ├── abnormal_center/               # 异动中心模块
 │   │   ├── __init__.py
@@ -115,18 +118,13 @@ stock/
 ### data/stock_list.db — 在市的股票列表
 
 ```sql
--- 股票列表
+-- 股票列表（含市场同步时间戳）
 CREATE TABLE stocks (
     code TEXT NOT NULL,          -- 股票代码（6位）
-    market TEXT NOT NULL,        -- 市场分段（sh_main/sz_main/gem/star/sz_etf/sh_etf）
+    market TEXT NOT NULL,        -- 市场分段（sh_main/sz_main/gem/star/sz_etf/sh_etf/hk_main/us_main）
     name TEXT,                   -- 股票名称
+    sync_ts TEXT,                -- 市场同步时间戳（该市场所有股票共享，全部个股更新完毕后写入）
     PRIMARY KEY (code, market)
-);
-
--- 同步日志
-CREATE TABLE sync_log (
-    market TEXT PRIMARY KEY,     -- 市场分段
-    last_sync_date TEXT           -- 上次同步日期 YYYY-MM-DD
 );
 ```
 
@@ -156,7 +154,8 @@ CREATE TABLE stock_info (
     code TEXT NOT NULL,          -- 股票代码
     market TEXT NOT NULL,        -- 市场分段
     name TEXT,                   -- 股票名称
-    latest_kline_date TEXT,      -- 最新K线日期
+    last_update_ts TEXT,         -- 上次 K 线更新时间戳
+    latest_kline_date TEXT,      -- 最新K线日期（增量同步时判断差几天）
     PRIMARY KEY (code, market)
 );
 ```
@@ -203,33 +202,12 @@ CREATE TABLE market_data (
 | sz_main | 深A | 000/001/002/003 |
 | gem | 创业板 | 300/301 |
 | star | 科创板 | 688 |
-| bj | 北交所 | 83/87/88 |
-| xsb | 新三板 | 43 |
 | sz_etf | 深ETF | 159/16/18 |
 | sh_etf | 沪ETF | 5 |
 | hk_main | 港股 | 东方财富 API（fs=m:116+t:3） |
-| us_main | 美股 | NASDAQ 官方 API |
+| us_main | 美股 | 东方财富 API（fs=m:105,m:106,m:107） |
 
 ### 数据同步流程
-
-#### 启动增量同步（全市场）
-
-应用启动 2 秒后自动触发，只更新 `stock_list.db` **已存在**的市场：
-
-```
-_startup_worker()
-    ↓
-_refresh_stock_list()         → 同日不重复拉列表
-    ↓
-_sync_klines()                → 对比 latest_kline_date，只拉增量
-    ↓
-_cleanup_delisted()           → 清理 detail 中已退市的股票
-    ↓
-list_sync_date_set()          → 更新各市场同步日期
-```
-
-- 股票列表同日不重复拉取（按 `sync_log.last_sync_date` 判断）
-- K 线增量：`max_date >= 最近交易日` 则跳过；差 ≤7 天只拉日线，≤31 天拉日线+周线
 
 #### 手动初始化新市场
 
@@ -240,17 +218,43 @@ init_segment(seg_key)
     ↓
 _fetch_stocks_by_segment()    → 拉取完整股票列表（分页）
     ↓
-list_replace_market()         → 写入 stock_list.db
+list_replace_market()         → 全量替换写入 stock_list.db
     ↓
-全量 K 线同步（4 线程）        → 每只股票拉日/周/月线，写入 klines + stock_info
+全量 K 线同步（4 线程）        → 每只股票拉日/周/月线，detail_sync_atomic 原子写 stock_info
+    ↓
+_cleanup_delisted()           → 清理 detail 有但 list 无的退市股
+    ↓
+list_sync_ts_set()            → 全部完成后写入 stocks.sync_ts
+```
+
+- A 股/ETF 数据来源：腾讯 K 线 API
+- 港股/美股 K 线：Yahoo Finance（query1.finance.yahoo.com）
+- 美股股票列表：东方财富 push2delay
+- 支持"终止"操作：取消后自动回滚（删除已写入的列表和 K 线数据）
+
+#### 增量更新已有市场
+
+前端选择市场 → 点击"更新" / 后台定时触发：
+
+```
+update_market(seg_key)
+    ↓
+_need_update()                → 检查 stocks.sync_ts，判断市场是否需要更新
+    ↓
+_list_need_refresh()          → 判断股票列表是否需要重拉（需要则拉取并全量替换）
+    ↓
+筛选 to_update                → 对比 stock_info.latest_kline_date 与最近交易日
+    ↓
+增量 K 线同步（4 线程）        → 每只线程内原子写 stock_info（last_update_ts + latest_kline_date）
+    ↓（全部个股完成后）
+list_sync_ts_set()            → 写入 stocks.sync_ts
     ↓
 _cleanup_delisted()
 ```
 
-- A 股/ETF 数据来源：腾讯 K 线 API（A股）+ 同花顺 API（成交额/换手率）
-- 港股/美股 K 线：Yahoo Finance（query1.finance.yahoo.com，需系统代理）
-- 美股股票列表：NASDAQ 官方 screener API
-- 支持"终止"操作：取消后自动回滚已写入的列表和 K 线数据
+- **中途终止不回退**：已完成个股的 kline + stock_info 已落地，stocks.sync_ts 未写。下次更新自动跳已完成个股，续传剩余
+- `_need_update()` 逻辑：对比 stocks.sync_ts 与当前时间，考虑各市场交易时间（A 股 9:30-15:00，港股 9:30-16:00，美股 21:30-04:00），跨 1 个交易日以上需更新
+- 增量优化：差 ≤7 天只拉日线，≤31 天拉日线+周线，>31 天或全新拉全量
 
 #### 收市后定时增量同步
 
@@ -259,7 +263,7 @@ _cleanup_delisted()
 | 市场 | 收市 | 触发 | 候选市场 |
 |------|------|------|---------|
 | 港股 | 14:00 | 14:30 | hk_main |
-| A股 | 15:00 | 15:30 | sh_main, sz_main, gem, star, sz_etf, sh_etf, bj |
+| A股 | 15:00 | 15:30 | sh_main, sz_main, gem, star, sz_etf, sh_etf |
 | 美股 | 04:00 | 04:30 | us_main |
 
 - **只同步 `stock_list.db` 里已有的市场**，未加载的自动跳过
@@ -271,9 +275,9 @@ _cleanup_delisted()
 
 | 市场 | 股票列表 | K 线 |
 |------|---------|------|
-| A 股（沪/深/创业/科创/北交/三板/ETF） | 东方财富 push2delay | 腾讯 K 线 + 同花顺（成交额/换手率） |
-| 港股 | 东方财富 push2delay | Yahoo Finance（需代理） |
-| 美股 | NASDAQ API | Yahoo Finance（需代理） |
+| A 股（沪/深/创业/科创/ETF） | 东方财富 push2delay | 腾讯 K 线 |
+| 港股 | 东方财富 push2delay | Yahoo Finance |
+| 美股 | 东方财富 push2delay | Yahoo Finance |
 
 ## 前端 localStorage 缓存
 
@@ -361,7 +365,7 @@ app.run()
       │     分页拉取（东方财富 push2delay，每页 1000 条）
       │     通过 f2（价格）字段过滤退市股（价格为 '-' 的排除）
       │     list_replace_market 全量替换：该段旧数据全部删除后重新写入
-      │     同日已同步的市场跳过
+      │     按 stocks.sync_ts 同日已同步的市场跳过
       │
       ├─ 步骤2 _sync_klines()  →  遍历 stock_list.db → 增量/全量 K 线 → stock_detail_list.db
       │     预加载 stock_info 为内存 map（避免每只查 DB），仅提交需要更新的股票
@@ -371,8 +375,9 @@ app.run()
       │       · 差 ≤7 天只拉日线（周/月线新周期未生成）
       │       · 差 ≤31 天拉日线 + 周线
       │       · >31 天或全新才拉日/周/月全量
-      │     写入使用 BEGIN IMMEDIATE 单事务，K 线 + latest_kline_date 原子落盘
+      │     写入使用 BEGIN IMMEDIATE 单事务，klines + stock_info（含 latest_kline_date）原子落盘
       │     SQLite WAL 模式 + PRAGMA synchronous=FULL，中途重启不丢进度
+      │     全部个股完成后写入 stocks.sync_ts
       │
       └─ 步骤3 _cleanup_delisted()  →  detail 里有 list 里没有的 → 删除 K 线和元信息（退市股票）
 ```
@@ -410,14 +415,19 @@ app.run()
 ### 手动操作
 
 ```
-手动加载新市场：
-  POST /api/market-db/init/<seg_key>  →  异步初始化新市场（拉列表 + 全量 K 线）
-  GET  /api/market-db/init/status    →  查询进度 {running, total, done, phase}
+加载 / 更新 / 清库：
+  POST /api/market-db/init/<seg_key>    →  异步初始化新市场（拉列表 + 全量 K 线）
+  POST /api/market-db/update/<seg_key>  →  增量更新已有市场（中途终止不回退，下次续传）
+  POST /api/market-db/clear/<seg_key>   →  清除市场全部数据（列表 + K 线 + 元信息）
+  GET  /api/market-db/init/status       →  查询进度 {running, total, done, phase}
+  POST /api/market-db/init/cancel       →  终止运行中的任务
+  GET  /api/market-db/segments          →  获取各市场状态 + 股票数
+  GET  /api/market-db/status            →  总股票数统计
 
-技术选股（离线扫描，不请求外部数据源）：
-  POST /api/technical/ascending-channel      →  读 stock_detail_list.db 扫描上升通道（30 线程并发）
-      取最近 120 条日K，线性回归拟合通道，R²>=0.6 且通道宽度<30% 且量比>0.8
-  GET  /api/technical/ascending-channel/status →  轮询进度
+技术选股（离线扫描，基于 stock_detail_list.db，不请求外部数据源）：
+  GET  /api/technical/strategies                   →  获取可用策略列表（上升通道 / 强势回调）
+  POST /api/technical/scan                         →  启动扫描 {strategy_keys, market, max_workers}，支持 pipeline 串联
+  GET  /api/technical/scan/status                  →  轮询进度 + 结果（按评分降序）
 ```
 
 ### 前端页面加载与自动刷新
@@ -479,7 +489,8 @@ app.run()
 |------|------|-----|------|
 | 页面加载 | 模块初始化 | `market-db/segments` | 获取市场分段列表 |
 | 加载市场数据 | 点击"加载"按钮 | `POST market-db/init/{key}` + `GET init/status`（每 1s 轮询进度） | 手动 |
-| 运行选股 | 点击"上升通道"按钮 | `POST ascending-channel` + `GET status`（每 2s 轮询进度） | 手动 |
+| 增量更新 | 点击"更新"按钮 | `POST market-db/update/{key}` + `GET init/status`（每 1s 轮询进度） | 手动，终止不丢进度 |
+| 运行选股 | 选择策略 + 市场点击"扫描" | `POST technical/scan` + `GET scan/status`（每 2s 轮询进度） | 支持 pipeline 串联筛选 |
 
 #### 解禁列表页
 
