@@ -1,5 +1,5 @@
 """全市场股票数据存储 — 双文件
-    data/stock_list.db      股票列表 + 同步日志
+    data/stock_list.db      股票列表（含同步时间戳）
     data/stock_detail_list.db   K线 + 股票元信息
 """
 import os
@@ -26,11 +26,8 @@ def _connect(path, create_sqls):
 def _list_conn():
     return _connect(_LIST_PATH, [
         '''CREATE TABLE IF NOT EXISTS stocks (
-            code TEXT NOT NULL, market TEXT NOT NULL, name TEXT,
+            code TEXT NOT NULL, market TEXT NOT NULL, name TEXT, sync_ts TEXT,
             PRIMARY KEY (code, market))''',
-        '''CREATE TABLE IF NOT EXISTS sync_log (
-            market TEXT PRIMARY KEY,
-            last_sync_ts TEXT)''',
     ])
 
 
@@ -77,15 +74,16 @@ def list_replace_market(market, rows):
 def list_sync_ts_get(market):
     """获取某市场上次同步时间戳"""
     conn = _list_conn()
-    r = conn.execute('SELECT last_sync_ts FROM sync_log WHERE market=?', (market,)).fetchone()
+    r = conn.execute(
+        'SELECT sync_ts FROM stocks WHERE market=? AND sync_ts IS NOT NULL LIMIT 1',
+        (market,)).fetchone()
     conn.close()
-    return r['last_sync_ts'] if r else None
+    return r['sync_ts'] if r else None
 
 def list_sync_ts_set(market, ts_str):
-    """设置某市场的同步时间戳"""
+    """设置某市场的同步时间戳（更新该市场下所有股票的 sync_ts）"""
     conn = _list_conn()
-    conn.execute('INSERT OR REPLACE INTO sync_log (market, last_sync_ts) VALUES (?, ?)',
-                 (market, ts_str))
+    conn.execute('UPDATE stocks SET sync_ts=? WHERE market=?', (ts_str, market))
     conn.commit()
     conn.close()
 
@@ -102,11 +100,7 @@ def _detail_conn():
             PRIMARY KEY (code, market, period, date))''',
         '''CREATE TABLE IF NOT EXISTS stock_info (
             code TEXT NOT NULL, market TEXT NOT NULL,
-            name TEXT, last_update_ts TEXT,
-            PRIMARY KEY (code, market))''',
-        '''CREATE TABLE IF NOT EXISTS kline_date (
-            code TEXT NOT NULL, market TEXT NOT NULL,
-            latest_kline_date TEXT,
+            name TEXT, last_update_ts TEXT, latest_kline_date TEXT,
             PRIMARY KEY (code, market))''',
         '''CREATE INDEX IF NOT EXISTS idx_klines_market ON klines(market, code, period, date)''',
     ])
@@ -155,7 +149,7 @@ def detail_info_ts_map():
 def detail_kline_date_get(code, market):
     """获取单只股票的 latest_kline_date"""
     conn = _detail_conn()
-    r = conn.execute('SELECT latest_kline_date FROM kline_date WHERE code=? AND market=?',
+    r = conn.execute('SELECT latest_kline_date FROM stock_info WHERE code=? AND market=?',
                      (code, market)).fetchone()
     conn.close()
     return r['latest_kline_date'] if r else None
@@ -163,26 +157,24 @@ def detail_kline_date_get(code, market):
 def detail_kline_date_map():
     """批量获取所有股票的 latest_kline_date，返回 {(code, market): date_str}"""
     conn = _detail_conn()
-    rows = conn.execute('SELECT code, market, latest_kline_date FROM kline_date').fetchall()
+    rows = conn.execute('SELECT code, market, latest_kline_date FROM stock_info').fetchall()
     conn.close()
     return {(r['code'], r['market']): (r['latest_kline_date'] or '') for r in rows}
 
 def detail_remove_stock(code, market):
-    """删除某只股票的 K 线、元信息和kline_date"""
+    """删除某只股票的 K 线和元信息"""
     conn = _detail_conn()
     conn.execute('DELETE FROM klines WHERE code=? AND market=?', (code, market))
     conn.execute('DELETE FROM stock_info WHERE code=? AND market=?', (code, market))
-    conn.execute('DELETE FROM kline_date WHERE code=? AND market=?', (code, market))
     conn.commit()
     conn.close()
 
 
 def detail_clear_market(market):
-    """清除指定市场的所有 K 线、元信息和kline_date"""
+    """清除指定市场的所有 K 线和元信息"""
     conn = _detail_conn()
     conn.execute('DELETE FROM klines WHERE market=?', (market,))
     conn.execute('DELETE FROM stock_info WHERE market=?', (market,))
-    conn.execute('DELETE FROM kline_date WHERE market=?', (market,))
     conn.commit()
     conn.close()
 
@@ -199,7 +191,7 @@ def detail_klines_insert(rows):
 
 
 def detail_sync_atomic(code, market, name, kline_rows, latest_date, ts_str):
-    """原子写入：K 线数据 + stock_info + kline_date 在同一个事务中"""
+    """原子写入：K 线数据 + stock_info（含 latest_kline_date）在同一个事务中"""
     conn = _detail_conn()
     try:
         conn.execute('BEGIN IMMEDIATE')
@@ -208,11 +200,8 @@ def detail_sync_atomic(code, market, name, kline_rows, latest_date, ts_str):
                 'INSERT OR IGNORE INTO klines (code,market,period,date,open,high,low,close,volume,amount) '
                 'VALUES (?,?,?,?,?,?,?,?,?,?)', r)
         conn.execute(
-            'INSERT OR REPLACE INTO stock_info (code, market, name, last_update_ts) VALUES (?,?,?,?)',
-            (code, market, name or code, ts_str))
-        conn.execute(
-            'INSERT OR REPLACE INTO kline_date (code, market, latest_kline_date) VALUES (?,?,?)',
-            (code, market, latest_date))
+            'INSERT OR REPLACE INTO stock_info (code, market, name, last_update_ts, latest_kline_date) VALUES (?,?,?,?,?)',
+            (code, market, name or code, ts_str, latest_date))
         conn.commit()
     except Exception:
         conn.rollback()

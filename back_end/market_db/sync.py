@@ -3,12 +3,13 @@
   1. 拉取股票列表 → 写入 stock_list.db
   2. 全量同步 K 线 → 写入 stock_detail_list.db
   3. 清理退市
+  4. 更新 stocks.sync_ts
 
 更新（增量）：
-  1. 检查 sync_log 时间戳，判断是否需要更新
+  1. 检查 stocks.sync_ts，判断是否需要更新
   2. 拉取最新股票列表 → 替换 stock_list.db
   3. 增量同步 K 线
-  4. 更新 sync_log 时间戳
+  4. 更新 stocks.sync_ts
   5. 清理退市
 """
 import datetime
@@ -531,7 +532,6 @@ def _run_init(seg_key):
 
         if _sync_status.get('cancel'):
             list_replace_market(seg_key, [])
-            list_sync_ts_set(seg_key, None)
             _sync_status['running'] = False
             _sync_status['phase'] = 'cancelled'
             _sync_status['cancel'] = False
@@ -574,7 +574,6 @@ def _run_init(seg_key):
         if cancelled:
             detail_clear_market(seg_key)
             list_replace_market(seg_key, [])
-            list_sync_ts_set(seg_key, None)
             _sync_status['running'] = False
             _sync_status['phase'] = 'cancelled'
             _sync_status['cancel'] = False
@@ -599,7 +598,7 @@ def _run_init(seg_key):
 # =========== 更新（增量同步已有市场） ===========
 
 def _need_update(seg_key):
-    """根据 sync_log 时间戳和当前时间判断是否需要更新K线数据
+    """根据 stocks.sync_ts 和当前时间判断是否需要更新K线数据
 
     返回值:
         True  → 需要更新
@@ -737,9 +736,9 @@ def update_market(seg_key):
 
 
 def _list_need_refresh(seg_key):
-    """根据 sync_log 时间戳判断股票列表是否需要重新拉取
+    """根据 stocks.sync_ts 判断股票列表是否需要重新拉取
 
-    规则：如果 sync_log.last_sync_ts 是在"最近一次该市场开盘时间"或之后，
+    规则：如果 stocks.sync_ts 是在"最近一次该市场开盘时间"或之后，
     那么列表仍是新的（在该市场下一次开盘前都不会有新上市/退市变化）。
     否则列表可能过时，需要重新拉取。
     """
@@ -803,7 +802,7 @@ def _list_need_refresh(seg_key):
             last_open_date -= datetime.timedelta(days=1)
         last_open_dt = datetime.datetime.combine(last_open_date, datetime.time(open_h, open_m))
 
-    # sync_log 时间戳 >= 最近开盘时间 → 列表仍是新的
+    # stocks.sync_ts >= 最近开盘时间 → 列表仍是新的
     return last_ts < last_open_dt
 
 
@@ -811,38 +810,18 @@ def _run_update(seg_key):
     global _sync_status
     try:
         label = SEGMENTS[seg_key]['label']
-        _sync_status['phase'] = 'check'
         _sync_status['cancel'] = False
         print(f"[sync] 更新: {label}")
 
-        # 公共变量
-        kline_date_map = detail_kline_date_map()
         latest_trading = _latest_possible_trading_day()
-        existing_stocks = list_stocks_by_market().get(seg_key, {})
-        existing_list = [(code, seg_key, name) for code, name in existing_stocks.items()]
+        kline_date_map = detail_kline_date_map()
 
-        # 第一步：检查所有现有股票K线是否都已最新
-        to_update_pre = [s for s in existing_list
-                         if not kline_date_map.get((s[0], s[1]), '') or
-                            kline_date_map.get((s[0], s[1]), '') < latest_trading]
-
-        if existing_list and not to_update_pre:
-            # 所有现有股票K线都已是最新
-            print(f"[sync] {label} K线已是最新 ({len(existing_list)} 只)，无需更新")
-            list_sync_ts_set(seg_key, _now_ts_str())
-            _cleanup_delisted()
-            _sync_status['running'] = False
-            _sync_status['phase'] = 'done'
-            return
-
-        # 第二步：现有K线未全部最新，再用 sync_log 判断是否需要重拉列表
+        # 第一步：判断股票列表是否需要重拉
         need_refresh_list = _list_need_refresh(seg_key)
         last_ts_str = list_sync_ts_get(seg_key)
-        print(f"[sync] {label} sync_log 时间戳: {last_ts_str or '无'}, 列表{'需要' if need_refresh_list else '无需'}重拉")
+        print(f"[sync] {label} sync_ts: {last_ts_str or '无'}, 列表{'需要' if need_refresh_list else '无需'}重拉")
 
-        rows = None
         if need_refresh_list:
-            # 拉取最新股票列表
             _sync_status['phase'] = 'list'
             rows = _fetch_stocks_by_segment(seg_key)
             if rows is None:
@@ -853,35 +832,35 @@ def _run_update(seg_key):
                 return
 
             if _sync_status.get('cancel'):
+                # 中途终止：stocks 表未更新，下次继续
                 _sync_status['running'] = False
                 _sync_status['phase'] = 'cancelled'
                 _sync_status['cancel'] = False
                 print(f"[sync] {label} 更新已被终止")
                 return
 
-            # 替换列表
             list_replace_market(seg_key, rows)
             print(f"[sync] {label} 股票列表已更新: {len(rows)} 只")
         else:
-            # 列表不需要重拉，沿用现有列表
-            rows = existing_list
+            existing_stocks = list_stocks_by_market().get(seg_key, {})
+            rows = [(code, name) for code, name in existing_stocks.items()]
 
-        # 第三步：基于最终列表重新计算需要更新的股票
+        # 第二步：筛选需要更新 K 线的个股
         stock_list = [(code, seg_key, name) for code, name in rows]
         to_update = [s for s in stock_list
                      if not kline_date_map.get((s[0], s[1]), '') or
                         kline_date_map.get((s[0], s[1]), '') < latest_trading]
 
         if not to_update:
-            # 全部最新
-            print(f"[sync] {label} K线全部已是最新，无需拉取")
+            # 全部个股已是最新 → 写入市场 sync_ts
+            print(f"[sync] {label} K线全部已是最新 ({len(stock_list)} 只)，无需拉取")
             list_sync_ts_set(seg_key, _now_ts_str())
             _cleanup_delisted()
             _sync_status['running'] = False
             _sync_status['phase'] = 'done'
             return
 
-        # 第四步：增量同步 K 线
+        # 第三步：增量同步 K 线（每只线程内单独写自己的 stock_info 时间戳）
         _sync_status['total'] = len(stock_list)
         _sync_status['done'] = 0
         _sync_status['phase'] = 'kline'
@@ -914,16 +893,18 @@ def _run_update(seg_key):
         print()
 
         if cancelled:
+            # 中途终止：已完成个股的 kline 已写入，stocks.sync_ts 未写
+            # 下次更新时会跳过已完成的个股，续传剩余的
             _sync_status['running'] = False
             _sync_status['phase'] = 'cancelled'
             _sync_status['cancel'] = False
-            print(f"[sync] {label} 更新已被终止（已完成的数据保留）")
+            print(f"[sync] {label} 更新已被终止（已完成的数据保留，下次续传）")
             return
 
-        # 第五步：更新 sync_log 时间戳
+        # 第四步：全部个股更新完毕 → 写入市场 sync_ts
         list_sync_ts_set(seg_key, _now_ts_str())
 
-        # 第六步：清理退市
+        # 第五步：清理退市
         _cleanup_delisted()
 
         el = time.time() - t0
@@ -986,7 +967,7 @@ def get_segments_info():
 # =========== 清库 ===========
 
 def clear_market(seg_key):
-    """清除指定市场的所有数据（列表 + K线 + 元信息 + 同步记录）"""
+    """清除指定市场的所有数据（列表 + K线 + 元信息）"""
     if seg_key not in SEGMENTS:
         return {'success': False, 'error': '无效的市场分段'}
     if seg_key not in list_markets():
@@ -1001,7 +982,6 @@ def clear_market(seg_key):
 
     detail_clear_market(seg_key)
     list_replace_market(seg_key, [])
-    list_sync_ts_set(seg_key, None)
 
     print(f"[sync] {label} 数据已清除")
     return {'success': True, 'message': f'{label} 数据已清除'}
