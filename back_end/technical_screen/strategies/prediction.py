@@ -93,6 +93,50 @@ def calc(klines):
         else:
             break
 
+    # -- NR7（7日最窄振幅，波动率压缩预示即将变盘） --
+    cur_range_pct = day_range / cur_open if cur_open > 0 else 0
+    is_nr7 = True
+    for i in range(-7, -1):
+        if i >= -len(klines):
+            prev_h, prev_l = highs[i], lows[i]
+            prev_c = closes[i] if closes[i] > 0 else 1
+            prev_range_pct = (prev_h - prev_l) / prev_c
+            if prev_range_pct < cur_range_pct:
+                is_nr7 = False
+                break
+        else:
+            is_nr7 = False
+            break
+
+    # -- 均线（预计算供多处使用） --
+    ma5 = _ma(closes, 5)
+    ma10 = _ma(closes, 10)
+    ma20_val = _ma(closes, 20)
+
+    # -- 价格偏离 MA20 幅度（均值回归力） --
+    ma20_dist = (cur_close - ma20_val) / ma20_val if ma20_val and ma20_val > 0 else 0
+
+    # -- 60日/120日位置（预计算供动量因子使用） --
+    h60 = max(highs[-60:]) if len(highs) >= 60 else max(highs)
+    l60 = min(lows[-60:]) if len(lows) >= 60 else min(lows)
+    pos = (cur_close - l60) / (h60 - l60) if h60 > l60 else 0.5
+
+    pos_120 = None
+    if len(highs) >= 120:
+        h120 = max(highs[-120:])
+        l120 = min(lows[-120:])
+        if h120 > l120:
+            pos_120 = (cur_close - l120) / (h120 - l120)
+
+    # -- Inside Day / Outside Day --
+    is_inside = False
+    is_outside = False
+    if len(klines) >= 2:
+        prev_high = highs[-2]
+        prev_low = lows[-2]
+        is_inside = cur_high <= prev_high and cur_low >= prev_low
+        is_outside = cur_high > prev_high and cur_low < prev_low
+
     # ============================================================
     # 1. 短期动量 (35分)
     # ============================================================
@@ -192,6 +236,30 @@ def calc(klines):
     if chg_3d > 0.01 and chg_1d < -0.03:
         momentum_score -= 12
 
+    # -- NR7 振幅压缩（波动率收缩→即将变盘） --
+    if is_nr7:
+        if today_up and pos < 0.5:
+            momentum_score += 5   # 低位 NR7 收阳 = 大概率向上突破
+        elif not today_up and pos > 0.6:
+            momentum_score -= 5   # 高位 NR7 收阴 = 大概率向下破位
+        elif today_up:
+            momentum_score += 3   # NR7 收阳，偏多
+        else:
+            momentum_score -= 3   # NR7 收阴，偏空
+
+    # -- 均线回归力（偏离 MA20 幅度） --
+    if ma20_dist > 0.15:
+        momentum_score -= 5       # 严重高于均线，均值回归引力强
+    elif ma20_dist > 0.10:
+        momentum_score -= 3       # 偏远离
+    elif ma20_dist < -0.10:
+        if today_up:
+            momentum_score += 4   # 深度超跌 + 收阳 = 反弹启动
+        else:
+            momentum_score -= 2   # 深度超跌还在跌
+    elif ma20_dist < -0.05 and today_up:
+        momentum_score += 2       # 轻度超跌反弹
+
     momentum_score = max(0, min(35, momentum_score))
 
     # ============================================================
@@ -259,9 +327,6 @@ def calc(klines):
     # ============================================================
     # 3. 位置高低 (20分)
     # ============================================================
-    h60 = max(highs[-60:]) if len(highs) >= 60 else max(highs)
-    l60 = min(lows[-60:]) if len(lows) >= 60 else min(lows)
-    pos = (cur_close - l60) / (h60 - l60) if h60 > l60 else 0.5
 
     position_score = 0
     if 0.15 <= pos <= 0.35:        # 低位区域，反弹空间大
@@ -276,24 +341,16 @@ def calc(klines):
         position_score = 5
 
     # -- 120日位置交叉验证 --
-    pos_120 = None
-    if len(highs) >= 120:
-        h120 = max(highs[-120:])
-        l120 = min(lows[-120:])
-        if h120 > l120:
-            pos_120 = (cur_close - l120) / (h120 - l120)
-            if pos > 0.8 and pos_120 < 0.5:
-                position_score += 5   # 60日高位 + 120日中低位 = 假高位，实际还在底部区域
-            elif pos < 0.15 and pos_120 > 0.6:
-                position_score -= 3   # 60日低位 + 120日高位 = 假低位，可能是下跌中继
-            elif pos < 0.15 and pos_120 < 0.25:
-                position_score += 3   # 60日+120日双低 = 真底部区域
+    if pos_120 is not None:
+        if pos > 0.8 and pos_120 < 0.5:
+            position_score += 5   # 60日高位 + 120日中低位 = 假高位，实际还在底部区域
+        elif pos < 0.15 and pos_120 > 0.6:
+            position_score -= 3   # 60日低位 + 120日高位 = 假低位，可能是下跌中继
+        elif pos < 0.15 and pos_120 < 0.25:
+            position_score += 3   # 60日+120日双低 = 真底部区域
 
     # -- 均线位置加分项 --
-    ma5 = _ma(closes, 5)
-    ma10 = _ma(closes, 10)
-    ma20 = _ma(closes, 20)
-    if ma5 and ma10 and ma20:
+    if ma5 and ma10 and ma20_val:
         if cur_close > ma5 > ma10:         # 均线多头
             position_score += 2
 
@@ -350,6 +407,22 @@ def calc(klines):
             else:
                 pattern_score += 6
 
+    # -- Inside Day（包线蓄力，振幅被昨日完全包含） --
+    if is_inside:
+        if today_up and pos < 0.5:
+            pattern_score += 4   # 低位蓄力，准备突破
+        elif today_up:
+            pattern_score += 2   # 一般蓄力
+
+    # -- Outside Day（穿头破脚，振幅完全超出昨日） --
+    if is_outside:
+        if today_up:
+            pattern_score += 8   # 看涨 OS day = 强突破
+            if pos < 0.5:
+                pattern_score += 3   # 低位 OS day 更强
+        else:
+            pattern_score -= 7   # 看跌 OS day = 破位
+
     pattern_score = max(-8, min(15, pattern_score))
 
     # ============================================================
@@ -388,6 +461,10 @@ def calc(klines):
     # 缺口向下不补 → 看跌
     if gap_pct < -0.02 and close_pos_in_range < 0.3:
         bearish_momentum = min(25, bearish_momentum + 8)
+
+    # NR7 中高位收阴 → 变盘向下
+    if is_nr7 and not today_up and pos > 0.55:
+        bearish_momentum = min(25, bearish_momentum + 6)
 
     # 量价反向：放量下跌
     if not today_up and vol_ratio_today > 1.2:
@@ -445,6 +522,10 @@ def calc(klines):
             'close_pos': round(close_pos_in_range * 100, 1),
             'consecutive_up': consecutive_up,
             'consecutive_down': consecutive_down,
+            'is_nr7': is_nr7,
+            'ma20_dist': round(ma20_dist * 100, 2),
+            'is_inside': is_inside,
+            'is_outside': is_outside,
             'today_up': today_up,
         },
     }
