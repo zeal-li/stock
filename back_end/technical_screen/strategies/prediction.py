@@ -16,9 +16,9 @@ def calc(klines):
     """基于K线多因子模型预测明日涨跌方向及置信度
 
     四大因子（满分 100）：
-    1. 短期动量 (35) — 近5日价格走势与今日涨跌
-    2. 量价关系 (30) — 量能配合程度
-    3. 位置高低 (20) — 60日波动区间内的相对位置
+    1. 短期动量 (35) — 近5日价格走势、今日涨跌、缺口、日内收盘位置、连阳连阴
+    2. 量价关系 (30) — 量能配合程度、量能趋势、Effort vs Result
+    3. 位置高低 (20) — 60日/120日波动区间内的相对位置
     4. K线形态 (15) — 单根K线/组合形态信号
     """
     if len(klines) < 20:
@@ -43,7 +43,59 @@ def calc(klines):
             return None
         return sum(data[-period:]) / period
 
-    # ---------- 1. 短期动量 (35分) ----------
+    # ============================================================
+    # 前置计算：新增指标
+    # ============================================================
+
+    # -- ATR（14日平均真实波幅）用于波动率校准 --
+    tr_list = []
+    for i in range(-14, 0):
+        if i - 1 >= -len(closes):
+            pc = closes[i - 1]
+        else:
+            pc = closes[i]
+        h, l = highs[i], lows[i]
+        tr = max(h - l, abs(h - pc), abs(l - pc))
+        tr_list.append(tr)
+    atr = sum(tr_list) / len(tr_list) if tr_list else 0.01
+    atr_pct = atr / cur_close if cur_close > 0 else 0.01
+
+    avg_vol_5 = _ma(volumes, 5) or cur_vol
+    avg_vol_20 = _ma(volumes, 20) or avg_vol_5
+
+    # -- 收盘在日内振幅区间的位置 (0=最低点, 1=最高点) --
+    day_range = cur_high - cur_low
+    if day_range > 0:
+        close_pos_in_range = (cur_close - cur_low) / day_range
+        close_pos_in_range = max(0, min(1, close_pos_in_range))
+    else:
+        close_pos_in_range = 0.5
+
+    # -- 缺口分析 --
+    gap_pct = 0
+    if len(closes) >= 2:
+        prev_close = closes[-2]
+        if prev_close > 0:
+            gap_pct = (cur_open - prev_close) / prev_close
+
+    # -- 量能趋势（5日均量 vs 20日均量，>1 扩张，<1 萎缩） --
+    vol_trend = avg_vol_5 / avg_vol_20 if avg_vol_20 and avg_vol_20 > 0 else 1
+
+    # -- 连阳/连阴天数 --
+    consecutive_up = 0
+    consecutive_down = 0
+    for i in range(-1, -min(len(closes), 10) - 1, -1):
+        day_up = closes[i] >= opens[i]
+        if day_up and consecutive_down == 0:
+            consecutive_up += 1
+        elif not day_up and consecutive_up == 0:
+            consecutive_down += 1
+        else:
+            break
+
+    # ============================================================
+    # 1. 短期动量 (35分)
+    # ============================================================
     momentum_score = 0
 
     # 近5日涨跌幅
@@ -55,6 +107,7 @@ def calc(klines):
     today_up = cur_close >= cur_open
     today_body_pct = (cur_close - cur_open) / cur_open if cur_open > 0 else 0
 
+    # -- 5日涨幅 --
     if 0.005 < chg_5d <= 0.04:       # 温和上涨 0.5%-4%
         momentum_score += 15
     elif 0.002 < chg_5d <= 0.005:     # 微涨
@@ -66,6 +119,7 @@ def calc(klines):
     elif chg_5d <= -0.02:             # 明显下跌
         momentum_score -= 12
 
+    # -- 今日涨跌 --
     if chg_1d > 0:
         if 0.01 < chg_1d <= 0.03:     # 今日涨1-3%，动能健康
             momentum_score += 10
@@ -80,7 +134,41 @@ def calc(klines):
     elif chg_1d < 0:                   # 微跌
         momentum_score -= 3
 
-    # 3日趋势方向一致性
+    # -- ATR 校准：用自身波动率衡量涨跌幅的显著性 --
+    if atr_pct > 0:
+        chg_5d_atr = chg_5d / atr_pct
+        if 0.5 < chg_5d_atr <= 4:         # 相对自身波动温和上涨
+            momentum_score += 3
+        elif chg_5d_atr > 6:               # 涨幅远超正常波动范围
+            momentum_score -= 2
+        elif chg_5d_atr < -4:              # 跌幅远超正常波动范围
+            momentum_score -= 5
+
+    # -- 收盘在日内位置 --
+    if close_pos_in_range > 0.8 and today_up:
+        momentum_score += 5           # 收在日内高位，尾盘强势
+    elif close_pos_in_range > 0.7 and today_up:
+        momentum_score += 3           # 偏强收盘
+    elif close_pos_in_range < 0.25 and not today_up:
+        momentum_score -= 5           # 收在日内低位，尾盘跳水
+    elif close_pos_in_range < 0.35 and not today_up:
+        momentum_score -= 3           # 偏弱收盘
+    elif close_pos_in_range < 0.35 and today_up:
+        momentum_score -= 3           # 虽收阳但尾盘跳水（高开低走）
+    elif close_pos_in_range > 0.7 and not today_up:
+        momentum_score += 3           # 虽收阴但尾盘拉回（低开高走）
+
+    # -- 缺口分析 --
+    if gap_pct > 0.02 and today_up and close_pos_in_range > 0.7:
+        momentum_score += 8           # 向上跳空高开 + 收阳不补缺口 = 强势突破
+    elif gap_pct < -0.02 and not today_up and close_pos_in_range < 0.3:
+        momentum_score -= 8           # 向下跳空低开 + 收阴不补缺口 = 弱势破位
+    elif gap_pct > 0.02 and not today_up:
+        momentum_score -= 5           # 高开低走 = 诱多
+    elif gap_pct < -0.02 and today_up:
+        momentum_score += 6           # 低开高走 = 反转信号
+
+    # -- 3日趋势方向一致性 --
     chg_1 = (closes[-1] - closes[-2]) / closes[-2] if len(closes) >= 2 else 0
     chg_2 = (closes[-2] - closes[-3]) / closes[-3] if len(closes) >= 3 else 0
     chg_3 = (closes[-3] - closes[-4]) / closes[-4] if len(closes) >= 4 else 0
@@ -90,20 +178,31 @@ def calc(klines):
     elif up_days == 0:
         momentum_score -= 5
 
-    # 连涨后衰竭：前几日上涨 + 今日大跌 = 追涨意愿枯竭（经典见顶信号）
+    # -- 连阳/连阴天数 --
+    if consecutive_up >= 5:
+        momentum_score -= 3           # 5连阳，回调概率增大
+    elif consecutive_up >= 3:
+        momentum_score += 2           # 3-4连阳，动量延续健康
+    if consecutive_down >= 5:
+        momentum_score += 3           # 5连阴，超卖反弹预期（前提非放量跌）
+    elif consecutive_down >= 3:
+        momentum_score -= 3           # 3-4连阴，弱势延续
+
+    # -- 连涨后衰竭 --
     if chg_3d > 0.01 and chg_1d < -0.03:
         momentum_score -= 12
 
     momentum_score = max(0, min(35, momentum_score))
 
-    # ---------- 2. 量价关系 (30分) ----------
+    # ============================================================
+    # 2. 量价关系 (30分，范围 -15 ~ 30)
+    # ============================================================
     vol_score = 0  # 从0开始，不做偏向看涨的假设
 
-    avg_vol_5 = _ma(volumes, 5) or cur_vol
-    avg_vol_20 = _ma(volumes, 20) or avg_vol_5
     vol_ratio_today = cur_vol / avg_vol_5 if avg_vol_5 > 0 else 1
     vol_ratio_20 = cur_vol / avg_vol_20 if avg_vol_20 > 0 else 1
 
+    # -- 基本量价组合 --
     # 价升量增（强势信号）
     if today_up and vol_ratio_today > 1.2:
         vol_score += 12
@@ -128,7 +227,23 @@ def calc(klines):
     elif today_up and vol_ratio_today < 0.7:
         vol_score -= 5
 
-    # 近5日量价同步性：检查上涨日是否放量
+    # -- 量能趋势（扩张 vs 萎缩） --
+    if vol_trend > 1.05:
+        if today_up and vol_ratio_today > 1.0:
+            vol_score += 3           # 趋势扩张 + 今日放量上涨 = 真放量
+        elif not today_up:
+            vol_score -= 2           # 趋势扩张但收阴 = 放量下跌
+    elif vol_trend < 0.75:
+        vol_score -= 2               # 持续冰点缩量，人气涣散
+
+    # -- Effort vs Result（威科夫）：高 effort 低 result = churning --
+    if vol_ratio_today > 1.3 and abs(chg_1d) < 0.015:
+        if today_up:
+            vol_score -= 8           # 放量但几乎不涨 = 滞涨出货
+        else:
+            vol_score += 4           # 放量但几乎不跌 = 有人兜底承接
+
+    # -- 近5日量价同步性 --
     sync_count = 0
     for i in range(-5, 0):
         day_up = closes[i] >= opens[i]
@@ -139,9 +254,11 @@ def calc(klines):
             sync_count += 1
     vol_score += min(sync_count, 3) * 1   # 最多 +3
 
-    vol_score = max(-10, min(30, vol_score))
+    vol_score = max(-15, min(30, vol_score))
 
-    # ---------- 3. 位置高低 (20分) ----------
+    # ============================================================
+    # 3. 位置高低 (20分)
+    # ============================================================
     h60 = max(highs[-60:]) if len(highs) >= 60 else max(highs)
     l60 = min(lows[-60:]) if len(lows) >= 60 else min(lows)
     pos = (cur_close - l60) / (h60 - l60) if h60 > l60 else 0.5
@@ -158,19 +275,33 @@ def calc(klines):
     elif pos < 0.15:               # 极低位，可能弱势
         position_score = 5
 
-    # 均线位置加分项
+    # -- 120日位置交叉验证 --
+    pos_120 = None
+    if len(highs) >= 120:
+        h120 = max(highs[-120:])
+        l120 = min(lows[-120:])
+        if h120 > l120:
+            pos_120 = (cur_close - l120) / (h120 - l120)
+            if pos > 0.8 and pos_120 < 0.5:
+                position_score += 5   # 60日高位 + 120日中低位 = 假高位，实际还在底部区域
+            elif pos < 0.15 and pos_120 > 0.6:
+                position_score -= 3   # 60日低位 + 120日高位 = 假低位，可能是下跌中继
+            elif pos < 0.15 and pos_120 < 0.25:
+                position_score += 3   # 60日+120日双低 = 真底部区域
+
+    # -- 均线位置加分项 --
     ma5 = _ma(closes, 5)
     ma10 = _ma(closes, 10)
     ma20 = _ma(closes, 20)
     if ma5 and ma10 and ma20:
         if cur_close > ma5 > ma10:         # 均线多头
             position_score += 2
-        if ma5 and ma20 and cur_close > ma20:   # 在均线上方
-            position_score += 0
 
     position_score = min(20, position_score)
 
-    # ---------- 4. K线形态 (15分) ----------
+    # ============================================================
+    # 4. K线形态 (15分，范围 -8 ~ 15)
+    # ============================================================
     pattern_score = 0
 
     body = abs(cur_close - cur_open)
@@ -221,19 +352,26 @@ def calc(klines):
 
     pattern_score = max(-8, min(15, pattern_score))
 
-    # ---------- 综合判定 ----------
-    # 看涨总分（动量 + 量价 + 位置 + 形态）
+    # ============================================================
+    # 综合判定
+    # ============================================================
+
+    # -- 看涨总分 --
     bullish_raw = momentum_score + vol_score + position_score + pattern_score
     bullish_raw = max(0, min(100, bullish_raw))
 
-    # 同时计算看跌方向分数（对位置和形态取反向信号）
-    # 位置因子：高位 → 看跌方向
+    # -- 看跌方向信号 --
+    # 位置因子：高位 → 看跌
     if pos > 0.75:
         bearish_position = min(15, int((pos - 0.5) * 30))
     elif pos > 0.6:
         bearish_position = 5
     else:
         bearish_position = 0
+
+    # 120日高位加重看跌
+    if pos_120 is not None and pos_120 > 0.75:
+        bearish_position = min(20, bearish_position + 8)
 
     # 动量反向：连跌 → 看跌延续风险
     if chg_5d < -0.03:
@@ -243,6 +381,14 @@ def calc(klines):
     else:
         bearish_momentum = 0
 
+    # 连阴加速看跌
+    if consecutive_down >= 4:
+        bearish_momentum = min(25, bearish_momentum + 6)
+
+    # 缺口向下不补 → 看跌
+    if gap_pct < -0.02 and close_pos_in_range < 0.3:
+        bearish_momentum = min(25, bearish_momentum + 8)
+
     # 量价反向：放量下跌
     if not today_up and vol_ratio_today > 1.2:
         bearish_vol = min(15, int(vol_ratio_today * 10))
@@ -251,29 +397,30 @@ def calc(klines):
     else:
         bearish_vol = 0
 
+    # 高位 churning → 加强看跌
+    if pos > 0.65 and vol_ratio_today > 1.3 and abs(chg_1d) < 0.015:
+        bearish_vol = min(20, bearish_vol + 10)
+
     # 形态看跌
     bearish_pattern = abs(min(0, pattern_score)) if pattern_score < 0 else 0
 
     bearish_raw = bearish_position + bearish_momentum + bearish_vol + bearish_pattern
     bearish_raw = min(100, bearish_raw)
 
-    # 方向判定：比较看涨与看跌信号强度
-    # 设置最低阈值，避免模棱两可时给出高分
-    if bullish_raw >= bearish_raw + 15:
+    # -- 方向判定 --
+    if bullish_raw >= bearish_raw + 10:
         direction = 'bullish'
-        # 置信度 = 看涨分 + 小幅调整
         confidence = min(100, bullish_raw + max(0, (bullish_raw - bearish_raw) // 3))
-    elif bearish_raw >= bullish_raw + 15:
+    elif bearish_raw >= bullish_raw + 10:
         direction = 'bearish'
         confidence = min(100, bearish_raw + max(0, (bearish_raw - bullish_raw) // 3))
     else:
-        # 信号矛盾或不够强，取较弱的那方，置信度降低
         if bullish_raw >= bearish_raw:
             direction = 'bullish'
-            confidence = max(10, bullish_raw - 10)
+            confidence = max(5, bullish_raw - 5)
         else:
             direction = 'bearish'
-            confidence = max(10, bearish_raw - 10)
+            confidence = max(5, bearish_raw - 5)
 
     confidence = max(5, min(100, round(confidence, 1)))
 
@@ -290,7 +437,14 @@ def calc(klines):
             'chg_5d': round(chg_5d * 100, 2),
             'chg_1d': round(chg_1d * 100, 2),
             'pos_60': round(pos * 100, 1),
+            'pos_120': round(pos_120 * 100, 1) if pos_120 is not None else None,
             'vol_ratio': round(vol_ratio_today, 2),
+            'vol_trend': round(vol_trend, 2),
+            'atr_pct': round(atr_pct * 100, 2),
+            'gap_pct': round(gap_pct * 100, 2),
+            'close_pos': round(close_pos_in_range * 100, 1),
+            'consecutive_up': consecutive_up,
+            'consecutive_down': consecutive_down,
             'today_up': today_up,
         },
     }
