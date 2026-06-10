@@ -9,3 +9,14 @@ os.environ['HTTPS_PROXY'] = ''
 os.environ['http_proxy'] = ''
 os.environ['https_proxy'] = ''
 REQUEST_PROXIES = {'http': None, 'https': None}
+
+# 浏览器伪装请求头（避免被 WAF 拦截）
+BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Referer': 'https://finance.qq.com/',
+}

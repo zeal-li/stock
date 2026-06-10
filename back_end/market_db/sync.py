@@ -215,6 +215,8 @@ def _parse_date(date_str):
 def _fetch_kline(code, seg_key, period, start_date, end_date):
     """获取 K 线：A股用腾讯 API，港股/美股用 Yahoo Finance"""
     import requests as _rq
+    import random as _random
+    from common import BROWSER_HEADERS
 
     if seg_key in ('hk_main', 'us_main'):
         return _fetch_kline_yahoo(code, seg_key, period, start_date, end_date)
@@ -240,12 +242,15 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     else:
         tp, need = tp_map.get(period, ('day', 800))
 
+    param_str = f"{pfx}{c},{tp},,,{need},qfq"
     for attempt in range(3):
+        r = None
         try:
+            time.sleep(_random.uniform(0.1, 0.4))
             r = _rq.get(
                 "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                params={'param': f"{pfx}{c},{tp},,,{need},qfq"},
-                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
+                params={'param': param_str},
+                headers=BROWSER_HEADERS,
                 timeout=10,
             )
             jd = r.json()
@@ -261,7 +266,8 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
             else:
                 raw = sd.get('qfqmonth') or sd.get('month') or []
             if not raw:
-                print(f"\r[sync]  ! {code} {period}: API 返回空 (HTTP {r.status_code})", flush=True)
+                body_preview = r.text[:200] if r.text else '<empty>'
+                print(f"\r[sync]  ! {code} {period}: API 返回空 (HTTP {r.status_code}, body={body_preview})", flush=True)
                 return []
             rows = []
             for row in raw:
@@ -288,7 +294,11 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
             else:
-                print(f"\r[sync]  ! {code} {period}: 请求失败 ({type(e).__name__}: {e})", flush=True)
+                if r is not None:
+                    body_preview = r.text[:200] if r.text else '<empty>'
+                    print(f"\r[sync]  ! {code} {period}: 请求失败 (HTTP {r.status_code}, body={body_preview}, {type(e).__name__}: {e})", flush=True)
+                else:
+                    print(f"\r[sync]  ! {code} {period}: 请求失败 (无法连接, {type(e).__name__}: {e})", flush=True)
     return []
 
 

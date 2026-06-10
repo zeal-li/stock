@@ -100,13 +100,14 @@ def _fetch_and_cache_sh_minute():
 
 def _fetch_and_cache_daily_closes():
     """抓取沪深指数30天日K收盘价并写入缓存（使用腾讯接口）"""
+    from common import BROWSER_HEADERS
     try:
         result = {}
         for symbol in ['sh000001', 'sz399001']:
             param_val = f"{symbol},day,,,30,qfq"
             r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
                 params={'param': param_val},
-                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
+                headers=BROWSER_HEADERS,
                 timeout=10, proxies=REQUEST_PROXIES,
             )
             jd = r.json()
