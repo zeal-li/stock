@@ -87,7 +87,7 @@ def calc(klines):
     momentum_score = max(0, min(35, momentum_score))
 
     # ---------- 2. 量价关系 (30分) ----------
-    vol_score = 15  # 默认基础分
+    vol_score = 0  # 从0开始，不做偏向看涨的假设
 
     avg_vol_5 = _ma(volumes, 5) or cur_vol
     avg_vol_20 = _ma(volumes, 20) or avg_vol_5
