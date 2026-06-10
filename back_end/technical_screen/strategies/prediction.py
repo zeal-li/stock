@@ -61,6 +61,10 @@ def calc(klines):
         momentum_score += 10
     elif -0.01 < chg_5d <= 0.002:     # 横盘微涨
         momentum_score += 6
+    elif -0.02 < chg_5d <= -0.01:     # 小幅下跌
+        momentum_score -= 5
+    elif chg_5d <= -0.02:             # 明显下跌
+        momentum_score -= 12
 
     if chg_1d > 0:
         if 0.01 < chg_1d <= 0.03:     # 今日涨1-3%，动能健康
@@ -69,9 +73,11 @@ def calc(klines):
             momentum_score += 6
         elif chg_1d > 0.05:            # 涨幅过大，统计上易回调
             momentum_score += 2
-    elif chg_1d < -0.04:               # 今日大跌
-        momentum_score -= 8
-    elif chg_1d < 0:
+    elif chg_1d < -0.04:               # 今日大跌 >4%
+        momentum_score -= 10
+    elif chg_1d < -0.02:               # 今日中跌 2-4%
+        momentum_score -= 6
+    elif chg_1d < 0:                   # 微跌
         momentum_score -= 3
 
     # 3日趋势方向一致性
@@ -83,6 +89,10 @@ def calc(klines):
         momentum_score += 10
     elif up_days == 0:
         momentum_score -= 5
+
+    # 连涨后衰竭：前几日上涨 + 今日大跌 = 追涨意愿枯竭（经典见顶信号）
+    if chg_3d > 0.01 and chg_1d < -0.03:
+        momentum_score -= 12
 
     momentum_score = max(0, min(35, momentum_score))
 
@@ -102,9 +112,18 @@ def calc(klines):
     # 价跌量缩（止跌信号）
     elif not today_up and vol_ratio_today < 0.8:
         vol_score += 8
-    # 价跌量增（危险信号）
+    # 价跌量正常 — 承接真空：正常卖出、无人接盘，最危险
+    elif not today_up and 0.8 <= vol_ratio_today <= 1.1:
+        vol_score -= 8
+    # 价跌微放量
+    elif not today_up and 1.1 < vol_ratio_today <= 1.3:
+        vol_score -= 5
+    # 价跌放量 — 区分微跌放量（滞跌出货）vs 大跌放量（恐慌抛售）
     elif not today_up and vol_ratio_today > 1.3:
-        vol_score -= 10
+        if chg_1d > -0.03:              # 微跌放量 = 托着出货，更阴险
+            vol_score -= 12
+        else:                             # 大跌放量 = 恐慌抛售
+            vol_score -= 10
     # 价升量缩（动能衰减）
     elif today_up and vol_ratio_today < 0.7:
         vol_score -= 5
@@ -120,7 +139,7 @@ def calc(klines):
             sync_count += 1
     vol_score += min(sync_count, 3) * 1   # 最多 +3
 
-    vol_score = max(0, min(30, vol_score))
+    vol_score = max(-10, min(30, vol_score))
 
     # ---------- 3. 位置高低 (20分) ----------
     h60 = max(highs[-60:]) if len(highs) >= 60 else max(highs)
