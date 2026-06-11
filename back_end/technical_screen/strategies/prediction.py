@@ -477,6 +477,10 @@ def calc(klines):
     if pos_120 is not None and pos_120 > 0.75:
         bearish_position = min(22, bearish_position + 8)
 
+    # 极端强势股豁免：5日涨>10%时不看高位回调（涨停股常见）
+    if chg_5d > 0.10:
+        bearish_position = 0
+
     # 动量反向
     if chg_5d < -0.03:
         bearish_momentum = min(20, int(abs(chg_5d) * 300))
@@ -489,12 +493,12 @@ def calc(klines):
     if consecutive_down >= 4:
         bearish_momentum = min(25, bearish_momentum + 6)
 
-    # 动量衰减 + 中高位
-    if momentum_deceleration and pos > 0.55:
+    # 动量衰减 + 中高位（极端强势股不触发）
+    if momentum_deceleration and pos > 0.55 and chg_5d < 0.08:
         bearish_momentum = min(25, bearish_momentum + int((pos - 0.4) * 15))
 
-    # 连阳过热
-    if consecutive_up >= 4:
+    # 连阳过热（5日涨>10%时连阳是强势不是过热）
+    if consecutive_up >= 4 and chg_5d < 0.10:
         bearish_momentum = min(25, bearish_momentum + int(consecutive_up * 1.5))
 
     # 缺口向下不补
@@ -513,8 +517,8 @@ def calc(klines):
     else:
         bearish_vol = 0
 
-    # -- 高位 + 量能高潮 = 放量见顶（distribution day）
-    if is_vol_climax and pos > 0.55 and today_up:
+    # -- 高位 + 量能高潮 = 放量见顶（强势股放量是正常换手，非见顶）
+    if is_vol_climax and pos > 0.55 and today_up and chg_5d < 0.08:
         bearish_vol = min(25, bearish_vol + 12)
 
     # 高位 churning
@@ -525,10 +529,10 @@ def calc(klines):
     if near_resistance and pos > 0.55:
         bearish_position = min(25, bearish_position + int(dist_to_h20 * 200))
 
-    # -- 多次跳空透支 --
-    if recent_gap_ups >= 3:
+    # -- 多次跳空透支（强势股跳空是正常加速） --
+    if recent_gap_ups >= 3 and chg_5d < 0.10:
         bearish_momentum = min(30, bearish_momentum + 10)
-    elif recent_gap_ups >= 2 and pos > 0.5:
+    elif recent_gap_ups >= 2 and pos > 0.5 and chg_5d < 0.08:
         bearish_momentum = min(25, bearish_momentum + 6)
 
     bearish_pattern = abs(min(0, pattern_score)) if pattern_score < 0 else 0
@@ -539,21 +543,19 @@ def calc(klines):
     # -- 中短期趋势偏置：空头排列 + 持续下跌 → 压制看涨 --
     trend_bias = 0
     chg_20d = (closes[-1] - closes[-20]) / closes[-20] if len(closes) >= 20 else 0
-    # MA空头排列仅在20日回报为负时才生效
-    if ma5 and ma10 and ma20_val and chg_20d < -0.02:
+    # MA空头排列仅在20日回报明显为负时才生效
+    if ma5 and ma10 and ma20_val and chg_20d < -0.03:
         if cur_close < ma5 < ma10 < ma20_val:
-            trend_bias = -7
-        elif cur_close < ma5 < ma10:
             trend_bias = -5
-        elif cur_close < ma20_val and ma5 < ma10:
+        elif cur_close < ma5 < ma10:
             trend_bias = -3
-    # 20日跌幅独立触发
+        elif cur_close < ma20_val and ma5 < ma10:
+            trend_bias = -2
+    # 20日深跌独立触发
     if chg_20d < -0.12:
-        trend_bias = min(trend_bias, -8)
+        trend_bias = min(trend_bias, -6)
     elif chg_20d < -0.08:
-        trend_bias = min(trend_bias, -5)
-    elif chg_20d < -0.04:
-        trend_bias = min(trend_bias, -3)
+        trend_bias = min(trend_bias, -4)
 
     if trend_bias < 0:
         bullish_raw = max(0, bullish_raw + trend_bias)
