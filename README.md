@@ -121,7 +121,7 @@ stock/
 -- 股票列表（含市场同步时间戳）
 CREATE TABLE stocks (
     code TEXT NOT NULL,          -- 股票代码（6位）
-    market TEXT NOT NULL,        -- 市场分段（sh_main/sz_main/gem/star/sz_etf/sh_etf/hk_main/us_main）
+    market TEXT NOT NULL,        -- 市场分段（hs_main/gem/star/hs_etf/hk_main/us_main）
     name TEXT,                   -- 股票名称
     sync_ts TEXT,                -- 市场同步时间戳（该市场所有股票共享，全部个股更新完毕后写入）
     PRIMARY KEY (code, market)
@@ -198,12 +198,10 @@ CREATE TABLE market_data (
 
 | key | label | 代码前缀 / 来源 |
 |-----|-------|---------|
-| sh_main | 沪A | 600/601/603/605 |
-| sz_main | 深A | 000/001/002/003 |
+| hs_main | 沪深A | 600/601/603/605/000/001/002/003 |
 | gem | 创业板 | 300/301 |
 | star | 科创板 | 688 |
-| sz_etf | 深ETF | 159/16/18 |
-| sh_etf | 沪ETF | 5 |
+| hs_etf | 沪深ETF | 5/159/16/18 |
 | hk_main | 港股 | 东方财富 API（fs=m:116+t:3） |
 | us_main | 美股 | 东方财富 API（fs=m:105,m:106,m:107） |
 
@@ -263,7 +261,7 @@ _cleanup_delisted()
 | 市场 | 收市 | 触发 | 候选市场 |
 |------|------|------|---------|
 | 港股 | 14:00 | 14:30 | hk_main |
-| A股 | 15:00 | 15:30 | sh_main, sz_main, gem, star, sz_etf, sh_etf |
+| A股 | 15:00 | 15:30 | hs_main, gem, star, hs_etf |
 | 美股 | 04:00 | 04:30 | us_main |
 
 - **只同步 `stock_list.db` 里已有的市场**，未加载的自动跳过

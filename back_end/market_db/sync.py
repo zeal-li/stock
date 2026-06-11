@@ -27,26 +27,22 @@ from .db import (
 
 # 市场分段 — key 用作 market 字段值（已移除北交所、新三板）
 SEGMENTS = {
-    'sh_main': {'label': '沪A',   'prefix': ('600', '601', '603', '605')},
-    'sz_main': {'label': '深A',   'prefix': ('000', '001', '002', '003')},
-    'sh_etf':  {'label': '沪ETF',  'prefix': ('5',)},
-    'sz_etf':  {'label': '深ETF',  'prefix': ('159', '16', '18')},
-    'gem':     {'label': '创业板', 'prefix': ('300', '301')},
-    'star':    {'label': '科创板', 'prefix': ('688',)},
-    'hk_main': {'label': '港股',   'fs': 'm:116+t:3',       'api': 'eastmoney'},
-    'us_main': {'label': '美股',   'fs': 'm:105,m:106,m:107',       'api': 'eastmoney'},
+    'hs_main':  {'label': '沪深A',   'prefix': ('600', '601', '603', '605', '000', '001', '002', '003')},
+    'hs_etf':   {'label': '沪深ETF',  'prefix': ('5', '159', '16', '18')},
+    'gem':      {'label': '创业板',   'prefix': ('300', '301')},
+    'star':     {'label': '科创板',   'prefix': ('688',)},
+    'hk_main':  {'label': '港股',     'fs': 'm:116+t:3',       'api': 'eastmoney'},
+    'us_main':  {'label': '美股',     'fs': 'm:105,m:106,m:107',       'api': 'eastmoney'},
 }
 
 # 各市场交易时间（UTC+8 北京时间），用于判断是否需要更新
 MARKET_HOURS = {
-    'sh_main': {'open': (9, 30), 'close': (15, 0)},
-    'sz_main': {'open': (9, 30), 'close': (15, 0)},
-    'sh_etf':  {'open': (9, 30), 'close': (15, 0)},
-    'sz_etf':  {'open': (9, 30), 'close': (15, 0)},
-    'gem':     {'open': (9, 30), 'close': (15, 0)},
-    'star':    {'open': (9, 30), 'close': (15, 0)},
-    'hk_main': {'open': (9, 30), 'close': (16, 0)},
-    'us_main': {'open': (21, 30), 'close': (4, 0)},  # 美股夏令时 21:30-04:00
+    'hs_main':  {'open': (9, 30), 'close': (15, 0)},
+    'hs_etf':   {'open': (9, 30), 'close': (15, 0)},
+    'gem':      {'open': (9, 30), 'close': (15, 0)},
+    'star':     {'open': (9, 30), 'close': (15, 0)},
+    'hk_main':  {'open': (9, 30), 'close': (16, 0)},
+    'us_main':  {'open': (21, 30), 'close': (4, 0)},  # 美股夏令时 21:30-04:00
 }
 
 
@@ -137,9 +133,9 @@ def _fetch_stocks_by_segment(seg_key):
     headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
 
     is_overseas = seg_key == 'hk_main'
-    if seg_key in ('sh_main', 'sz_main', 'gem', 'star'):
+    if seg_key in ('hs_main', 'gem', 'star'):
         fs_filter = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
-    elif seg_key in ('sz_etf', 'sh_etf'):
+    elif seg_key in ('hs_etf',):
         fs_filter = 'b:MK0021,b:MK0022,b:MK0023,b:MK0024'
     elif is_overseas:
         fs_filter = seg['fs']
@@ -194,7 +190,7 @@ def _fetch_stocks_by_segment(seg_key):
                 seg_chk = _code_to_segment(code)
                 if seg_chk != seg_key:
                     continue
-                if seg_key in ('sz_etf', 'sh_etf'):
+                if seg_key in ('hs_etf',):
                     if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
                         continue
             all_rows.append((code, name))

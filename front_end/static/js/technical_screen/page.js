@@ -637,8 +637,8 @@ function _doClear(key, sel) {
 
 
 var _marketLabels = {
-    'sh_main': '沪A', 'sz_main': '深A', 'gem': '创业板', 'star': '科创板',
-    'sh_etf': '沪ETF', 'sz_etf': '深ETF', 'hk_main': '港股', 'us_main': '美股'
+    'hs_main': '沪深A', 'gem': '创业板', 'star': '科创板',
+    'hs_etf': '沪深ETF', 'hk_main': '港股', 'us_main': '美股'
 };
 
 async function _techRenderTable(results) {
