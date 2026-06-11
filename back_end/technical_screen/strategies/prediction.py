@@ -137,6 +137,23 @@ def calc(klines):
         is_inside = cur_high <= prev_high and cur_low >= prev_low
         is_outside = cur_high > prev_high and cur_low < prev_low
 
+    # -- 量能高潮：今日量是否为近20日最高 --
+    is_vol_climax = cur_vol >= max(volumes[-20:]) if len(volumes) >= 20 else False
+
+    # -- 距20日前高距离（阻力位，不含今日） --
+    h20_ex = max(highs[-21:-1]) if len(highs) >= 21 else max(highs[:-1]) if len(highs) > 1 else cur_high
+    dist_to_h20 = (h20_ex - cur_close) / cur_close if cur_close > 0 else 1
+    near_resistance = cur_high < h20_ex and 0 < dist_to_h20 < 0.03  # 未创前高且3%内
+
+    # -- 跳空频率：近15日内跳空高开次数 --
+    recent_gap_ups = 0
+    for i in range(-1, -min(len(closes), 16), -1):
+        if i - 1 >= -len(closes):
+            prev_c = closes[i - 1]
+            g = (opens[i] - prev_c) / prev_c if prev_c > 0 else 0
+            if g > 0.015:  # 跳空高开 >1.5%
+                recent_gap_ups += 1
+
     # ============================================================
     # 1. 短期动量 (35分)
     # ============================================================
@@ -153,11 +170,11 @@ def calc(klines):
 
     # -- 5日涨幅 --
     if 0.005 < chg_5d <= 0.04:       # 温和上涨 0.5%-4%
-        momentum_score += 15
+        momentum_score += 12
     elif 0.002 < chg_5d <= 0.005:     # 微涨
-        momentum_score += 10
+        momentum_score += 7
     elif -0.01 < chg_5d <= 0.002:     # 横盘微涨
-        momentum_score += 6
+        momentum_score += 4
     elif -0.02 < chg_5d <= -0.01:     # 小幅下跌
         momentum_score -= 5
     elif chg_5d <= -0.02:             # 明显下跌
@@ -166,11 +183,11 @@ def calc(klines):
     # -- 今日涨跌 --
     if chg_1d > 0:
         if 0.01 < chg_1d <= 0.03:     # 今日涨1-3%，动能健康
-            momentum_score += 10
+            momentum_score += 7
         elif 0 < chg_1d <= 0.01:       # 小涨
-            momentum_score += 6
+            momentum_score += 4
         elif chg_1d > 0.05:            # 涨幅过大，统计上易回调
-            momentum_score += 2
+            momentum_score -= 2
     elif chg_1d < -0.04:               # 今日大跌 >4%
         momentum_score -= 10
     elif chg_1d < -0.02:               # 今日中跌 2-4%
@@ -182,17 +199,17 @@ def calc(klines):
     if atr_pct > 0:
         chg_5d_atr = chg_5d / atr_pct
         if 0.5 < chg_5d_atr <= 4:         # 相对自身波动温和上涨
-            momentum_score += 3
+            momentum_score += 2
         elif chg_5d_atr > 6:               # 涨幅远超正常波动范围
-            momentum_score -= 2
+            momentum_score -= 4
         elif chg_5d_atr < -4:              # 跌幅远超正常波动范围
             momentum_score -= 5
 
     # -- 收盘在日内位置 --
     if close_pos_in_range > 0.8 and today_up:
-        momentum_score += 5           # 收在日内高位，尾盘强势
+        momentum_score += 4           # 收在日内高位，尾盘强势
     elif close_pos_in_range > 0.7 and today_up:
-        momentum_score += 3           # 偏强收盘
+        momentum_score += 2           # 偏强收盘
     elif close_pos_in_range < 0.25 and not today_up:
         momentum_score -= 5           # 收在日内低位，尾盘跳水
     elif close_pos_in_range < 0.35 and not today_up:
@@ -200,17 +217,17 @@ def calc(klines):
     elif close_pos_in_range < 0.35 and today_up:
         momentum_score -= 3           # 虽收阳但尾盘跳水（高开低走）
     elif close_pos_in_range > 0.7 and not today_up:
-        momentum_score += 3           # 虽收阴但尾盘拉回（低开高走）
+        momentum_score += 2           # 虽收阴但尾盘拉回（低开高走）
 
     # -- 缺口分析 --
     if gap_pct > 0.02 and today_up and close_pos_in_range > 0.7:
-        momentum_score += 8           # 向上跳空高开 + 收阳不补缺口 = 强势突破
+        momentum_score += 6           # 向上跳空高开 + 收阳不补缺口 = 强势突破
     elif gap_pct < -0.02 and not today_up and close_pos_in_range < 0.3:
         momentum_score -= 8           # 向下跳空低开 + 收阴不补缺口 = 弱势破位
     elif gap_pct > 0.02 and not today_up:
         momentum_score -= 5           # 高开低走 = 诱多
     elif gap_pct < -0.02 and today_up:
-        momentum_score += 6           # 低开高走 = 反转信号
+        momentum_score += 5           # 低开高走 = 反转信号
 
     # -- 3日趋势方向一致性 --
     chg_1 = (closes[-1] - closes[-2]) / closes[-2] if len(closes) >= 2 else 0
@@ -218,17 +235,17 @@ def calc(klines):
     chg_3 = (closes[-3] - closes[-4]) / closes[-4] if len(closes) >= 4 else 0
     up_days = sum(1 for c in [chg_1, chg_2, chg_3] if c > 0)
     if up_days >= 2:
-        momentum_score += 10
+        momentum_score += 7
     elif up_days == 0:
         momentum_score -= 5
 
     # -- 连阳/连阴天数 --
-    if consecutive_up >= 5:
-        momentum_score -= 3           # 5连阳，回调概率增大
+    if consecutive_up >= 4:
+        momentum_score -= 3           # 4连阳以上，回调概率增大
     elif consecutive_up >= 3:
-        momentum_score += 2           # 3-4连阳，动量延续健康
+        momentum_score += 1           # 3连阳，动量延续，但空间收窄
     if consecutive_down >= 5:
-        momentum_score += 3           # 5连阴，超卖反弹预期（前提非放量跌）
+        momentum_score += 3           # 5连阴，超卖反弹预期
     elif consecutive_down >= 3:
         momentum_score -= 3           # 3-4连阴，弱势延续
 
@@ -239,22 +256,22 @@ def calc(klines):
     # -- NR7 振幅压缩（波动率收缩→即将变盘） --
     if is_nr7:
         if today_up and pos < 0.5:
-            momentum_score += 5   # 低位 NR7 收阳 = 大概率向上突破
+            momentum_score += 4   # 低位 NR7 收阳 = 大概率向上突破
         elif not today_up and pos > 0.6:
             momentum_score -= 5   # 高位 NR7 收阴 = 大概率向下破位
         elif today_up:
-            momentum_score += 3   # NR7 收阳，偏多
+            momentum_score += 2   # NR7 收阳，偏多
         else:
             momentum_score -= 3   # NR7 收阴，偏空
 
     # -- 均线回归力（偏离 MA20 幅度） --
     if ma20_dist > 0.15:
-        momentum_score -= 5       # 严重高于均线，均值回归引力强
+        momentum_score -= 6       # 严重高于均线，均值回归引力强
     elif ma20_dist > 0.10:
         momentum_score -= 3       # 偏远离
     elif ma20_dist < -0.10:
         if today_up:
-            momentum_score += 4   # 深度超跌 + 收阳 = 反弹启动
+            momentum_score += 3   # 深度超跌 + 收阳 = 反弹启动
         else:
             momentum_score -= 2   # 深度超跌还在跌
     elif ma20_dist < -0.05 and today_up:
@@ -271,11 +288,11 @@ def calc(klines):
     vol_ratio_20 = cur_vol / avg_vol_20 if avg_vol_20 > 0 else 1
 
     # -- 基本量价组合 --
-    # 价升量增（强势信号）
+    # 价升量增（强势信号，但过热时可能是散户追涨）
     if today_up and vol_ratio_today > 1.2:
-        vol_score += 12
+        vol_score += 9
     elif today_up and vol_ratio_today > 1.0:
-        vol_score += 6
+        vol_score += 5
     # 价跌量缩（止跌信号）
     elif not today_up and vol_ratio_today < 0.8:
         vol_score += 8
@@ -298,9 +315,9 @@ def calc(klines):
     # -- 量能趋势（扩张 vs 萎缩） --
     if vol_trend > 1.05:
         if today_up and vol_ratio_today > 1.0:
-            vol_score += 3           # 趋势扩张 + 今日放量上涨 = 真放量
+            vol_score += 2           # 趋势扩张 + 今日放量上涨 = 真放量
         elif not today_up:
-            vol_score -= 2           # 趋势扩张但收阴 = 放量下跌
+            vol_score -= 3           # 趋势扩张但收阴 = 放量下跌
     elif vol_trend < 0.75:
         vol_score -= 2               # 持续冰点缩量，人气涣散
 
@@ -309,7 +326,7 @@ def calc(klines):
         if today_up:
             vol_score -= 8           # 放量但几乎不涨 = 滞涨出货
         else:
-            vol_score += 4           # 放量但几乎不跌 = 有人兜底承接
+            vol_score += 5           # 放量但几乎不跌 = 有人兜底承接
 
     # -- 近5日量价同步性 --
     sync_count = 0
@@ -371,13 +388,13 @@ def calc(klines):
     # 锤子线（下影线长，实体小，低位出现 — 反转信号）
     if lower_shadow > body * 2 and upper_shadow < body * 0.5 and body_pct > 0:
         if pos < 0.4:              # 低位锤子线，看涨
-            pattern_score += 12
+            pattern_score += 10
         else:
-            pattern_score += 5
+            pattern_score += 4
 
     # 十字星/十字线（实体极小）
     if body_pct < 0.002 and shadow_ratio > 0.01:
-        pattern_score += 7
+        pattern_score += 5
 
     # 射击之星/倒锤子（上影线长，高位）
     if upper_shadow > body * 2 and lower_shadow < body * 0.5:
@@ -387,9 +404,9 @@ def calc(klines):
     # 光头阳线（收在最高点附近）
     if today_up and upper_shadow < body * 0.2:
         if 0.01 <= today_body_pct <= 0.04:
-            pattern_score += 10
+            pattern_score += 8
         else:
-            pattern_score += 5
+            pattern_score += 4
 
     # 光脚阴线（收在最低点附近）
     if not today_up and lower_shadow < body * 0.2:
@@ -403,23 +420,23 @@ def calc(klines):
         if today_up and not prev_up and body > prev_body:
             # 低位阳包阴
             if pos < 0.5:
-                pattern_score += 12
+                pattern_score += 9
             else:
-                pattern_score += 6
+                pattern_score += 5
 
     # -- Inside Day（包线蓄力，振幅被昨日完全包含） --
     if is_inside:
         if today_up and pos < 0.5:
-            pattern_score += 4   # 低位蓄力，准备突破
+            pattern_score += 3   # 低位蓄力，准备突破
         elif today_up:
-            pattern_score += 2   # 一般蓄力
+            pattern_score += 1   # 一般蓄力
 
     # -- Outside Day（穿头破脚，振幅完全超出昨日） --
     if is_outside:
         if today_up:
-            pattern_score += 8   # 看涨 OS day = 强突破
+            pattern_score += 6   # 看涨 OS day = 强突破
             if pos < 0.5:
-                pattern_score += 3   # 低位 OS day 更强
+                pattern_score += 2   # 低位 OS day 更强
         else:
             pattern_score -= 7   # 看跌 OS day = 破位
 
@@ -429,24 +446,38 @@ def calc(klines):
     # 综合判定
     # ============================================================
 
+    # -- 动量衰减检测：5日涨幅大部分集中在早期，近期滞涨 --
+    momentum_deceleration = False
+    if chg_5d > 0.015 and chg_1d < chg_5d * 0.25:
+        momentum_deceleration = True  # 涨幅多由前几天贡献，今天涨不动了
+
+    # -- 均值回归惩罚 --
+    mean_reversion_penalty = 0
+    if pos > 0.75 and momentum_score >= 15:
+        # 高位置 + 还有动量 = 统计上回调概率高
+        mean_reversion_penalty = int((pos - 0.5) * 15) + (momentum_score - 10) // 4
+    if momentum_deceleration and pos > 0.6:
+        mean_reversion_penalty += int((pos - 0.4) * 10)
+
     # -- 看涨总分 --
-    bullish_raw = momentum_score + vol_score + position_score + pattern_score
+    bullish_raw = momentum_score + vol_score + position_score + pattern_score - mean_reversion_penalty
     bullish_raw = max(0, min(100, bullish_raw))
 
     # -- 看跌方向信号 --
-    # 位置因子：高位 → 看跌
-    if pos > 0.75:
-        bearish_position = min(15, int((pos - 0.5) * 30))
+    # 位置因子
+    if pos > 0.80:
+        bearish_position = min(18, int((pos - 0.5) * 36))
+    elif pos > 0.70:
+        bearish_position = min(12, int((pos - 0.5) * 25))
     elif pos > 0.6:
         bearish_position = 5
     else:
         bearish_position = 0
 
-    # 120日高位加重看跌
     if pos_120 is not None and pos_120 > 0.75:
-        bearish_position = min(20, bearish_position + 8)
+        bearish_position = min(22, bearish_position + 8)
 
-    # 动量反向：连跌 → 看跌延续风险
+    # 动量反向
     if chg_5d < -0.03:
         bearish_momentum = min(20, int(abs(chg_5d) * 300))
     elif chg_5d < -0.01:
@@ -458,15 +489,23 @@ def calc(klines):
     if consecutive_down >= 4:
         bearish_momentum = min(25, bearish_momentum + 6)
 
-    # 缺口向下不补 → 看跌
+    # 动量衰减 + 中高位
+    if momentum_deceleration and pos > 0.55:
+        bearish_momentum = min(25, bearish_momentum + int((pos - 0.4) * 15))
+
+    # 连阳过热
+    if consecutive_up >= 4:
+        bearish_momentum = min(25, bearish_momentum + int(consecutive_up * 1.5))
+
+    # 缺口向下不补
     if gap_pct < -0.02 and close_pos_in_range < 0.3:
         bearish_momentum = min(25, bearish_momentum + 8)
 
-    # NR7 中高位收阴 → 变盘向下
+    # NR7 高位收阴
     if is_nr7 and not today_up and pos > 0.55:
         bearish_momentum = min(25, bearish_momentum + 6)
 
-    # 量价反向：放量下跌
+    # 量价反向
     if not today_up and vol_ratio_today > 1.2:
         bearish_vol = min(15, int(vol_ratio_today * 10))
     elif not today_up and vol_ratio_today > 0.9:
@@ -474,32 +513,48 @@ def calc(klines):
     else:
         bearish_vol = 0
 
-    # 高位 churning → 加强看跌
+    # -- 高位 + 量能高潮 = 放量见顶（distribution day）
+    if is_vol_climax and pos > 0.55 and today_up:
+        bearish_vol = min(25, bearish_vol + 12)
+
+    # 高位 churning
     if pos > 0.65 and vol_ratio_today > 1.3 and abs(chg_1d) < 0.015:
         bearish_vol = min(20, bearish_vol + 10)
 
-    # 形态看跌
+    # -- 阻力位：贴近前高无法突破 --
+    if near_resistance and pos > 0.55:
+        bearish_position = min(25, bearish_position + int(dist_to_h20 * 200))
+
+    # -- 多次跳空透支 --
+    if recent_gap_ups >= 3:
+        bearish_momentum = min(30, bearish_momentum + 10)
+    elif recent_gap_ups >= 2 and pos > 0.5:
+        bearish_momentum = min(25, bearish_momentum + 6)
+
     bearish_pattern = abs(min(0, pattern_score)) if pattern_score < 0 else 0
 
     bearish_raw = bearish_position + bearish_momentum + bearish_vol + bearish_pattern
     bearish_raw = min(100, bearish_raw)
 
-    # -- 方向判定 --
-    if bullish_raw >= bearish_raw + 10:
-        direction = 'bullish'
-        confidence = min(100, bullish_raw + max(0, (bullish_raw - bearish_raw) // 3))
-    elif bearish_raw >= bullish_raw + 10:
-        direction = 'bearish'
-        confidence = min(100, bearish_raw + max(0, (bearish_raw - bullish_raw) // 3))
+    # -- 方向判定 & 置信度 --
+    gap = bullish_raw - bearish_raw
+    if abs(gap) >= 10:
+        if gap > 0:
+            direction = 'bullish'
+            leader = bullish_raw
+        else:
+            direction = 'bearish'
+            leader = bearish_raw
+        confidence = leader - abs(gap) * 0.15
     else:
         if bullish_raw >= bearish_raw:
             direction = 'bullish'
-            confidence = max(5, bullish_raw - 5)
+            confidence = max(3, bullish_raw - 6)
         else:
             direction = 'bearish'
-            confidence = max(5, bearish_raw - 5)
+            confidence = max(3, bearish_raw - 6)
 
-    confidence = max(5, min(100, round(confidence, 1)))
+    confidence = max(3, min(100, round(confidence, 1)))
 
     return {
         'direction': direction,
@@ -509,6 +564,7 @@ def calc(klines):
             'vol_score': vol_score,
             'position_score': position_score,
             'pattern_score': pattern_score,
+            'mr_penalty': mean_reversion_penalty,
             'bullish_raw': bullish_raw,
             'bearish_raw': bearish_raw,
             'chg_5d': round(chg_5d * 100, 2),
@@ -526,6 +582,9 @@ def calc(klines):
             'ma20_dist': round(ma20_dist * 100, 2),
             'is_inside': is_inside,
             'is_outside': is_outside,
+            'is_vol_climax': is_vol_climax,
+            'near_resistance': near_resistance,
+            'recent_gap_ups': recent_gap_ups,
             'today_up': today_up,
         },
     }
