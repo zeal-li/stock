@@ -235,14 +235,12 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
         urls = [f"https://d.10jqka.com.cn/v4/line/hs_{c}/{ths_period_code}/{y}.js"
                 for y in range(current_year, current_year - 5, -1)]
 
-    all_raw = []
-    for url in urls:
+    def _fetch_one(url):
         for attempt in range(3):
             try:
-                r = _rq.get(url, headers=headers, timeout=10)
+                r = _rq.get(url, headers=headers, timeout=5)
                 if r.status_code != 200:
                     if attempt < 2:
-                        time.sleep(1)
                         continue
                     break
                 text = r.text
@@ -251,17 +249,21 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
                 if s <= 0 or e <= s:
                     break
                 jd = _json.loads(text[s:e])
-                raw = jd.get('data', '')
-                if raw:
-                    all_raw.append(raw)
-                break
+                return jd.get('data', '')
             except Exception:
                 if attempt < 2:
-                    time.sleep(1)
-                else:
-                    with _sync_fail_lock:
-                        _sync_fail_count += 1
-                break
+                    continue
+        return None
+
+    # 各年并发请求
+    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+    all_raw = []
+    with _TPE(max_workers=5) as pool:
+        futs = {pool.submit(_fetch_one, u): u for u in urls}
+        for fut in _ac(futs):
+            raw = fut.result()
+            if raw:
+                all_raw.append(raw)
 
     if not all_raw:
         return []
@@ -429,8 +431,9 @@ def _sync_one_stock(code, market, name, kline_date_map, latest_trading, ts_str, 
             periods = ('daily', 'weekly')
 
     try:
-        all_rows = []
-        for period in periods:
+        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+
+        def _fetch_period(p):
             if max_date and max_date != '':
                 last = _parse_date(max_date)
                 if force_today and max_date == latest_trading:
@@ -439,10 +442,14 @@ def _sync_one_stock(code, market, name, kline_date_map, latest_trading, ts_str, 
                     start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
             else:
                 start = '19900101'
-            end = latest_trading
-            rows = _fetch_kline(code, market, period, start, end)
-            for r in rows:
-                all_rows.append(r)
+            return _fetch_kline(code, market, p, start, latest_trading)
+
+        all_rows = []
+        with _TPE(max_workers=3) as pool:
+            futs = {pool.submit(_fetch_period, p): p for p in periods}
+            for fut in _ac(futs):
+                for r in fut.result():
+                    all_rows.append(r)
 
         if all_rows:
             latest = max(r[3] for r in all_rows)
