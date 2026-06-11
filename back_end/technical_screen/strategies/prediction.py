@@ -536,6 +536,29 @@ def calc(klines):
     bearish_raw = bearish_position + bearish_momentum + bearish_vol + bearish_pattern
     bearish_raw = min(100, bearish_raw)
 
+    # -- 中短期趋势偏置：空头排列 + 持续下跌 → 压制看涨 --
+    trend_bias = 0
+    chg_20d = (closes[-1] - closes[-20]) / closes[-20] if len(closes) >= 20 else 0
+    # MA空头排列仅在20日回报为负时才生效
+    if ma5 and ma10 and ma20_val and chg_20d < -0.02:
+        if cur_close < ma5 < ma10 < ma20_val:
+            trend_bias = -7
+        elif cur_close < ma5 < ma10:
+            trend_bias = -5
+        elif cur_close < ma20_val and ma5 < ma10:
+            trend_bias = -3
+    # 20日跌幅独立触发
+    if chg_20d < -0.12:
+        trend_bias = min(trend_bias, -8)
+    elif chg_20d < -0.08:
+        trend_bias = min(trend_bias, -5)
+    elif chg_20d < -0.04:
+        trend_bias = min(trend_bias, -3)
+
+    if trend_bias < 0:
+        bullish_raw = max(0, bullish_raw + trend_bias)
+        bearish_raw = min(100, bearish_raw + abs(trend_bias))
+
     # -- 方向判定 & 置信度 --
     gap = bullish_raw - bearish_raw
     if abs(gap) >= 10:
@@ -565,6 +588,7 @@ def calc(klines):
             'position_score': position_score,
             'pattern_score': pattern_score,
             'mr_penalty': mean_reversion_penalty,
+            'trend_bias': trend_bias,
             'bullish_raw': bullish_raw,
             'bearish_raw': bearish_raw,
             'chg_5d': round(chg_5d * 100, 2),
