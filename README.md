@@ -225,7 +225,7 @@ _cleanup_delisted()           → 清理 detail 有但 list 无的退市股
 list_sync_ts_set()            → 全部完成后写入 stocks.sync_ts
 ```
 
-- A 股/ETF 数据来源：东方财富 K 线 API（push2his）
+- A 股/ETF 数据来源：同花顺 K 线 API（d.10jqka.com.cn）
 - 港股/美股 K 线：Yahoo Finance（query1.finance.yahoo.com）
 - 美股股票列表：东方财富 push2delay
 - 支持"终止"操作：取消后自动回滚（删除已写入的列表和 K 线数据）
@@ -273,7 +273,7 @@ _cleanup_delisted()
 
 | 市场 | 股票列表 | K 线 |
 |------|---------|------|
-| A 股（沪/深/创业/科创/ETF） | 东方财富 push2delay | 东方财富 push2his（含成交额、换手率） |
+| A 股（沪/深/创业/科创/ETF） | 东方财富 push2delay | 同花顺 d.10jqka.com.cn（含成交额、换手率） |
 | 港股 | 东方财富 push2delay | Yahoo Finance |
 | 美股 | 东方财富 push2delay | Yahoo Finance |
 
@@ -389,7 +389,7 @@ app.run()
 | `GET /api/stock-quotes` | 批量股票实时行情（价/量/额/换手/PE/PB/市值） | 东方财富 push2delay |
 | `GET /api/stock-extra` | 单只股票量比/委比 | 东方财富 push2delay |
 | `GET /api/stock-minute` | 个股分时走势 | A股：东方财富（单日）/ 新浪（多日）；港股美股：Yahoo Finance |
-| `GET /api/stock-kline` | 个股K线（日/周/月） | A股：东方财富 push2his（前复权，含成交额/换手率）；港股美股：Yahoo Finance |
+| `GET /api/stock-kline` | 个股K线（日/周/月） | A股：同花顺 d.10jqka.com.cn（前复权，含成交额/换手率）；港股美股：Yahoo Finance |
 | `GET /api/search-stock` | 股票搜索（名称/代码）+ 实时行情 | 东方财富 searchapi |
 | `GET /api/goodwill` | 商誉率 + 质押率（10 线程并发） | 东方财富 财务报表 + 数据中心 |
 | `GET /api/stock-concepts` | 单只股票核心概念题材 | 东方财富 CoreConception |
@@ -399,7 +399,7 @@ app.run()
 | `GET /api/earnings` | 自选股+选股列表业绩报告（近两年）：业绩预告 + 业绩快报 + 业绩报表 | 东方财富 数据中心 |
 | `GET /api/abnormal/prediction` | 异动预测（接近交易所异常波动阈值的股票，按 今日/次日/未标记 分组） | 悟道数据（stock.quicktiny.cn） |
 | `GET /api/abnormal/monitor` | 异动监控（已被交易所重点监控的股票列表，含统计） | 悟道数据（stock.quicktiny.cn） |
-| `POST /api/abnormal/analyze` | 异动分析器（单只股票偏离度/回撤/均线偏离/涨跌停价测算） | 东方财富 K 线 API + 本地计算 |
+| `POST /api/abnormal/analyze` | 异动分析器（单只股票偏离度/回撤/均线偏离/涨跌停价测算） | 同花顺 K 线 API + 本地计算 |
 
 ### 聚合计算（基于缓存）
 
@@ -566,7 +566,6 @@ app.run()
 | 公司公告 | `np-anotice-stock.eastmoney.com/api/security/ann` |
 | 业绩预告 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_PUBLIC_OP_NEWPREDICT） |
 | 业绩快报 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_FCI_PERFORMANCEE） |
-| A 股 K 线（日/周/月，前复权，含成交额/换手率） | `push2his.eastmoney.com/api/qt/stock/kline/get` |
 | 业绩报表 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_LICO_FN_CPD） |
 
 ### 腾讯证券
@@ -579,6 +578,7 @@ app.run()
 
 | 数据 | 接口 |
 |------|------|
+| A 股 K 线（日/周/月，前复权，含成交额/换手率） | `d.10jqka.com.cn/v2/line/hs_{code}/{period}/last.js` |
 | 全市场成交额分时 | `dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data` |
 
 ### 新浪财经

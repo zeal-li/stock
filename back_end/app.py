@@ -549,7 +549,7 @@ def stock_kline():
             # 同花顺返回 JS 回调: quotebridge_v2_...(JSON)
             text = r.text
             s = text.find('(') + 1; e = text.rfind(')')
-            jd = json.loads(text[s:e]) if s > 0 and e > s else {}
+            jd = json.loads(text[s:e])
             raw = jd.get('data', '')
 
             for line in raw.split(';'):
@@ -564,7 +564,7 @@ def stock_kline():
                     'high': float(parts[2]), 'low': float(parts[3]),
                     'volume': int(float(parts[5])),
                     'amount': float(parts[6]),
-                    'turnover': round(float(parts[7]), 2) if len(parts) > 7 else None,
+                    'turnover': round(float(parts[7]), 2),
                 }
                 rows.append(row)
         elif market in ('116', '106'):
