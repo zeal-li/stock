@@ -14,7 +14,7 @@
 """
 
 
-def calc(klines, lookback=60):
+def calc(klines, lookback=60, **kwargs):
     if len(klines) < max(lookback, 60):
         return 0, {}
 

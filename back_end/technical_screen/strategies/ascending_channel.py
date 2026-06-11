@@ -1,7 +1,7 @@
 """上升通道选股策略 — 基于线性回归检测上升通道"""
 
 
-def calc(klines, lookback=60):
+def calc(klines, lookback=60, **kwargs):
     """上升通道检测
 
     对最近 lookback 根 K 线的最高价和最低价分别做线性回归，

@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .strategies.ascending_channel import calc as ascending_channel_calc
 from .strategies.momentum_pullback import calc as momentum_pullback_calc
 from .strategies.prediction import calc as prediction_calc
+from .strategies.san_shang_you_ya import calc as san_shang_you_ya_calc
 
 # 策略注册表：{key: {name, calc, desc}}
 STRATEGIES = {
@@ -17,6 +18,11 @@ STRATEGIES = {
         'name': '强势回调',
         'calc': momentum_pullback_calc,
         'desc': '多因子共振筛选明日大概率上涨的股票：均线多头排列+高位适度回调+缩量止跌企稳+资金进场痕迹，回踩关键均线支撑时介入',
+    },
+    'san_shang_you_ya': {
+        'name': '三上悠亚',
+        'calc': san_shang_you_ya_calc,
+        'desc': '日K/周K/月K共振布林上轨：三周期均紧贴布林上轨运行，布林带温和向上倾斜无陡峭加速，近期无涨停跌停等极端涨跌，适合趋势跟随型慢牛股',
     },
 }
 
@@ -43,15 +49,25 @@ def _scan_one(code, name, strategy_key):
     if not strategy:
         return None
     conn = _kline_conn()
-    rows = conn.execute(
+    daily_rows = conn.execute(
         'SELECT date, open, high, low, close, volume FROM klines '
         'WHERE code=? AND period=? ORDER BY date DESC LIMIT 120',
         (code, 'daily')).fetchall()
+    weekly_rows = conn.execute(
+        'SELECT date, open, high, low, close, volume FROM klines '
+        'WHERE code=? AND period=? ORDER BY date DESC LIMIT 60',
+        (code, 'weekly')).fetchall()
+    monthly_rows = conn.execute(
+        'SELECT date, open, high, low, close, volume FROM klines '
+        'WHERE code=? AND period=? ORDER BY date DESC LIMIT 36',
+        (code, 'monthly')).fetchall()
     conn.close()
-    if not rows:
+    if not daily_rows:
         return None
-    klines = [dict(r) for r in reversed(rows)]
-    score, detail = strategy['calc'](klines)
+    klines = [dict(r) for r in reversed(daily_rows)]
+    weekly_klines = [dict(r) for r in reversed(weekly_rows)]
+    monthly_klines = [dict(r) for r in reversed(monthly_rows)]
+    score, detail = strategy['calc'](klines, weekly_klines=weekly_klines, monthly_klines=monthly_klines)
     if score <= 0:
         return None
     return {

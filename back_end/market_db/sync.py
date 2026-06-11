@@ -211,7 +211,6 @@ def _parse_date(date_str):
 def _fetch_kline(code, seg_key, period, start_date, end_date):
     """获取 K 线：A股用同花顺 v4 逐年拉取，港股/美股用 Yahoo Finance"""
     import requests as _rq
-    import random as _random
     import json as _json
     import datetime as _dt
 
@@ -240,11 +239,10 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     for url in urls:
         for attempt in range(3):
             try:
-                time.sleep(_random.uniform(0.1, 0.4))
                 r = _rq.get(url, headers=headers, timeout=10)
                 if r.status_code != 200:
                     if attempt < 2:
-                        time.sleep(2 * (attempt + 1))
+                        time.sleep(1)
                         continue
                     break
                 text = r.text
@@ -259,7 +257,7 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
                 break
             except Exception:
                 if attempt < 2:
-                    time.sleep(2 * (attempt + 1))
+                    time.sleep(1)
                 else:
                     with _sync_fail_lock:
                         _sync_fail_count += 1
