@@ -2,23 +2,11 @@
 import os, json, threading, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .strategies.ascending_channel import calc as ascending_channel_calc
-from .strategies.momentum_pullback import calc as momentum_pullback_calc
 from .strategies.prediction import calc as prediction_calc
 from .strategies.san_shang_you_ya import calc as san_shang_you_ya_calc
 
 # 策略注册表：{key: {name, calc, desc}}
 STRATEGIES = {
-    'ascending_channel': {
-        'name': '上升通道',
-        'calc': ascending_channel_calc,
-        'desc': '基于线性回归检测股价是否处于上升通道中，通道斜率向上、拟合度高、价格位于中下轨且成交量配合为佳',
-    },
-    'momentum_pullback': {
-        'name': '强势回调',
-        'calc': momentum_pullback_calc,
-        'desc': '多因子共振筛选明日大概率上涨的股票：均线多头排列+高位适度回调+缩量止跌企稳+资金进场痕迹，回踩关键均线支撑时介入',
-    },
     'san_shang_you_ya': {
         'name': '三上悠亚',
         'calc': san_shang_you_ya_calc,
@@ -107,9 +95,8 @@ def run_scan_async(strategy_keys, market=None, max_workers=30):
     return {'success': True, 'message': '扫描已启动'}
 
 
-# 保留旧名称兼容
-def run_ascending_channel_async(market=None, max_workers=30):
-    return run_scan_async('ascending_channel', market=market, max_workers=max_workers)
+
+
 
 
 def get_scan_status():

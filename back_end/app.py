@@ -16,7 +16,7 @@ from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
 import logging
 logger = logging.getLogger(__name__)
-from technical_screen.service import run_scan_async, run_ascending_channel_async, get_scan_status, get_strategies
+from technical_screen.service import run_scan_async, get_scan_status, get_strategies
 from technical_screen.strategies.prediction import calc as prediction_calc
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock
 
@@ -658,7 +658,7 @@ def technical_strategies():
 def technical_ascending_channel_start():
     """启动扫描（strategy 支持逗号分隔多个策略，如 strategy=ascending_channel,extreme_shrink_doji）"""
     market = request.args.get('market', '')
-    strategy_raw = request.args.get('strategy', 'ascending_channel')
+    strategy_raw = request.args.get('strategy', '')
     strategy_keys = [s.strip() for s in strategy_raw.split(',') if s.strip()]
     result = run_scan_async(strategy_keys, market=market)
     return jsonify(result)
