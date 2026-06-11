@@ -537,36 +537,60 @@ def stock_kline():
         yh_intv = {'day': '1d', 'week': '1wk', 'month': '1mo'}.get(period, '1d')
 
         if market in ('1', '2', '0', '90'):
-            # A 股用同花顺 K 线 API（含成交额、换手率）
+            # A 股用同花顺 K 线 API（v4 并发拉取 5 年）
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             ths_period_code = {'day': '01', 'week': '11', 'month': '21'}.get(tx_period, '01')
-            url = f"https://d.10jqka.com.cn/v2/line/hs_{code}/{ths_period_code}/last.js"
-            r = requests.get(url,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer': 'https://www.10jqka.com.cn/',
-                },
-                timeout=10, proxies=REQUEST_PROXIES)
-            # 同花顺返回 JS 回调: quotebridge_v2_...(JSON)
-            text = r.text
-            s = text.find('(') + 1; e = text.rfind(')')
-            jd = json.loads(text[s:e])
-            raw = jd.get('data', '')
+            current_year = _dt.datetime.now().year
+            years = range(current_year, current_year - 5, -1)
+            ths_headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://www.10jqka.com.cn/',
+            }
 
-            for line in raw.split(';'):
+            def _fetch_year(y):
+                url = f"https://d.10jqka.com.cn/v4/line/hs_{code}/{ths_period_code}/{y}.js"
+                r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
+                if r.status_code != 200:
+                    return None
+                text = r.text
+                s = text.find('(') + 1; e = text.rfind(')')
+                jd = json.loads(text[s:e])
+                return jd.get('data', '')
+
+            year_results = {}
+            with ThreadPoolExecutor(max_workers=5) as pool:
+                futs = {pool.submit(_fetch_year, y): y for y in years}
+                for fut in as_completed(futs):
+                    raw = fut.result()
+                    if raw:
+                        year_results[futs[fut]] = raw
+
+            all_lines = []
+            for y in sorted(year_results.keys()):
+                all_lines.extend(year_results[y].split(';'))
+
+            seen = set()
+            for line in all_lines:
                 parts = line.split(',')
                 if len(parts) < 8:
                     continue
-                # 字段: date(YYYYMMDD), open, high, low, close, volume, amount, turnover
                 d = parts[0]
+                if d in seen:
+                    continue
+                seen.add(d)
+                o = float(parts[1])
+                if o <= 0:          # 跳过同花顺早期年份的脏数据（负数价格）
+                    continue
                 row = {
                     'time': d[:4] + '-' + d[4:6] + '-' + d[6:8],
-                    'open': float(parts[1]), 'close': float(parts[4]),
+                    'open': o, 'close': float(parts[4]),
                     'high': float(parts[2]), 'low': float(parts[3]),
                     'volume': int(float(parts[5])),
                     'amount': float(parts[6]),
                     'turnover': round(float(parts[7]), 2),
                 }
                 rows.append(row)
+            rows.sort(key=lambda r: r['time'])
         elif market in ('116', '106'):
             # 港股/美股 → 本地 DB（由 sync 提前拉取），无缓存时再走 Yahoo
             from market_db.db import detail_klines_get

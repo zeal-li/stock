@@ -209,10 +209,11 @@ def _parse_date(date_str):
 
 
 def _fetch_kline(code, seg_key, period, start_date, end_date):
-    """获取 K 线：A股用同花顺 API，港股/美股用 Yahoo Finance"""
+    """获取 K 线：A股用同花顺 v4 逐年拉取，港股/美股用 Yahoo Finance"""
     import requests as _rq
     import random as _random
     import json as _json
+    import datetime as _dt
 
     if seg_key in ('hk_main', 'us_main'):
         return _fetch_kline_yahoo(code, seg_key, period, start_date, end_date)
@@ -220,70 +221,78 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     global _sync_fail_count
 
     c = str(code)
-
-    # 同花顺周期: 01=日线, 11=周线, 21=月线（待验证；全部先走日线兜底）
     ths_period_code = {'daily': '01', 'weekly': '11', 'monthly': '21'}.get(period, '01')
+    current_year = _dt.datetime.now().year
 
-    url = f"https://d.10jqka.com.cn/v2/line/hs_{c}/{ths_period_code}/last.js"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://www.10jqka.com.cn/',
     }
 
-    for attempt in range(3):
-        try:
-            time.sleep(_random.uniform(0.1, 0.4))
-            r = _rq.get(url, headers=headers, timeout=10)
+    # 增量：last.js（~140条）；全量：v4 逐年拉 5 年
+    if start_date and start_date[:4] == str(current_year):
+        urls = [f"https://d.10jqka.com.cn/v2/line/hs_{c}/{ths_period_code}/last.js"]
+    else:
+        urls = [f"https://d.10jqka.com.cn/v4/line/hs_{c}/{ths_period_code}/{y}.js"
+                for y in range(current_year, current_year - 5, -1)]
 
-            if r.status_code != 200:
+    all_raw = []
+    for url in urls:
+        for attempt in range(3):
+            try:
+                time.sleep(_random.uniform(0.1, 0.4))
+                r = _rq.get(url, headers=headers, timeout=10)
+                if r.status_code != 200:
+                    if attempt < 2:
+                        time.sleep(2 * (attempt + 1))
+                        continue
+                    break
+                text = r.text
+                s = text.find('(') + 1
+                e = text.rfind(')')
+                if s <= 0 or e <= s:
+                    break
+                jd = _json.loads(text[s:e])
+                raw = jd.get('data', '')
+                if raw:
+                    all_raw.append(raw)
+                break
+            except Exception:
                 if attempt < 2:
                     time.sleep(2 * (attempt + 1))
-                    continue
-                body_preview = r.text[:200] if r.text else '<empty>'
-                print(f"\r[sync]  ! {code} {period}: HTTP {r.status_code}, body={body_preview}", flush=True)
-                return []
+                else:
+                    with _sync_fail_lock:
+                        _sync_fail_count += 1
+                break
 
-            # 同花顺返回 JS 回调: quotebridge_v2_...(JSON)
-            text = r.text
-            s = text.find('(') + 1
-            e = text.rfind(')')
-            if s <= 0 or e <= s:
-                return []
-            jd = _json.loads(text[s:e])
-            raw = jd.get('data', '')
-            if not raw:
-                return []
+    if not all_raw:
+        return []
 
-            rows = []
-            for line in raw.split(';'):
-                parts = line.split(',')
-                if len(parts) < 8:
-                    continue
-                # 字段: date(YYYYMMDD), open, high, low, close, volume, amount, turnover
-                date_str = parts[0]
-                if start_date and date_str < start_date:
-                    continue
-                if end_date and date_str > end_date:
-                    continue
-                rows.append((
-                    code, seg_key, period,
-                    date_str,
-                    float(parts[1]),   # open
-                    float(parts[2]),   # high
-                    float(parts[3]),   # low
-                    float(parts[4]),   # close
-                    float(parts[5]),   # volume
-                    float(parts[6]),   # amount
-                ))
-            return rows
-        except Exception as e:
-            if attempt < 2:
-                time.sleep(2 * (attempt + 1))
-            else:
-                print(f"\r[sync]  ! {code} {period}: {type(e).__name__}: {e}", flush=True)
-                with _sync_fail_lock:
-                    _sync_fail_count += 1
-    return []
+    rows = []
+    for raw in all_raw:
+        for line in raw.split(';'):
+            parts = line.split(',')
+            if len(parts) < 8:
+                continue
+            date_str = parts[0]
+            if start_date and date_str < start_date:
+                continue
+            if end_date and date_str > end_date:
+                continue
+            o = float(parts[1])
+            if o <= 0:
+                continue
+            rows.append((
+                code, seg_key, period,
+                date_str,
+                o,                         # open
+                float(parts[2]),           # high
+                float(parts[3]),           # low
+                float(parts[4]),           # close
+                float(parts[5]),           # volume
+                float(parts[6]),           # amount
+            ))
+    return rows
 
 
 # ---- 同花顺 A 股 K 线 ----
