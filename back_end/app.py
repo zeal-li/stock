@@ -531,56 +531,42 @@ def stock_kline():
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
-        headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'}
         rows = []
 
-        # Tencent/Yahoo 周期映射
         tx_period = {'day': 'day', 'week': 'week', 'month': 'month'}.get(period, 'day')
-        tx_key = 'qfq' + tx_period
         yh_intv = {'day': '1d', 'week': '1wk', 'month': '1mo'}.get(period, '1d')
 
         if market in ('1', '2', '0', '90'):
-            prefix = 'sh' if market in ('1', '2') else 'sz'
-            param = f"{prefix}{code},{tx_period},,,800,qfq"
-            r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                           params={'param': param},
-                           headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
-                           timeout=10, proxies=REQUEST_PROXIES)
-            jd = r.json()
-            jd_data = (jd.get('data') or {}).get(f"{prefix}{code}", {})
-            klines = jd_data.get(tx_key) or jd_data.get(tx_period) or []
+            # A 股用同花顺 K 线 API（含成交额、换手率）
+            ths_period_code = {'day': '01', 'week': '11', 'month': '21'}.get(tx_period, '01')
+            url = f"https://d.10jqka.com.cn/v2/line/hs_{code}/{ths_period_code}/last.js"
+            r = requests.get(url,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': 'https://www.10jqka.com.cn/',
+                },
+                timeout=10, proxies=REQUEST_PROXIES)
+            # 同花顺返回 JS 回调: quotebridge_v2_...(JSON)
+            text = r.text
+            s = text.find('(') + 1; e = text.rfind(')')
+            jd = json.loads(text[s:e]) if s > 0 and e > s else {}
+            raw = jd.get('data', '')
 
-            # 同花顺（成交额/换手率）
-            extra = {}
-            try:
-                r2 = requests.get(f"https://d.10jqka.com.cn/v2/line/hs_{code}/01/last.js",
-                                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.10jqka.com.cn/'},
-                                timeout=8, proxies=REQUEST_PROXIES)
-                text = r2.text
-                s = text.find('(') + 1; e = text.rfind(')')
-                ths = json.loads(text[s:e]) if s > 0 and e > s else {}
-                for line in ths.get('data', '').split(';'):
-                    parts = line.split(',')
-                    if len(parts) >= 8:
-                        d = parts[0]
-                        extra[d[:4] + '-' + d[4:6] + '-' + d[6:8]] = {
-                            'amount': float(parts[6]), 'turnover': round(float(parts[7]), 2)
-                        }
-            except: pass
-
-            for k in klines:
-                if len(k) >= 6:
-                    row = {
-                        'time': k[0],
-                        'open': float(k[1]), 'close': float(k[2]),
-                        'high': float(k[3]), 'low': float(k[4]),
-                        'volume': int(float(k[5])),
-                    }
-                    ex = extra.get(k[0])
-                    if ex:
-                        row['amount'] = ex['amount']
-                        row['turnover'] = ex['turnover']
-                    rows.append(row)
+            for line in raw.split(';'):
+                parts = line.split(',')
+                if len(parts) < 8:
+                    continue
+                # 字段: date(YYYYMMDD), open, high, low, close, volume, amount, turnover
+                d = parts[0]
+                row = {
+                    'time': d[:4] + '-' + d[4:6] + '-' + d[6:8],
+                    'open': float(parts[1]), 'close': float(parts[4]),
+                    'high': float(parts[2]), 'low': float(parts[3]),
+                    'volume': int(float(parts[5])),
+                    'amount': float(parts[6]),
+                    'turnover': round(float(parts[7]), 2) if len(parts) > 7 else None,
+                }
+                rows.append(row)
         elif market in ('116', '106'):
             # 港股/美股 → 本地 DB（由 sync 提前拉取），无缓存时再走 Yahoo
             from market_db.db import detail_klines_get

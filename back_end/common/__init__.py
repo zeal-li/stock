@@ -18,5 +18,13 @@ BROWSER_HEADERS = {
     'Accept-Encoding': 'gzip, deflate, br',
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
+    'Pragma': 'no-cache',
     'Referer': 'https://finance.qq.com/',
+    'Origin': 'https://finance.qq.com',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'cross-site',
+    'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
 }

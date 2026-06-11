@@ -209,94 +209,84 @@ def _parse_date(date_str):
 
 
 def _fetch_kline(code, seg_key, period, start_date, end_date):
-    """获取 K 线：A股用腾讯 API，港股/美股用 Yahoo Finance"""
+    """获取 K 线：A股用同花顺 API，港股/美股用 Yahoo Finance"""
     import requests as _rq
     import random as _random
-    from common import BROWSER_HEADERS
+    import json as _json
 
     if seg_key in ('hk_main', 'us_main'):
         return _fetch_kline_yahoo(code, seg_key, period, start_date, end_date)
 
+    global _sync_fail_count
+
     c = str(code)
-    pfx = 'sh' if c.startswith(('6', '9')) else 'sz'
-    tp_map = {'daily': ('day', 800), 'weekly': ('week', 200), 'monthly': ('month', 40)}
 
-    if start_date and start_date != '19900101' and end_date:
-        try:
-            start_dt = _parse_date(start_date)
-            end_dt = _parse_date(end_date)
-            delta_days = (end_dt - start_dt).days
-            if period == 'daily':
-                need = min(delta_days + 10, 800)
-            elif period == 'weekly':
-                need = min(max(10, delta_days // 7 + 3), 200)
-            elif period == 'monthly':
-                need = min(max(3, delta_days // 30 + 2), 40)
-            tp, _ = tp_map.get(period, ('day', 800))
-        except Exception:
-            tp, need = tp_map.get(period, ('day', 800))
-    else:
-        tp, need = tp_map.get(period, ('day', 800))
+    # 同花顺周期: 01=日线, 11=周线, 21=月线（待验证；全部先走日线兜底）
+    ths_period_code = {'daily': '01', 'weekly': '11', 'monthly': '21'}.get(period, '01')
 
-    param_str = f"{pfx}{c},{tp},,,{need},qfq"
+    url = f"https://d.10jqka.com.cn/v2/line/hs_{c}/{ths_period_code}/last.js"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.10jqka.com.cn/',
+    }
+
     for attempt in range(3):
-        r = None
         try:
             time.sleep(_random.uniform(0.1, 0.4))
-            r = _rq.get(
-                "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
-                params={'param': param_str},
-                headers=BROWSER_HEADERS,
-                timeout=10,
-            )
-            jd = r.json()
-            data = jd.get('data', {})
-            if isinstance(data, dict):
-                sd = data.get(f"{pfx}{c}", {})
-            else:
-                return []
-            if tp == 'day':
-                raw = sd.get('qfqday') or sd.get('day') or []
-            elif tp == 'week':
-                raw = sd.get('qfqweek') or sd.get('week') or []
-            else:
-                raw = sd.get('qfqmonth') or sd.get('month') or []
-            if not raw:
-                body_preview = r.text[:200] if r.text else '<empty>'
-                print(f"\r[sync]  ! {code} {period}: API 返回空 (HTTP {r.status_code}, body={body_preview})", flush=True)
-                return []
-            rows = []
-            for row in raw:
-                if len(row) < 6:
+            r = _rq.get(url, headers=headers, timeout=10)
+
+            if r.status_code != 200:
+                if attempt < 2:
+                    time.sleep(2 * (attempt + 1))
                     continue
-                date_str = str(row[0])[:10].replace('-', '')
+                body_preview = r.text[:200] if r.text else '<empty>'
+                print(f"\r[sync]  ! {code} {period}: HTTP {r.status_code}, body={body_preview}", flush=True)
+                return []
+
+            # 同花顺返回 JS 回调: quotebridge_v2_...(JSON)
+            text = r.text
+            s = text.find('(') + 1
+            e = text.rfind(')')
+            if s <= 0 or e <= s:
+                return []
+            jd = _json.loads(text[s:e])
+            raw = jd.get('data', '')
+            if not raw:
+                return []
+
+            rows = []
+            for line in raw.split(';'):
+                parts = line.split(',')
+                if len(parts) < 8:
+                    continue
+                # 字段: date(YYYYMMDD), open, high, low, close, volume, amount, turnover
+                date_str = parts[0]
                 if start_date and date_str < start_date:
                     continue
                 if end_date and date_str > end_date:
                     continue
-                if len(row) >= 7 and not isinstance(row[6], dict):
-                    amount = float(row[6])
-                else:
-                    amount = 0
                 rows.append((
                     code, seg_key, period,
                     date_str,
-                    float(row[1]), float(row[3]), float(row[4]),
-                    float(row[2]), float(row[5]),
-                    amount,
+                    float(parts[1]),   # open
+                    float(parts[2]),   # high
+                    float(parts[3]),   # low
+                    float(parts[4]),   # close
+                    float(parts[5]),   # volume
+                    float(parts[6]),   # amount
                 ))
             return rows
         except Exception as e:
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
             else:
-                if r is not None:
-                    body_preview = r.text[:200] if r.text else '<empty>'
-                    print(f"\r[sync]  ! {code} {period}: 请求失败 (HTTP {r.status_code}, body={body_preview}, {type(e).__name__}: {e})", flush=True)
-                else:
-                    print(f"\r[sync]  ! {code} {period}: 请求失败 (无法连接, {type(e).__name__}: {e})", flush=True)
+                print(f"\r[sync]  ! {code} {period}: {type(e).__name__}: {e}", flush=True)
+                with _sync_fail_lock:
+                    _sync_fail_count += 1
     return []
 
+
+# ---- 同花顺 A 股 K 线 ----
 
 # ---- Yahoo Finance 限流 ----
 
