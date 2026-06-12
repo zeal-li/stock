@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .db import (
     list_markets, list_replace_market, list_sync_ts_get, list_sync_ts_set,
+    list_list_sync_ts_get, list_list_sync_ts_set,
     list_stocks_all, list_stocks_by_market,
     detail_info_all, detail_info_upsert, detail_info_ts_map,
     detail_kline_date_map,
@@ -555,6 +556,7 @@ def _run_init(seg_key):
             return
 
         list_replace_market(seg_key, rows)
+        list_list_sync_ts_set(seg_key, _now_ts_str())
         print(f"[sync] {label} 股票列表已写入: {len(rows)} 只")
 
         if _sync_status.get('cancel'):
@@ -785,13 +787,13 @@ def update_market(seg_key):
 
 
 def _list_need_refresh(seg_key):
-    """根据 stocks.sync_ts 判断股票列表是否需要重新拉取
+    """根据 list_sync_ts 判断股票列表是否需要重新拉取
 
-    规则：如果 stocks.sync_ts 是在"最近一次该市场开盘时间"或之后，
+    规则：如果 list_sync_ts 是在"最近一次该市场开盘时间"或之后，
     那么列表仍是新的（在该市场下一次开盘前都不会有新上市/退市变化）。
     否则列表可能过时，需要重新拉取。
     """
-    last_ts_str = list_sync_ts_get(seg_key)
+    last_ts_str = list_list_sync_ts_get(seg_key)
     if not last_ts_str:
         # 没有时间戳记录，需要拉取
         return True
@@ -867,8 +869,9 @@ def _run_update(seg_key):
 
         # 第一步：判断股票列表是否需要重拉
         need_refresh_list = _list_need_refresh(seg_key)
-        last_ts_str = list_sync_ts_get(seg_key)
-        print(f"[sync] {label} sync_ts: {last_ts_str or '无'}, 列表{'需要' if need_refresh_list else '无需'}重拉")
+        list_ts_str = list_list_sync_ts_get(seg_key)
+        kline_ts_str = list_sync_ts_get(seg_key)
+        print(f"[sync] {label} 列表时间: {list_ts_str or '无'}, K线时间: {kline_ts_str or '无'}, 列表{'需要' if need_refresh_list else '无需'}重拉")
 
         if need_refresh_list:
             _sync_status['phase'] = 'list'
@@ -889,6 +892,7 @@ def _run_update(seg_key):
                 return
 
             list_replace_market(seg_key, rows)
+            list_list_sync_ts_set(seg_key, _now_ts_str())
             print(f"[sync] {label} 股票列表已更新: {len(rows)} 只")
         else:
             existing_stocks = list_stocks_by_market().get(seg_key, {})

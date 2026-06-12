@@ -24,11 +24,18 @@ def _connect(path, create_sqls):
 # ==================== stock_list.db ====================
 
 def _list_conn():
-    return _connect(_LIST_PATH, [
+    conn = _connect(_LIST_PATH, [
         '''CREATE TABLE IF NOT EXISTS stocks (
-            code TEXT NOT NULL, market TEXT NOT NULL, name TEXT, sync_ts TEXT,
+            code TEXT NOT NULL, market TEXT NOT NULL, name TEXT, sync_ts TEXT, list_sync_ts TEXT,
             PRIMARY KEY (code, market))''',
     ])
+    # 兼容旧表：如果 list_sync_ts 列不存在则添加
+    try:
+        conn.execute("ALTER TABLE stocks ADD COLUMN list_sync_ts TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+    return conn
 
 
 def list_stock_count():
@@ -86,6 +93,27 @@ def list_sync_ts_set(market, ts_str):
     conn.execute('UPDATE stocks SET sync_ts=? WHERE market=?', (ts_str, market))
     conn.commit()
     conn.close()
+
+
+def list_list_sync_ts_get(market):
+    """获取某市场股票列表上次拉取时间戳"""
+    conn = _list_conn()
+    r = conn.execute(
+        'SELECT list_sync_ts FROM stocks WHERE market=? AND list_sync_ts IS NOT NULL LIMIT 1',
+        (market,)).fetchone()
+    conn.close()
+    return r['list_sync_ts'] if r else None
+
+
+def list_list_sync_ts_set(market, ts_str):
+    """设置某市场股票列表的拉取时间戳（更新该市场下所有股票的 list_sync_ts）"""
+    conn = _list_conn()
+    conn.execute('UPDATE stocks SET list_sync_ts=? WHERE market=?', (ts_str, market))
+    conn.commit()
+    conn.close()
+
+
+
 
 
 
