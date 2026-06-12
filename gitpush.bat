@@ -14,10 +14,6 @@ if errorlevel 1 (
     git config user.email "64367160@qq.com"
 )
 
-echo.
-echo Adding changes...
-git add .
-
 echo Git Status...
 git status
 echo.
@@ -27,6 +23,10 @@ if /i not "%confirm%"=="Y" (
     pause
     exit /b
 )
+
+echo.
+echo Adding changes...
+git add .
 
 set /p msg="Enter commit message: "
 if "%msg%"=="" (
