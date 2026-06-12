@@ -867,18 +867,15 @@ def earnings_list():
         }
         code_list_str = ','.join(f'"{c}"' for c in sorted(target_codes))
 
-        from datetime import datetime as _dt, timedelta
-        cutoff = (_dt.now() - timedelta(days=730)).strftime('%Y-%m-%d')
-
-        # 生成近两年的所有报告期日期（03-31/06-30/09-30/12-31）
-        cutoff_year = int(cutoff[:4])
+        from datetime import datetime as _dt
         this_year = _dt.now().year
+        # 覆盖最近 3 个完整财年（当年 + 前两年）
+        start_year = this_year - 2
+        cutoff = f'{start_year}-01-01'
         rpt_dates = []
-        for y in range(cutoff_year, this_year + 1):
+        for y in range(start_year, this_year + 1):
             for md in ('03-31', '06-30', '09-30', '12-31'):
-                d = f'{y}-{md}'
-                if d >= cutoff:
-                    rpt_dates.append(d)
+                rpt_dates.append(f'{y}-{md}')
         rpt_dates_str = ','.join(f'"{d}"' for d in rpt_dates)
 
         result = []
