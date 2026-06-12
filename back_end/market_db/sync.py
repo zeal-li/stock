@@ -145,6 +145,7 @@ def _fetch_stocks_by_segment(seg_key):
         return []
 
     all_rows = []
+    filtered_by_cap = 0
     page = 1
     print(f"[sync] 拉取 {label} 列表...")
     while True:
@@ -156,7 +157,7 @@ def _fetch_stocks_by_segment(seg_key):
                     'fltt': 2, 'invt': 2,
                     'fid': 'f12',
                     'fs': fs_filter,
-                    'fields': 'f2,f12,f14',
+                    'fields': 'f2,f12,f14,f20',
                     'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
                 }, headers=headers, timeout=15)
                 break
@@ -194,10 +195,25 @@ def _fetch_stocks_by_segment(seg_key):
                 if seg_key in ('hs_etf',):
                     if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
                         continue
+                    # 过滤市值小于5亿的ETF
+                    try:
+                        cap = row.get('f20')
+                        if cap is None or cap == '-' or str(cap).strip() == '':
+                            filtered_by_cap += 1
+                            continue
+                        if float(cap) < 500_000_000:
+                            filtered_by_cap += 1
+                            continue
+                    except (ValueError, TypeError):
+                        filtered_by_cap += 1
+                        continue
             all_rows.append((code, name))
         page += 1
         _time.sleep(0.1)
-    print(f"[sync] {label}: {len(all_rows)} 只")
+    if filtered_by_cap > 0 and seg_key == 'hs_etf':
+        print(f"[sync] {label}: {len(all_rows)} 只 (过滤掉市值<5亿: {filtered_by_cap} 只)")
+    else:
+        print(f"[sync] {label}: {len(all_rows)} 只")
     return all_rows
 
 
@@ -289,13 +305,18 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
             if end_date and date_str > end_date:
                 continue
             o = float(parts[1]) if parts[1] else 0
-            if o <= 0:
-                continue
             h = float(parts[2]) if parts[2] else 0
             l = float(parts[3]) if parts[3] else 0
             c = float(parts[4]) if parts[4] else 0
-            if h <= 0 or l <= 0 or c <= 0:
+            if c <= 0:
                 continue
+            # 开/高/低为空或为0时，用收盘价补上
+            if o <= 0:
+                o = c
+            if h <= 0:
+                h = c
+            if l <= 0:
+                l = c
             volume = float(parts[5]) if parts[5] else 0
             amount = float(parts[6]) if parts[6] else 0
             rows.append((
@@ -474,6 +495,10 @@ def _sync_one_stock(code, market, name, kline_date_map, latest_trading, ts_str, 
             return True
         else:
             if max_date:
+                gap = (_parse_date(latest_trading) - _parse_date(max_date)).days
+                if gap > 30:
+                    print(f"\r[sync]  ~ {code} {name} 可能已退市 (最新数据 {max_date}, 距今 {gap} 天)", flush=True)
+                    return 'inactive'
                 print(f"\r[sync]  ~ {code} {name} 无新数据 (已有 {max_date})", flush=True)
                 return None
             else:
@@ -504,7 +529,7 @@ def _cleanup_delisted():
 
 # =========== 加载（初始化新市场） ===========
 
-_sync_status = {'running': False, 'label': '', 'total': 0, 'done': 0, 'phase': '', 'cancel': False, 'seg_key': None, 'task_type': None, 'success_count': 0, 'no_data_count': 0, 'api_empty_count': 0, 'exception_count': 0}
+_sync_status = {'running': False, 'label': '', 'total': 0, 'done': 0, 'phase': '', 'cancel': False, 'seg_key': None, 'task_type': None, 'success_count': 0, 'no_data_count': 0, 'inactive_count': 0, 'api_empty_count': 0, 'exception_count': 0}
 
 def init_segment(seg_key):
     """初始化一个市场分段：拉取股票列表 + 全量同步 K 线"""
@@ -582,6 +607,7 @@ def _run_init(seg_key):
         cancelled = False
         success_count = 0
         no_data_count = 0
+        inactive_count = 0
         api_empty_count = 0
         exception_count = 0
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -594,6 +620,8 @@ def _run_init(seg_key):
                     result = fut.result()
                     if result is None:
                         no_data_count += 1
+                    elif result == 'inactive':
+                        inactive_count += 1
                     elif result:
                         success_count += 1
                     else:
@@ -634,10 +662,11 @@ def _run_init(seg_key):
             print(f"[sync] {label} 有 {', '.join(reasons)}，本次不更新 sync_ts，下次更新将重试")
         _sync_status['success_count'] = success_count
         _sync_status['no_data_count'] = no_data_count
+        _sync_status['inactive_count'] = inactive_count
         _sync_status['api_empty_count'] = api_empty_count
         _sync_status['exception_count'] = exception_count
         el = time.time() - t0
-        print(f"[sync] {label} 初始化完成: 拉取成功 {success_count} 只, 无新数据 {no_data_count} 只, API返回空 {api_empty_count} 只, 网络异常 {exception_count} 只, 耗时 {el:.0f}s")
+        print(f"[sync] {label} 初始化完成: 拉取成功 {success_count} 只, 无新数据 {no_data_count} 只, 可能已退市 {inactive_count} 只, API返回空 {api_empty_count} 只, 网络异常 {exception_count} 只, 耗时 {el:.0f}s")
     finally:
         if _sync_status['phase'] not in ('cancelled', 'error'):
             _sync_status['running'] = False
@@ -928,6 +957,7 @@ def _run_update(seg_key):
         cancelled = False
         success_count = 0
         no_data_count = 0
+        inactive_count = 0
         api_empty_count = 0
         exception_count = 0
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -940,6 +970,8 @@ def _run_update(seg_key):
                     result = fut.result()
                     if result is None:
                         no_data_count += 1
+                    elif result == 'inactive':
+                        inactive_count += 1
                     elif result:
                         success_count += 1
                     else:
@@ -982,11 +1014,12 @@ def _run_update(seg_key):
         _cleanup_delisted()
         _sync_status['success_count'] = success_count
         _sync_status['no_data_count'] = no_data_count
+        _sync_status['inactive_count'] = inactive_count
         _sync_status['api_empty_count'] = api_empty_count
         _sync_status['exception_count'] = exception_count
 
         el = time.time() - t0
-        print(f"[sync] {label} 更新完成: 拉取成功 {success_count} 只, 无新数据 {no_data_count} 只, API返回空 {api_empty_count} 只, 网络异常 {exception_count} 只, 耗时 {el:.0f}s")
+        print(f"[sync] {label} 更新完成: 拉取成功 {success_count} 只, 无新数据 {no_data_count} 只, 可能已退市 {inactive_count} 只, API返回空 {api_empty_count} 只, 网络异常 {exception_count} 只, 耗时 {el:.0f}s")
     finally:
         if _sync_status['phase'] not in ('cancelled', 'error'):
             _sync_status['running'] = False

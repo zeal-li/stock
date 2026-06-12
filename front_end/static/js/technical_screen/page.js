@@ -266,8 +266,16 @@ function _pollInitStatus() {
                 btn.textContent = '加载';
                 if (currentMarket === loadingKey) {
                     if (s.exception_count + s.api_empty_count + s.no_data_count > 0) {
-                        status.textContent = '加载完成: 拉取成功 ' + s.success_count + ' 只, 无新数据 ' + s.no_data_count + ' 只, API返回空 ' + s.api_empty_count + ' 只, 网络异常 ' + s.exception_count + ' 只（sync_ts 未更新）';
+                        var parts = ['拉取成功 ' + s.success_count + ' 只'];
+                        if (s.no_data_count > 0) parts.push('无新数据 ' + s.no_data_count + ' 只');
+                        if (s.inactive_count > 0) parts.push('可能已退市 ' + s.inactive_count + ' 只');
+                        if (s.api_empty_count > 0) parts.push('API返回空 ' + s.api_empty_count + ' 只');
+                        if (s.exception_count > 0) parts.push('网络异常 ' + s.exception_count + ' 只');
+                        status.textContent = '加载完成: ' + parts.join(', ') + '（sync_ts 未更新）';
                         status.style.color = '#f97316';
+                    } else if (s.inactive_count > 0) {
+                        status.textContent = '加载完成，共 ' + s.success_count + ' 只（' + s.inactive_count + ' 只可能已退市）';
+                        status.style.color = '#4ade80';
                     } else {
                         status.textContent = '加载完成，共 ' + s.success_count + ' 只';
                         status.style.color = '#4ade80';
@@ -433,8 +441,16 @@ function _pollUpdateStatus() {
                 btn.textContent = '更新';
                 if (currentMarket === updatingKey) {
                     if (s.exception_count + s.api_empty_count + s.no_data_count > 0) {
-                        status.textContent = '更新完成: 拉取成功 ' + s.success_count + ' 只, 无新数据 ' + s.no_data_count + ' 只, API返回空 ' + s.api_empty_count + ' 只, 网络异常 ' + s.exception_count + ' 只（sync_ts 未更新）';
+                        var parts = ['拉取成功 ' + s.success_count + ' 只'];
+                        if (s.no_data_count > 0) parts.push('无新数据 ' + s.no_data_count + ' 只');
+                        if (s.inactive_count > 0) parts.push('可能已退市 ' + s.inactive_count + ' 只');
+                        if (s.api_empty_count > 0) parts.push('API返回空 ' + s.api_empty_count + ' 只');
+                        if (s.exception_count > 0) parts.push('网络异常 ' + s.exception_count + ' 只');
+                        status.textContent = '更新完成: ' + parts.join(', ') + '（sync_ts 未更新）';
                         status.style.color = '#f97316';
+                    } else if (s.inactive_count > 0) {
+                        status.textContent = '更新完成，共 ' + s.success_count + ' 只（' + s.inactive_count + ' 只可能已退市）';
+                        status.style.color = '#4ade80';
                     } else {
                         status.textContent = '更新完成，共 ' + s.success_count + ' 只';
                         status.style.color = '#4ade80';
