@@ -142,7 +142,7 @@ function renderEarningsList(records) {
         if (r.row_type === '业绩预告' && r.sub_type) typeLabel += '·' + r.sub_type;
 
         html += '<tr>' +
-            '<td style="white-space:nowrap;">' + (r.notice_date || '-') + '</td>' +
+            '<td style="white-space:nowrap;">' + (r.report_date || '-') + '</td>' +
             '<td style="color:#888;">' + (r.code || '-') + '</td>' +
             '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + escCode + '\',\'1\',\'' + escName + '\')">' + (r.name || '-') + '</span></td>' +
             '<td><span style="color:' + color + ';font-weight:600;">' + typeLabel + '</span></td>' +

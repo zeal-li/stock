@@ -1024,15 +1024,15 @@ def earnings_list():
                 'detail_url': _stock_f10_url(code) + '#/cwfx',
             })
 
-        # 按股票分组排序（同股票聚在一起，按最新披露日降序），组内按日期降序
+        # 按股票分组排序（同股票聚在一起，按最新报告期降序），组内按报告期降序
         from collections import defaultdict
         groups = defaultdict(list)
         for r_item in result:
             groups[r_item['code']].append(r_item)
-        sorted_codes = sorted(groups, key=lambda c: max(r['notice_date'] for r in groups[c]), reverse=True)
+        sorted_codes = sorted(groups, key=lambda c: max(r['report_date'] for r in groups[c]), reverse=True)
         result = []
         for code in sorted_codes:
-            result.extend(sorted(groups[code], key=lambda r: r['notice_date'], reverse=True))
+            result.extend(sorted(groups[code], key=lambda r: r['report_date'], reverse=True))
 
         return jsonify({'success': True, 'data': result})
 
