@@ -1,13 +1,13 @@
-"""三上悠亚选股策略 — 日K/周K/月K共振布林上轨
+"""三上悠亚选股策略 — 日K/周K/月K布林中上轨共振
 
-核心思路：多周期共振，股价在日、周、月三个级别都紧贴布林上轨运行，
-          布林带整体趋势向上且倾斜温和，近期无极端涨跌，适合趋势跟随。
+核心思路：多周期共振，股价在日、周、月三个级别的布林带中长期运行在中轨到上轨之间，
+          布林带趋势向上且倾斜温和，近期无极端涨跌，即使短期跌破中轨也能快速修复。
 
 筛选条件：
-  1. 日K/周K/月K 收盘价均在布林上轨附近（>= MA20 + 1.8 * STD，即上轨区间内）
-  2. 三个周期的布林中轨（MA20）均向上倾斜，趋势确认
-  3. 布林中轨斜率不能过陡（日线 < 3%/天，周线 < 5%/周，月线 < 8%/月）
-  4. 近 30 个交易日无单日涨跌幅超过 ±7% 的极端行情
+  1. 三周期最新收盘价均 >= 中轨（跌破中轨后快速修复也算通过）
+  2. 三周期「中上轨占比」>= 55%（近20根K线中收在中轨上方的比例），快速修复时可放宽至 45%
+  3. 三周期布林中轨向上倾斜，斜率不过陡
+  4. 近 30 个交易日无单日涨跌幅 > 7% 的极端行情
 """
 
 
@@ -26,7 +26,7 @@ def _lr_slope(values):
 
 
 def _calc_bb(klines, period=20):
-    """计算布林带：返回 {upper, mid, lower, width_pct}"""
+    """计算布林带（MA20 ± 2*σ）"""
     closes = [k['close'] for k in klines[-period:]]
     ma = sum(closes) / period
     var = sum((c - ma) ** 2 for c in closes) / period
@@ -38,54 +38,70 @@ def _calc_bb(klines, period=20):
     return {'upper': upper, 'mid': mid, 'lower': lower, 'width_pct': width_pct}
 
 
-def _at_upper_zone(close, bb):
-    """收盘价是否在布林上轨区间（上轨附近，包含轻微站上和贴近）"""
-    # 上轨区间：从 mid + 1.8*std 到 upper + 0.5*std，即上轨上下各留一点容差
-    upper = bb['upper']
+def _upper_half_analysis(klines, bb_period=20):
+    """分析布林上半区运行情况
+
+    Returns:
+        ratio:      最近 bb_period 根K线中收盘 >= 中轨的比例
+        recovering: 是否处于快速修复中（近期跌破中轨但已回升至中轨上方）
+        mid:        布林中轨
+        upper:      布林上轨
+    """
+    closes = [k['close'] for k in klines[-bb_period:]]
+    bb = _calc_bb(klines, bb_period)
     mid = bb['mid']
-    std_est = (upper - mid) / 2
-    zone_low = mid + 1.8 * std_est
-    zone_high = upper + 0.5 * std_est
-    return zone_low <= close <= zone_high
+    upper = bb['upper']
+
+    in_upper = sum(1 for c in closes if c >= mid)
+    ratio = in_upper / len(closes)
+
+    # 快速修复检测：看最近 5 根 K 线中是否有跌破再回升的
+    recent_check = min(5, len(closes))
+    recent = closes[-recent_check:]
+    was_below = any(c < mid for c in recent[:-1])
+    now_above = closes[-1] >= mid
+    recovering = was_below and now_above
+
+    return ratio, recovering, mid, upper
 
 
 def calc(daily_klines, weekly_klines=None, monthly_klines=None, lookback=60):
-    """三上悠亚策略主函数
-
-    Args:
-        daily_klines: 日K线列表
-        weekly_klines: 周K线列表（由 _scan_one 传入）
-        monthly_klines: 月K线列表（由 _scan_one 传入）
-
-    Returns:
-        (score, detail) — score=0 表示不满足条件
-    """
+    """三上悠亚策略主函数"""
     dk = daily_klines
     wk = weekly_klines or []
     mk = monthly_klines or []
 
-    # 布林带至少需要 20 根 K 线
     if len(dk) < 20 or len(wk) < 20 or len(mk) < 20:
         return 0, {}
 
-    # ====== 计算各周期布林带 ======
-    bb_daily = _calc_bb(dk)
-    bb_weekly = _calc_bb(wk)
-    bb_monthly = _calc_bb(mk)
+    # ====== 各周期上半区分析 ======
+    d_ratio, d_recovering, d_mid, d_upper = _upper_half_analysis(dk)
+    w_ratio, w_recovering, w_mid, w_upper = _upper_half_analysis(wk)
+    m_ratio, m_recovering, m_mid, m_upper = _upper_half_analysis(mk)
 
+    # ====== 条件1: 三周期均运行在中上轨 ======
+    # 正常达标：中上轨占比 >= 55%
+    # 快速修复：允许放宽到 45%，但必须确实在修复中
+    def _pass(ratio, recovering):
+        if ratio >= 0.55:
+            return True
+        if recovering and ratio >= 0.45:
+            return True
+        return False
+
+    if not (_pass(d_ratio, d_recovering) and _pass(w_ratio, w_recovering) and _pass(m_ratio, m_recovering)):
+        return 0, {}
+
+    # 最新收盘价至少 >= 中轨（不允许三周期都在中轨下方）
     d_close = dk[-1]['close']
     w_close = wk[-1]['close']
     m_close = mk[-1]['close']
 
-    # ====== 条件1: 三个周期均在布林上轨区间 ======
-    d_at_upper = _at_upper_zone(d_close, bb_daily)
-    w_at_upper = _at_upper_zone(w_close, bb_weekly)
-    m_at_upper = _at_upper_zone(m_close, bb_monthly)
-
-    if not (d_at_upper and w_at_upper and m_at_upper):
+    above_mid_count = sum([d_close >= d_mid, w_close >= w_mid, m_close >= m_mid])
+    if above_mid_count == 0:
         return 0, {}
 
-    # ====== 条件2: 布林中轨向上倾斜（用最近20根K线收盘价的线性回归斜率） ======
+    # ====== 条件2: 布林中轨向上倾斜 ======
     slope_d = _lr_slope([k['close'] for k in dk[-20:]])
     slope_w = _lr_slope([k['close'] for k in wk[-20:]])
     slope_m = _lr_slope([k['close'] for k in mk[-20:]])
@@ -93,19 +109,23 @@ def calc(daily_klines, weekly_klines=None, monthly_klines=None, lookback=60):
     if slope_d <= 0 or slope_w <= 0 or slope_m <= 0:
         return 0, {}
 
-    # ====== 条件3: 斜率不能过陡 ======
-    slope_pct_d = slope_d / bb_daily['mid']  # 日线每根K线的斜率百分比
+    bb_daily = _calc_bb(dk)
+    bb_weekly = _calc_bb(wk)
+    bb_monthly = _calc_bb(mk)
+
+    # ====== 条件3: 斜率不过陡 ======
+    slope_pct_d = slope_d / bb_daily['mid']
     slope_pct_w = slope_w / bb_weekly['mid']
     slope_pct_m = slope_m / bb_monthly['mid']
 
-    max_d = 0.03   # 日线斜率不超过 3%/天
-    max_w = 0.05   # 周线斜率不超过 5%/周
-    max_m = 0.08   # 月线斜率不超过 8%/月
+    max_d = 0.03
+    max_w = 0.05
+    max_m = 0.08
 
     if slope_pct_d > max_d or slope_pct_w > max_w or slope_pct_m > max_m:
         return 0, {}
 
-    # ====== 条件4: 近30个交易日无极端涨跌（单日涨跌幅 > 7%） ======
+    # ====== 条件4: 近30个交易日无极端涨跌 ======
     extreme_days = 0
     lookback_days = min(len(dk), 30)
     for i in range(-lookback_days, 0):
@@ -119,30 +139,45 @@ def calc(daily_klines, weekly_klines=None, monthly_klines=None, lookback=60):
         return 0, {}
 
     # ====== 综合评分 ======
-    # 上轨贴合度：计算收盘价在上轨区间的归一化位置（1 = 恰好在上轨线上，最优）
-    def _proximity(close, bb):
-        upper = bb['upper']
-        mid = bb['mid']
-        std_est = (upper - mid) / 2
-        zone_low = mid + 1.8 * std_est
-        zone_high = upper + 0.5 * std_est
-        if zone_high == zone_low:
+    # 上半区占比质量（越高越稳定，占分 50）
+    def _ratio_score(ratio, recovering):
+        base = (ratio - 0.4) / 0.6 * 15  # 0.4->0, 1.0->15
+        base = max(0, min(15, base))
+        if recovering:
+            base *= 0.8  # 修复中的略打折扣
+        return base
+
+    r_score_d = _ratio_score(d_ratio, d_recovering)
+    r_score_w = _ratio_score(w_ratio, w_recovering)
+    r_score_m = _ratio_score(m_ratio, m_recovering)
+
+    # 修复信号加分（占分 6）：快速修复是强势信号
+    recovery_bonus = 0
+    if d_recovering:
+        recovery_bonus += 2
+    if w_recovering:
+        recovery_bonus += 2
+    if m_recovering:
+        recovery_bonus += 2
+
+    # 当前价格位置打分（占分 24）：在上半区的哪
+    def _position_score(close, mid, upper):
+        if close < mid:
             return 0
-        # 归一化到 [0, 1]，越靠近上轨线越接近 1
-        raw = (close - zone_low) / (zone_high - zone_low)
-        # 理想位置是上轨线（upper），对应 raw ≈ (upper - zone_low) / (zone_high - zone_low)
-        ideal_raw = (upper - zone_low) / (zone_high - zone_low)
-        # 距离理想位置越近越好
-        return 1 - abs(raw - ideal_raw)
+        if close >= upper:
+            return 8
+        band = upper - mid
+        if band <= 0:
+            return 4
+        return round((close - mid) / band * 8, 1)
 
-    prox_d = _proximity(d_close, bb_daily)
-    prox_w = _proximity(w_close, bb_weekly)
-    prox_m = _proximity(m_close, bb_monthly)
+    pos_d = _position_score(d_close, d_mid, d_upper)
+    pos_w = _position_score(w_close, w_mid, w_upper)
+    pos_m = _position_score(m_close, m_mid, m_upper)
 
-    # 斜率质量：在 [0.05%, max] 范围内越居中越好
+    # 斜率质量（占分 15）
     def _slope_quality(slope_pct, max_pct):
-        # 理想斜率范围：0.001 ~ max_pct*0.6 (温和爬升)
-        low = 0.001
+        low = 0.0005
         high = max_pct * 0.6
         if low <= slope_pct <= high:
             return 1.0
@@ -155,17 +190,23 @@ def calc(daily_klines, weekly_klines=None, monthly_klines=None, lookback=60):
     sq_m = _slope_quality(slope_pct_m, max_m)
 
     score = round(
-          prox_d * 22
-        + prox_w * 22
-        + prox_m * 22
-        + (sq_d + sq_w + sq_m) / 3 * 15  # 斜率质量
-        + 19,  # 通过全部硬条件的底分
+          r_score_d + r_score_w + r_score_m     # 上半区稳定性 0-45
+        + recovery_bonus                          # 修复加分 0-6
+        + pos_d + pos_w + pos_m                   # 当前位置 0-24
+        + (sq_d + sq_w + sq_m) / 3 * 15           # 斜率质量 0-15
+        + 10,                                      # 硬条件底分
         1,
     )
 
     score = min(score, 100)
 
     detail = {
+        'd_upper_ratio': round(d_ratio * 100, 1),
+        'w_upper_ratio': round(w_ratio * 100, 1),
+        'm_upper_ratio': round(m_ratio * 100, 1),
+        'd_recovering': d_recovering,
+        'w_recovering': w_recovering,
+        'm_recovering': m_recovering,
         'bb_daily_upper': round(bb_daily['upper'], 2),
         'bb_daily_mid': round(bb_daily['mid'], 2),
         'bb_daily_lower': round(bb_daily['lower'], 2),
@@ -175,9 +216,9 @@ def calc(daily_klines, weekly_klines=None, monthly_klines=None, lookback=60):
         'bb_monthly_upper': round(bb_monthly['upper'], 2),
         'bb_monthly_mid': round(bb_monthly['mid'], 2),
         'bb_monthly_lower': round(bb_monthly['lower'], 2),
-        'd_at_upper': d_at_upper,
-        'w_at_upper': w_at_upper,
-        'm_at_upper': m_at_upper,
+        'd_above_mid': d_close >= d_mid,
+        'w_above_mid': w_close >= w_mid,
+        'm_above_mid': m_close >= m_mid,
         'slope_d_pct': round(slope_pct_d * 100, 3),
         'slope_w_pct': round(slope_pct_w * 100, 3),
         'slope_m_pct': round(slope_pct_m * 100, 3),
