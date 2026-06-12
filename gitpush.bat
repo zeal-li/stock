@@ -28,6 +28,9 @@ echo.
 echo Adding changes...
 git add .
 
+echo Git Status...
+git status
+
 set /p msg="Enter commit message: "
 if "%msg%"=="" (
     echo Commit message cannot be empty!
