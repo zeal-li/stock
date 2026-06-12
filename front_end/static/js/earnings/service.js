@@ -1,17 +1,18 @@
 // ==================== 业绩报告 ====================
 
-// 业绩预告类型颜色
+// 报告期颜色（预告和四报统一用此配色）
+var _PERIOD_COLOR = { '年报': '#9b59b6', '半年报': '#e67e22', '一季报': '#f1c40f', '三季报': '#4da6ff' };
+
+// 预告类型颜色：好=红，坏=绿，不确定=灰
 var _PREDICT_COLOR = {
-    '预增': '#27ae60', '扭亏': '#27ae60', '续盈': '#27ae60', '略增': '#f1c40f',
-    '预减': '#e94560', '首亏': '#e94560', '续亏': '#e94560', '略减': '#e67e22',
+    '预增': '#e94560', '扭亏': '#e94560', '续盈': '#e94560', '略增': '#e94560',
+    '预减': '#27ae60', '首亏': '#27ae60', '续亏': '#27ae60', '略减': '#27ae60',
     '不确定': '#888',
 };
 
-var _PERIOD_COLOR = { '年报': '#e94560', '半年报': '#e67e22', '一季报': '#f1c40f', '三季报': '#f1c40f' };
-
 function _earnColor(rowType, period, subType) {
-    if (rowType === '业绩预告') return _PREDICT_COLOR[subType] || '#888';
-    return _PERIOD_COLOR[period] || '#888';
+    var pt = period ? period.replace(/^\d{4}年/, '') : '';
+    return _PERIOD_COLOR[pt] || '#888';
 }
 
 // 金额格式化（单位：元）
@@ -137,15 +138,25 @@ function renderEarningsList(records) {
         var escCode = String(r.code || '').replace(/"/g, '&quot;');
         var escName = String(r.name || '').replace(/"/g, '&quot;');
         // 类型标签：业绩报表·年报 / 业绩预告·半年报·预增
-        var typeLabel = r.row_type || '-';
-        if (r.period) typeLabel += '·' + r.period;
-        if (r.row_type === '业绩预告' && r.sub_type) typeLabel += '·' + r.sub_type;
+        // 预告拆成两段：前半段走报告期颜色，后半段（预增/预减等）走好坏颜色
+        var typeHtml;
+        if (r.row_type === '业绩预告' && r.sub_type) {
+            var baseLabel = r.row_type;
+            if (r.period) baseLabel += '·' + r.period;
+            var subColor = _PREDICT_COLOR[r.sub_type] || '#888';
+            typeHtml = '<span style="color:' + color + ';font-weight:600;">' + baseLabel + '</span>' +
+                       '<span style="color:' + subColor + ';font-weight:600;">·' + r.sub_type + '</span>';
+        } else {
+            var typeLabel = r.row_type || '-';
+            if (r.period) typeLabel += '·' + r.period;
+            typeHtml = '<span style="color:' + color + ';font-weight:600;">' + typeLabel + '</span>';
+        }
 
         html += '<tr>' +
             '<td style="white-space:nowrap;">' + (r.report_date || '-') + '</td>' +
             '<td style="color:#888;">' + (r.code || '-') + '</td>' +
             '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + escCode + '\',\'1\',\'' + escName + '\')">' + (r.name || '-') + '</span></td>' +
-            '<td><span style="color:' + color + ';font-weight:600;">' + typeLabel + '</span></td>' +
+            '<td>' + typeHtml + '</td>' +
             '<td style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
             '<a href="' + (r.detail_url || '#') + '" target="_blank" style="color:#4da6ff;text-decoration:none;" onmouseover="this.style.color=\'#e94560\'" onmouseout="this.style.color=\'#4da6ff\'" title="' + detail.replace(/"/g, '&quot;') + '">' + detail + '</a>' +
             '</td>' +
