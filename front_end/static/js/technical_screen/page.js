@@ -265,8 +265,13 @@ function _pollInitStatus() {
                 _loadingMarketKey = null;
                 btn.textContent = '加载';
                 if (currentMarket === loadingKey) {
-                    status.textContent = '加载完成，共 ' + s.total + ' 只';
-                    status.style.color = '#4ade80';
+                    if (s.fail_count > 0) {
+                        status.textContent = '加载完成: 成功 ' + s.success_count + ' 只, 失败 ' + s.fail_count + ' 只（sync_ts 未更新）';
+                        status.style.color = '#f97316';
+                    } else {
+                        status.textContent = '加载完成，共 ' + s.success_count + ' 只';
+                        status.style.color = '#4ade80';
+                    }
                     document.getElementById('techScreenBtn').disabled = false;
                 }
                 _refreshSegments();
@@ -427,8 +432,13 @@ function _pollUpdateStatus() {
                 _updatingMarketKey = null;
                 btn.textContent = '更新';
                 if (currentMarket === updatingKey) {
-                    status.textContent = '更新完成，共 ' + s.total + ' 只';
-                    status.style.color = '#4ade80';
+                    if (s.fail_count > 0) {
+                        status.textContent = '更新完成: 成功 ' + s.success_count + ' 只, 失败 ' + s.fail_count + ' 只（sync_ts 未更新）';
+                        status.style.color = '#f97316';
+                    } else {
+                        status.textContent = '更新完成，共 ' + s.success_count + ' 只';
+                        status.style.color = '#4ade80';
+                    }
                     document.getElementById('techScreenBtn').disabled = false;
                 }
                 _refreshSegments();

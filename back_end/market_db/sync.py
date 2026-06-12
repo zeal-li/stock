@@ -455,15 +455,18 @@ def _sync_one_stock(code, market, name, kline_date_map, latest_trading, ts_str, 
             latest = max(r[3] for r in all_rows)
             detail_sync_atomic(code, market, name, all_rows, latest, ts_str)
             print(f"\r[sync]  ✔ {code} {name} → {latest} (+{len(all_rows)}条)", flush=True)
+            return True
         else:
             if max_date:
                 detail_info_upsert(code, market, name or code, ts_str)
                 print(f"\r[sync]  ~ {code} {name} 无新数据 (已有 {max_date})", flush=True)
+                return True
             else:
                 print(f"\r[sync]  ✘ {code} {name} API 返回空 (periods={periods})", flush=True)
+                return False
     except Exception as _e:
         print(f"\n[sync] !!! _sync_one_stock 异常 [{code}]: {type(_e).__name__}: {_e}", flush=True)
-        raise
+        return False
 
 
 # =========== 清理退市 ===========
@@ -486,7 +489,7 @@ def _cleanup_delisted():
 
 # =========== 加载（初始化新市场） ===========
 
-_sync_status = {'running': False, 'label': '', 'total': 0, 'done': 0, 'phase': '', 'cancel': False, 'seg_key': None, 'task_type': None}
+_sync_status = {'running': False, 'label': '', 'total': 0, 'done': 0, 'phase': '', 'cancel': False, 'seg_key': None, 'task_type': None, 'success_count': 0, 'fail_count': 0}
 
 def init_segment(seg_key):
     """初始化一个市场分段：拉取股票列表 + 全量同步 K 线"""
@@ -561,6 +564,8 @@ def _run_init(seg_key):
         latest_trading = _latest_possible_trading_day()
         ts_str = _now_ts_str()
         cancelled = False
+        success_count = 0
+        fail_count = 0
         with ThreadPoolExecutor(max_workers=4) as pool:
             futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], kline_date_map, latest_trading, ts_str): s for s in stocks}
             for fut in as_completed(futs):
@@ -568,9 +573,12 @@ def _run_init(seg_key):
                     cancelled = True
                     break
                 try:
-                    fut.result()
+                    if fut.result():
+                        success_count += 1
+                    else:
+                        fail_count += 1
                 except Exception:
-                    pass
+                    fail_count += 1
                 _sync_status['done'] += 1
                 step = 50
                 if _sync_status['done'] % step == 0 or _sync_status['done'] == len(stocks):
@@ -591,12 +599,14 @@ def _run_init(seg_key):
             return
 
         _cleanup_delisted()
-        list_sync_ts_set(seg_key, _now_ts_str())
-        el = time.time() - t0
-        if _sync_fail_count > 0:
-            print(f"[sync] {label} 初始化完成 (K线失败 {_sync_fail_count} 只)，耗时 {el:.0f}s")
+        if fail_count == 0:
+            list_sync_ts_set(seg_key, _now_ts_str())
         else:
-            print(f"[sync] {label} 初始化完成，耗时 {el:.0f}s")
+            print(f"[sync] {label} 有 {fail_count} 只股票拉取失败，本次不更新 sync_ts，下次更新将重试")
+        _sync_status['success_count'] = success_count
+        _sync_status['fail_count'] = fail_count
+        el = time.time() - t0
+        print(f"[sync] {label} 初始化完成: 成功 {success_count} 只, 失败 {fail_count} 只, 耗时 {el:.0f}s")
     finally:
         if _sync_status['phase'] not in ('cancelled', 'error'):
             _sync_status['running'] = False
@@ -883,6 +893,8 @@ def _run_update(seg_key):
         t0 = time.time()
         ts_str = _now_ts_str()
         cancelled = False
+        success_count = 0
+        fail_count = 0
         with ThreadPoolExecutor(max_workers=4) as pool:
             futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], kline_date_map, latest_trading, ts_str): s for s in to_update}
             for fut in as_completed(futs):
@@ -890,9 +902,12 @@ def _run_update(seg_key):
                     cancelled = True
                     break
                 try:
-                    fut.result()
+                    if fut.result():
+                        success_count += 1
+                    else:
+                        fail_count += 1
                 except Exception:
-                    pass
+                    fail_count += 1
                 _sync_status['done'] += 1
                 if _sync_status['done'] <= 4 or _sync_status['done'] % 10 == 0 or _sync_status['done'] == len(to_update):
                     pct = _sync_status['done'] / len(to_update) * 100
@@ -911,17 +926,19 @@ def _run_update(seg_key):
             print(f"[sync] {label} 更新已被终止（已完成的数据保留，下次续传）")
             return
 
-        # 第四步：全部个股更新完毕 → 写入市场 sync_ts
-        list_sync_ts_set(seg_key, _now_ts_str())
+        # 第四步：全部个股更新完毕 → 写入市场 sync_ts（仅全部成功时）
+        if fail_count == 0:
+            list_sync_ts_set(seg_key, _now_ts_str())
+        else:
+            print(f"[sync] {label} 有 {fail_count} 只股票拉取失败，本次不更新 sync_ts，下次更新将重试")
 
         # 第五步：清理退市
         _cleanup_delisted()
+        _sync_status['success_count'] = success_count
+        _sync_status['fail_count'] = fail_count
 
         el = time.time() - t0
-        if _sync_fail_count > 0:
-            print(f"[sync] {label} 更新完成 (K线失败 {_sync_fail_count} 只)，耗时 {el:.0f}s")
-        else:
-            print(f"[sync] {label} 更新完成，耗时 {el:.0f}s")
+        print(f"[sync] {label} 更新完成: 成功 {success_count} 只, 失败 {fail_count} 只, 耗时 {el:.0f}s")
     finally:
         if _sync_status['phase'] not in ('cancelled', 'error'):
             _sync_status['running'] = False
