@@ -17,7 +17,7 @@ from watchlist.service import get_all, add, remove as wl_remove
 import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
-from technical_screen.strategies.prediction import calc as prediction_calc
+from technical_screen.strategies.san_shang_score import calc as prediction_calc
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock
 
 import sys as _sys, os as _os

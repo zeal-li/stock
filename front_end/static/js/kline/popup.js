@@ -275,6 +275,31 @@ var KlinePopup = (function() {
         _saveAllKlineCache(all);
     }
 
+    // K线请求，失败自动重试（最多 attempts 次，每次间隔 delayMs）
+    function _fetchKlineWithRetry(url, attempts, delayMs) {
+        return _fetchKlineOnce(url).catch(function() {
+            if (attempts <= 1) {
+                return { success: false };
+            }
+            return new Promise(function(resolve) {
+                setTimeout(function() {
+                    resolve(_fetchKlineWithRetry(url, attempts - 1, delayMs));
+                }, delayMs);
+            });
+        });
+    }
+
+    function _fetchKlineOnce(url) {
+        return fetch(url)
+            .then(function(r) { return r.json(); })
+            .then(function(kd) {
+                if (kd.success && kd.data && kd.data.klines) {
+                    _setCachedKlines(_currentPeriod, kd.data.klines);
+                }
+                return kd;
+            });
+    }
+
     function _loadKlineChart() {
         var chartEl = document.getElementById('klChart');
         chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">加载中...</div>';
@@ -649,10 +674,10 @@ var KlinePopup = (function() {
         if (cachedDay) {
             pKline = Promise.resolve({ success: true, data: { klines: cachedDay } });
         } else {
-            pKline = fetch('/api/stock-kline?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
-                .then(function(r) { return r.json(); })
-                .then(function(kd) { if (kd.success && kd.data && kd.data.klines) _setCachedKlines('day', kd.data.klines); return kd; })
-                .catch(function() { return { success: false }; });
+            // 浏览器同源连接上限（6个）可能被 open() 的并发请求 + 页面轮询占满，
+            // 失败后等 1.5s 让其他请求释放连接，最多重试 3 次。
+            var klineUrl = '/api/stock-kline?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market);
+            pKline = _fetchKlineWithRetry(klineUrl, 3, 1500);
         }
 
         var cachedGw = _getCachedGoodwill();

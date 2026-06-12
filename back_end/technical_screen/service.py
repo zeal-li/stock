@@ -2,7 +2,7 @@
 import os, json, threading, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .strategies.prediction import calc as prediction_calc
+from .strategies.san_shang_score import calc as prediction_calc
 from .strategies.san_shang_you_ya import calc as san_shang_you_ya_calc
 
 # 策略注册表：{key: {name, calc, desc}}

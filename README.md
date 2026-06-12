@@ -51,10 +51,11 @@ stock/
 │   │
   │   ├── technical_screen/              # 技术选股模块
   │   │   ├── __init__.py
-  │   │   ├── service.py                 # 策略扫描引擎（上升通道/强势回调），支持 pipeline 串联
+  │   │   ├── service.py                 # 策略扫描引擎（三上悠亚），支持 pipeline 串联，扫描后自动附加预测评分
   │   │   └── strategies/                # 策略实现
-  │   │       ├── ascending_channel.py   # 上升通道：线性回归通道检测
-  │   │       └── momentum_pullback.py   # 强势回调：五因子综合评分
+  │   │       ├── __init__.py
+  │   │       ├── san_shang_you_ya.py    # 三上悠亚：三周期布林中上轨共振
+  │   │       └── prediction.py          # 明日涨跌预测：多因子评分模型（不独立显示，附在筛选结果后）
 │   │
 │   ├── abnormal_center/               # 异动中心模块
 │   │   ├── __init__.py
@@ -106,7 +107,7 @@ stock/
 | 资金流向 | 上证/深证指数分时、市场成交额、主力资金净流入、融资融券、**恐慌指数**、**风险指数** | ✅ |
 | 自选股 | 自选列表、加/删自选（含价格）、批量行情（PE/PB/市值）、商誉率、量比/委比 | ✅ |
 | 选股 | 多市场股票搜索（A股/港股/美股）、实时行情查询 | ✅ |
-| 技术选股 | 按市场分段异步加载 K 线、**上升通道**扫描（线性回归评分排序） | ✅ |
+| 技术选股 | 按市场分段异步加载 K 线、**三上悠亚**布林带三周期共振扫描 + **明日涨跌预测**评分 | ✅ |
 | K 线弹窗 | LightweightCharts 蜡烛图、日K/周K/月K、分时图、五日分时、MA/布林线（A股/港股/美股通用） | ✅ |
 | 解禁列表 | 限售股解禁信息（近一月），支持股票筛选 | ✅ |
 | 业绩报告 | 业绩预告 + 业绩快报 + 业绩报表（近两年），支持年报/半年报/一季报/三季报细分，支持股票筛选 | ✅ |
@@ -400,6 +401,7 @@ app.run()
 | `GET /api/abnormal/prediction` | 异动预测（接近交易所异常波动阈值的股票，按 今日/次日/未标记 分组） | 悟道数据（stock.quicktiny.cn） |
 | `GET /api/abnormal/monitor` | 异动监控（已被交易所重点监控的股票列表，含统计） | 悟道数据（stock.quicktiny.cn） |
 | `POST /api/abnormal/analyze` | 异动分析器（单只股票偏离度/回撤/均线偏离/涨跌停价测算） | 同花顺 K 线 API + 本地计算 |
+| `POST /api/stock-predictions` | 批量明日涨跌预测评分（基于K线多因子模型：短期动量+量价关系+位置高低+K线形态） | stock_detail_list.db + 本地计算 |
 
 ### 聚合计算（基于缓存）
 
@@ -423,9 +425,12 @@ app.run()
   GET  /api/market-db/status            →  总股票数统计
 
 技术选股（离线扫描，基于 stock_detail_list.db，不请求外部数据源）：
-  GET  /api/technical/strategies                   →  获取可用策略列表（上升通道 / 强势回调）
-  POST /api/technical/scan                         →  启动扫描 {strategy_keys, market, max_workers}，支持 pipeline 串联
-  GET  /api/technical/scan/status                  →  轮询进度 + 结果（按评分降序）
+  GET  /api/technical/strategies                   →  获取可用策略列表（三上悠亚）
+  POST /api/technical/ascending-channel            →  启动扫描 {market, strategy}，支持 pipeline 串联，扫描完成后自动附加预测评分
+  GET  /api/technical/ascending-channel/status     →  轮询进度 + 结果（按评分降序）
+
+个股预测评分（基于 stock_detail_list.db K 线多因子模型）：
+  POST /api/stock-predictions                      →  批量评分 {stocks: [{code, market}]}，返回 {code: {direction, score, detail}}
 ```
 
 ### 前端页面加载与自动刷新
@@ -488,7 +493,7 @@ app.run()
 | 页面加载 | 模块初始化 | `market-db/segments` | 获取市场分段列表 |
 | 加载市场数据 | 点击"加载"按钮 | `POST market-db/init/{key}` + `GET init/status`（每 1s 轮询进度） | 手动 |
 | 增量更新 | 点击"更新"按钮 | `POST market-db/update/{key}` + `GET init/status`（每 1s 轮询进度） | 手动，终止不丢进度 |
-| 运行选股 | 选择策略 + 市场点击"扫描" | `POST technical/scan` + `GET scan/status`（每 2s 轮询进度） | 支持 pipeline 串联筛选 |
+| 运行选股 | 选择策略 + 市场点击"扫描" | `POST technical/ascending-channel` + `GET ascending-channel/status`（每 2s 轮询进度） | 支持 pipeline 串联筛选，完成后自动对结果计算预测评分 |
 
 #### 解禁列表页
 
