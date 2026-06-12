@@ -265,8 +265,8 @@ function _pollInitStatus() {
                 _loadingMarketKey = null;
                 btn.textContent = '加载';
                 if (currentMarket === loadingKey) {
-                    if (s.fail_count > 0) {
-                        status.textContent = '加载完成: 成功 ' + s.success_count + ' 只, 失败 ' + s.fail_count + ' 只（sync_ts 未更新）';
+                    if (s.exception_count + s.api_empty_count + s.no_data_count > 0) {
+                        status.textContent = '加载完成: 拉取成功 ' + s.success_count + ' 只, 无新数据 ' + s.no_data_count + ' 只, API返回空 ' + s.api_empty_count + ' 只, 网络异常 ' + s.exception_count + ' 只（sync_ts 未更新）';
                         status.style.color = '#f97316';
                     } else {
                         status.textContent = '加载完成，共 ' + s.success_count + ' 只';
@@ -432,8 +432,8 @@ function _pollUpdateStatus() {
                 _updatingMarketKey = null;
                 btn.textContent = '更新';
                 if (currentMarket === updatingKey) {
-                    if (s.fail_count > 0) {
-                        status.textContent = '更新完成: 成功 ' + s.success_count + ' 只, 失败 ' + s.fail_count + ' 只（sync_ts 未更新）';
+                    if (s.exception_count + s.api_empty_count + s.no_data_count > 0) {
+                        status.textContent = '更新完成: 拉取成功 ' + s.success_count + ' 只, 无新数据 ' + s.no_data_count + ' 只, API返回空 ' + s.api_empty_count + ' 只, 网络异常 ' + s.exception_count + ' 只（sync_ts 未更新）';
                         status.style.color = '#f97316';
                     } else {
                         status.textContent = '更新完成，共 ' + s.success_count + ' 只';
