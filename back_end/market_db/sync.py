@@ -223,6 +223,14 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     ths_period_code = {'daily': '01', 'weekly': '11', 'monthly': '21'}.get(period, '01')
     current_year = _dt.datetime.now().year
 
+    # 同花顺前缀：上交所ETF用 sh_，深交所ETF用 sz_，其余用 hs_
+    if c.startswith('5'):
+        ths_prefix = 'sh'
+    elif c.startswith('159'):
+        ths_prefix = 'sz'
+    else:
+        ths_prefix = 'hs'
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://www.10jqka.com.cn/',
@@ -230,9 +238,9 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
 
     # 增量：last.js（~140条）；全量：v4 逐年拉 5 年
     if start_date and start_date[:4] == str(current_year):
-        urls = [f"https://d.10jqka.com.cn/v2/line/hs_{c}/{ths_period_code}/last.js"]
+        urls = [f"https://d.10jqka.com.cn/v2/line/{ths_prefix}_{c}/{ths_period_code}/last.js"]
     else:
-        urls = [f"https://d.10jqka.com.cn/v4/line/hs_{c}/{ths_period_code}/{y}.js"
+        urls = [f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{c}/{ths_period_code}/{y}.js"
                 for y in range(current_year, current_year - 5, -1)]
 
     def _fetch_one(url):
