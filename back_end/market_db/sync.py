@@ -279,18 +279,25 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
                 continue
             if end_date and date_str > end_date:
                 continue
-            o = float(parts[1])
+            o = float(parts[1]) if parts[1] else 0
             if o <= 0:
                 continue
+            h = float(parts[2]) if parts[2] else 0
+            l = float(parts[3]) if parts[3] else 0
+            c = float(parts[4]) if parts[4] else 0
+            if h <= 0 or l <= 0 or c <= 0:
+                continue
+            volume = float(parts[5]) if parts[5] else 0
+            amount = float(parts[6]) if parts[6] else 0
             rows.append((
                 code, seg_key, period,
                 date_str,
-                o,                         # open
-                float(parts[2]),           # high
-                float(parts[3]),           # low
-                float(parts[4]),           # close
-                float(parts[5]),           # volume
-                float(parts[6]),           # amount
+                o,
+                h,
+                l,
+                c,
+                volume,
+                amount,
             ))
     return rows
 
