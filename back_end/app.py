@@ -905,6 +905,8 @@ def earnings_list():
             if not notice_date or notice_date < cutoff:
                 continue
             report_date = (str(item.get('REPORT_DATE') or ''))[:10]
+            if not report_date or report_date < cutoff:
+                continue
             content = str(item.get('PREDICT_CONTENT') or '')
             key = (code, report_date)
             if key in seen:
