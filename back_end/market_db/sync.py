@@ -253,9 +253,9 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
         'Referer': 'https://www.10jqka.com.cn/',
     }
 
-    # 增量：last.js（~140条）；全量：v4 逐年拉 5 年
+    # 全量：v4 逐年拉 5 年；增量：v4 只拉当年
     if start_date and start_date[:4] == str(current_year):
-        urls = [f"https://d.10jqka.com.cn/v2/line/{ths_prefix}_{c}/{ths_period_code}/last.js"]
+        urls = [f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{c}/{ths_period_code}/{current_year}.js"]
     else:
         urls = [f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{c}/{ths_period_code}/{y}.js"
                 for y in range(current_year, current_year - 5, -1)]
@@ -455,17 +455,6 @@ def _sync_one_stock(code, market, name, kline_date_map, latest_trading, ts_str, 
 
     if max_date and max_date >= latest_trading and not force_today:
         return
-
-    # 增量：只差几天时，周线/月线无需重拉
-    if max_date:
-        try:
-            gap = (_parse_date(latest_trading) - _parse_date(max_date)).days
-        except Exception:
-            gap = None
-        if gap is not None and gap <= 7:
-            periods = ('daily',)
-        elif gap is not None and gap <= 31:
-            periods = ('daily', 'weekly')
 
     try:
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
