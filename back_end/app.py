@@ -200,7 +200,7 @@ def stock_predictions():
 
     result = {}
     import sqlite3, os as _os
-    db_path = _os.path.join(_os.path.dirname(__file__), 'data', 'stock_detail_list.db')
+    db_path = _os.path.join(_os.path.dirname(__file__), 'data', 'stock_lib.db')
     if not _os.path.exists(db_path):
         return jsonify({'success': True, 'data': result})
 
@@ -210,7 +210,7 @@ def stock_predictions():
         for code, market in unique:
             try:
                 rows = conn.execute(
-                    'SELECT date, open, high, low, close, volume FROM klines '
+                    'SELECT date, open, high, low, close, volume FROM stock_klines '
                     'WHERE code=? AND period=? ORDER BY date DESC LIMIT 120',
                     (code, 'daily')).fetchall()
                 if rows and len(rows) >= 20:
@@ -593,8 +593,8 @@ def stock_kline():
             rows.sort(key=lambda r: r['time'])
         elif market in ('116', '106'):
             # 港股/美股 → 本地 DB（由 sync 提前拉取），无缓存时再走 Yahoo
-            from market_db.db import detail_klines_get
-            db_rows = detail_klines_get(code, market, tx_period, limit=800)
+            from market_db.db import klines_get
+            db_rows = klines_get(code, market, tx_period, limit=800)
             if db_rows:
                 for k in db_rows:
                     rows.append({
@@ -707,10 +707,10 @@ def market_db_segments():
 
 @app.route('/api/market-db/status')
 def market_db_status():
-    from market_db.db import list_stocks_all, detail_info_all
-    list_count = len(list_stocks_all())
-    detail_count = len(detail_info_all())
-    return jsonify({'list_stocks': list_count, 'detail_stocks': detail_count})
+    from market_db.db import stock_list_all, stock_info_all
+    list_count = len(stock_list_all())
+    kline_count = len(stock_info_all())
+    return jsonify({'list_stocks': list_count, 'detail_stocks': kline_count})
 
 
 # ==================== 公司公告 ====================

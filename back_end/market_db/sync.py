@@ -1,15 +1,15 @@
 """全市场数据同步
 加载（初始化）：
-  1. 拉取股票列表 → 写入 stock_list.db
-  2. 全量同步 K 线 → 写入 stock_detail_list.db
+  1. 拉取股票列表 → 写入 market_stock_list
+  2. 全量同步 K 线 → 写入 stock_klines + stock_info
   3. 清理退市
-  4. 更新 stocks.sync_ts
+  4. 更新 stock_market.sync_ts
 
 更新（增量）：
-  1. 检查 stocks.sync_ts，判断是否需要更新
-  2. 拉取最新股票列表 → 替换 stock_list.db
-  3. 增量同步 K 线
-  4. 更新 stocks.sync_ts
+  1. 检查 stock_market.sync_ts，判断是否需要更新
+  2. 拉取最新股票列表 → 替换 market_stock_list
+  3. 增量同步 K 线（per-period 独立判断）
+  4. 更新 stock_market.sync_ts
   5. 清理退市
 """
 import datetime
@@ -18,12 +18,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .db import (
-    list_markets, list_replace_market, list_sync_ts_get, list_sync_ts_set,
-    list_list_sync_ts_get, list_list_sync_ts_set,
-    list_stocks_all, list_stocks_by_market,
-    detail_info_all, detail_info_upsert, detail_info_ts_map,
-    detail_kline_date_map,
-    detail_klines_insert, detail_remove_stock, detail_sync_atomic, detail_clear_market,
+    market_all, market_sync_ts_get, market_sync_ts_set,
+    market_list_ts_get, market_list_ts_set, market_remove,
+    stock_list_all, stock_list_by_market, stock_list_replace_market,
+    stock_info_all, stock_info_kline_maps, stock_info_remove, stock_info_clear_market,
+    stock_info_sync_atomic, klines_get, klines_count_market,
 )
 
 # 市场分段 — key 用作 market 字段值（已移除北交所、新三板）
@@ -452,49 +451,87 @@ def _latest_possible_trading_day():
     return today.strftime('%Y%m%d')
 
 
-def _sync_one_stock(code, market, name, kline_date_map, latest_trading, ts_str, periods=('daily', 'weekly', 'monthly'), force_today=False):
-    """同步单只股票所有周期的 K 线"""
+def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, latest_trading, ts_str, force_today=False):
+    """同步单只股票 K 线 — per-period 独立判断是否需要拉取"""
     if _sync_status.get('cancel'):
         return
 
-    max_date = kline_date_map.get((code, market), None)
+    # 判断每个周期是否需要更新
+    def _needs(ts):
+        if not ts:
+            return True
+        date = ts[:10].replace('-', '')  # "2026-06-13" → "20260613"
+        return date < latest_trading
 
-    if max_date and max_date >= latest_trading and not force_today:
+    periods = []
+    if _needs(daily_map.get((code, market))) or force_today:
+        periods.append('daily')
+    if _needs(weekly_map.get((code, market))) or (force_today and not periods):
+        periods.append('weekly')
+    if _needs(monthly_map.get((code, market))) or (force_today and not periods):
+        periods.append('monthly')
+
+    if not periods and not force_today:
         return
 
     try:
         from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
 
         def _fetch_period(p):
-            if max_date and max_date != '':
-                last = _parse_date(max_date)
-                if force_today and max_date == latest_trading:
-                    start = max_date
+            ts = {  # per-period 旧时间戳
+                'daily': daily_map.get((code, market)),
+                'weekly': weekly_map.get((code, market)),
+                'monthly': monthly_map.get((code, market)),
+            }.get(p)
+            if ts:
+                last_date = _parse_date(ts[:10].replace('-', ''))
+                if force_today and ts[:10].replace('-', '') == latest_trading:
+                    start = latest_trading
                 else:
-                    start = (last + datetime.timedelta(days=1)).strftime('%Y%m%d')
+                    start = (last_date + datetime.timedelta(days=1)).strftime('%Y%m%d')
             else:
                 start = '19900101'
             return _fetch_kline(code, market, p, start, latest_trading)
 
         all_rows = []
-        with _TPE(max_workers=3) as pool:
+        synced_periods = set()
+        with _TPE(max_workers=len(periods)) as pool:
             futs = {pool.submit(_fetch_period, p): p for p in periods}
             for fut in _ac(futs):
-                for r in fut.result():
-                    all_rows.append(r)
+                p = futs[fut]
+                rows = fut.result()
+                if rows:
+                    synced_periods.add(p)
+                    for r in rows:
+                        all_rows.append(r)
 
         if all_rows:
-            latest = max(r[3] for r in all_rows)
-            detail_sync_atomic(code, market, name, all_rows, latest, ts_str)
-            print(f"\r[sync]  ✔ {code} {name} → {latest} (+{len(all_rows)}条)", flush=True)
-            return True
+            # 原子写入（拿到多少写多少，不丢进度）
+            period_dates = {p: ts_str for p in synced_periods}
+            stock_info_sync_atomic(code, market, name, all_rows, period_dates)
+            if synced_periods == set(periods):
+                # 所有需要的周期都拉到了 → 完整成功
+                print(f"\r[sync]  ✔ {code} {name} → +{len(all_rows)}条 [{','.join(sorted(synced_periods))}]", flush=True)
+                return True
+            else:
+                # 部分周期拉到，部分没拉到 → 已写入成功的，失败的等下次重试
+                missing = [p for p in periods if p not in synced_periods]
+                print(f"\r[sync]  △ {code} {name} 部分完成 +{len(all_rows)}条 [{','.join(sorted(synced_periods))}] 缺[{','.join(missing)}]", flush=True)
+                return 'partial'
         else:
-            if max_date:
-                gap = (_parse_date(latest_trading) - _parse_date(max_date)).days
-                if gap > 30:
-                    print(f"\r[sync]  ~ {code} {name} 可能已退市 (最新数据 {max_date}, 距今 {gap} 天)", flush=True)
-                    return 'inactive'
-                print(f"\r[sync]  ~ {code} {name} 无新数据 (已有 {max_date})", flush=True)
+            existing_any = daily_map.get((code, market)) or weekly_map.get((code, market)) or monthly_map.get((code, market))
+            if existing_any:
+                max_date = max(filter(None, [
+                    (daily_map.get((code, market)) or '')[:10].replace('-', ''),
+                    (weekly_map.get((code, market)) or '')[:10].replace('-', ''),
+                    (monthly_map.get((code, market)) or '')[:10].replace('-', ''),
+                ]), default='')
+                if max_date:
+                    gap = (_parse_date(latest_trading) - _parse_date(max_date)).days
+                    if gap > 30:
+                        print(f"\r[sync]  ~ {code} {name} 可能已退市 (最新数据 {max_date}, 距今 {gap} 天)", flush=True)
+                        return 'inactive'
+                print(f"\r[sync]  ~ {code} {name} 无新数据", flush=True)
                 return None
             else:
                 print(f"\r[sync]  ✘ {code} {name} API 返回空 (periods={periods})", flush=True)
@@ -507,18 +544,18 @@ def _sync_one_stock(code, market, name, kline_date_map, latest_trading, ts_str, 
 # =========== 清理退市 ===========
 
 def _cleanup_delisted():
-    active = set((s[0], s[1]) for s in list_stocks_all())
+    active = set((s[0], s[1]) for s in stock_list_all())
     if not active:
         return
 
-    detail_stocks = detail_info_all()
+    detail_stocks = stock_info_all()
     delisted = [(s[0], s[1]) for s in detail_stocks if (s[0], s[1]) not in active]
     if not delisted:
         print("[sync] 无退市股票")
         return
 
     for code, market in delisted:
-        detail_remove_stock(code, market)
+        stock_info_remove(code, market)
     print(f"[sync] 清理退市股票: {len(delisted)} 只")
 
 
@@ -532,7 +569,7 @@ def init_segment(seg_key):
     if seg_key not in SEGMENTS:
         return {'success': False, 'error': '无效的市场分段'}
 
-    if seg_key in list_markets():
+    if seg_key in market_all():
         print(f"[sync] {SEGMENTS[seg_key]['label']} 已存在，跳过初始化")
         return {'success': False, 'error': '市场已存在'}
 
@@ -575,12 +612,12 @@ def _run_init(seg_key):
             print(f"[sync] {label} 加载已被终止")
             return
 
-        list_replace_market(seg_key, rows)
-        list_list_sync_ts_set(seg_key, _now_ts_str())
+        stock_list_replace_market(seg_key, rows)
+        market_list_ts_set(seg_key, _now_ts_str())
         print(f"[sync] {label} 股票列表已写入: {len(rows)} 只")
 
         if _sync_status.get('cancel'):
-            list_replace_market(seg_key, [])
+            stock_list_replace_market(seg_key, [])
             _sync_status['running'] = False
             _sync_status['phase'] = 'cancelled'
             _sync_status['cancel'] = False
@@ -596,7 +633,7 @@ def _run_init(seg_key):
         print(f"[sync] 开始全量同步 K 线 ({len(stocks)} 只，4 线程)...")
 
         t0 = time.time()
-        kline_date_map = {}
+        daily_map = {}; weekly_map = {}; monthly_map = {}  # 新市场全空
         latest_trading = _latest_possible_trading_day()
         ts_str = _now_ts_str()
         cancelled = False
@@ -605,8 +642,9 @@ def _run_init(seg_key):
         inactive_count = 0
         api_empty_count = 0
         exception_count = 0
+        partial_count = 0
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], kline_date_map, latest_trading, ts_str): s for s in stocks}
+            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], daily_map, weekly_map, monthly_map, latest_trading, ts_str): s for s in stocks}
             for fut in as_completed(futs):
                 if _sync_status.get('cancel'):
                     cancelled = True
@@ -617,6 +655,8 @@ def _run_init(seg_key):
                         no_data_count += 1
                     elif result == 'inactive':
                         inactive_count += 1
+                    elif result == 'partial':
+                        partial_count += 1
                     elif result:
                         success_count += 1
                     else:
@@ -634,8 +674,8 @@ def _run_init(seg_key):
         print()
 
         if cancelled:
-            detail_clear_market(seg_key)
-            list_replace_market(seg_key, [])
+            stock_info_clear_market(seg_key)
+            stock_list_replace_market(seg_key, [])
             _sync_status['running'] = False
             _sync_status['phase'] = 'cancelled'
             _sync_status['cancel'] = False
@@ -643,15 +683,17 @@ def _run_init(seg_key):
             return
 
         _cleanup_delisted()
-        fail_count = api_empty_count + exception_count
+        fail_count = api_empty_count + exception_count + partial_count
         if fail_count == 0 and no_data_count == 0:
-            list_sync_ts_set(seg_key, _now_ts_str())
+            market_sync_ts_set(seg_key, _now_ts_str())
         else:
             reasons = []
             if exception_count > 0:
                 reasons.append(f"{exception_count} 只网络异常")
             if api_empty_count > 0:
                 reasons.append(f"{api_empty_count} 只API返回空")
+            if partial_count > 0:
+                reasons.append(f"{partial_count} 只部分完成")
             if no_data_count > 0:
                 reasons.append(f"{no_data_count} 只无新数据")
             print(f"[sync] {label} 有 {', '.join(reasons)}，本次不更新 sync_ts，下次更新将重试")
@@ -660,8 +702,9 @@ def _run_init(seg_key):
         _sync_status['inactive_count'] = inactive_count
         _sync_status['api_empty_count'] = api_empty_count
         _sync_status['exception_count'] = exception_count
+        _sync_status['partial_count'] = partial_count
         el = time.time() - t0
-        print(f"[sync] {label} 初始化完成: 拉取成功 {success_count} 只, 无新数据 {no_data_count} 只, 可能已退市 {inactive_count} 只, API返回空 {api_empty_count} 只, 网络异常 {exception_count} 只, 耗时 {el:.0f}s")
+        print(f"[sync] {label} 初始化完成: 拉取成功 {success_count} 只, 部分完成 {partial_count} 只, 无新数据 {no_data_count} 只, 可能已退市 {inactive_count} 只, API返回空 {api_empty_count} 只, 网络异常 {exception_count} 只, 耗时 {el:.0f}s")
     finally:
         if _sync_status['phase'] not in ('cancelled', 'error'):
             _sync_status['running'] = False
@@ -673,13 +716,13 @@ def _run_init(seg_key):
 # =========== 更新（增量同步已有市场） ===========
 
 def _need_update(seg_key):
-    """根据 stocks.sync_ts 和当前时间判断是否需要更新K线数据
+    """根据 stock_market.sync_ts 和当前时间判断是否需要更新K线数据
 
     返回值:
         True  → 需要更新
         False → 数据已是最新
     """
-    last_ts_str = list_sync_ts_get(seg_key)
+    last_ts_str = market_sync_ts_get(seg_key)
     if not last_ts_str:
         # 没有时间戳记录，需要更新
         return True
@@ -787,7 +830,7 @@ def update_market(seg_key):
     if seg_key not in SEGMENTS:
         return {'success': False, 'error': '无效的市场分段'}
 
-    if seg_key not in list_markets():
+    if seg_key not in market_all():
         return {'success': False, 'error': '该市场未加载，请先加载'}
 
     if _sync_status['running']:
@@ -811,13 +854,8 @@ def update_market(seg_key):
 
 
 def _list_need_refresh(seg_key):
-    """根据 list_sync_ts 判断股票列表是否需要重新拉取
-
-    规则：如果 list_sync_ts 是在"最近一次该市场开盘时间"或之后，
-    那么列表仍是新的（在该市场下一次开盘前都不会有新上市/退市变化）。
-    否则列表可能过时，需要重新拉取。
-    """
-    last_ts_str = list_list_sync_ts_get(seg_key)
+    """根据 market_list_ts 判断股票列表是否需要重新拉取"""
+    last_ts_str = market_list_ts_get(seg_key)
     if not last_ts_str:
         # 没有时间戳记录，需要拉取
         return True
@@ -889,12 +927,12 @@ def _run_update(seg_key):
         print(f"[sync] 更新: {label}")
 
         latest_trading = _latest_possible_trading_day()
-        kline_date_map = detail_kline_date_map()
+        daily_map, weekly_map, monthly_map = stock_info_kline_maps()
 
         # 第一步：判断股票列表是否需要重拉
         need_refresh_list = _list_need_refresh(seg_key)
-        list_ts_str = list_list_sync_ts_get(seg_key)
-        kline_ts_str = list_sync_ts_get(seg_key)
+        list_ts_str = market_list_ts_get(seg_key)
+        kline_ts_str = market_sync_ts_get(seg_key)
         print(f"[sync] {label} 列表时间: {list_ts_str or '无'}, K线时间: {kline_ts_str or '无'}, 列表{'需要' if need_refresh_list else '无需'}重拉")
 
         if need_refresh_list:
@@ -908,36 +946,42 @@ def _run_update(seg_key):
                 return
 
             if _sync_status.get('cancel'):
-                # 中途终止：stocks 表未更新，下次继续
                 _sync_status['running'] = False
                 _sync_status['phase'] = 'cancelled'
                 _sync_status['cancel'] = False
                 print(f"[sync] {label} 更新已被终止")
                 return
 
-            list_replace_market(seg_key, rows)
-            list_list_sync_ts_set(seg_key, _now_ts_str())
+            stock_list_replace_market(seg_key, rows)
+            market_list_ts_set(seg_key, _now_ts_str())
             print(f"[sync] {label} 股票列表已更新: {len(rows)} 只")
         else:
-            existing_stocks = list_stocks_by_market().get(seg_key, {})
+            existing_stocks = stock_list_by_market().get(seg_key, {})
             rows = [(code, name) for code, name in existing_stocks.items()]
 
-        # 第二步：筛选需要更新 K 线的个股
+        # 第二步：筛选需要更新 K 线的个股（任一周期落后于最新交易日就需要更新）
         stock_list = [(code, seg_key, name) for code, name in rows]
-        to_update = [s for s in stock_list
-                     if not kline_date_map.get((s[0], s[1]), '') or
-                        kline_date_map.get((s[0], s[1]), '') < latest_trading]
+
+        def _needs_any_update(code, market):
+            for m in [daily_map, weekly_map, monthly_map]:
+                ts = m.get((code, market))
+                if not ts:
+                    return True
+                if ts[:10].replace('-', '') < latest_trading:
+                    return True
+            return False
+
+        to_update = [s for s in stock_list if _needs_any_update(s[0], s[1])]
 
         if not to_update:
-            # 全部个股已是最新 → 写入市场 sync_ts
             print(f"[sync] {label} K线全部已是最新 ({len(stock_list)} 只)，无需拉取")
-            list_sync_ts_set(seg_key, _now_ts_str())
+            market_sync_ts_set(seg_key, _now_ts_str())
             _cleanup_delisted()
             _sync_status['running'] = False
             _sync_status['phase'] = 'done'
             return
 
-        # 第三步：增量同步 K 线（每只线程内单独写自己的 stock_info 时间戳）
+        # 第三步：增量同步 K 线（per-period 独立判断）
         _sync_status['total'] = len(stock_list)
         _sync_status['done'] = 0
         _sync_status['phase'] = 'kline'
@@ -955,8 +999,9 @@ def _run_update(seg_key):
         inactive_count = 0
         api_empty_count = 0
         exception_count = 0
+        partial_count = 0
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], kline_date_map, latest_trading, ts_str): s for s in to_update}
+            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], daily_map, weekly_map, monthly_map, latest_trading, ts_str): s for s in to_update}
             for fut in as_completed(futs):
                 if _sync_status.get('cancel'):
                     cancelled = True
@@ -967,6 +1012,8 @@ def _run_update(seg_key):
                         no_data_count += 1
                     elif result == 'inactive':
                         inactive_count += 1
+                    elif result == 'partial':
+                        partial_count += 1
                     elif result:
                         success_count += 1
                     else:
@@ -983,8 +1030,6 @@ def _run_update(seg_key):
         print()
 
         if cancelled:
-            # 中途终止：已完成个股的 kline 已写入，stocks.sync_ts 未写
-            # 下次更新时会跳过已完成的个股，续传剩余的
             _sync_status['running'] = False
             _sync_status['phase'] = 'cancelled'
             _sync_status['cancel'] = False
@@ -992,15 +1037,17 @@ def _run_update(seg_key):
             return
 
         # 第四步：全部个股更新完毕 → 写入市场 sync_ts（仅全部拉取成功时）
-        fail_count = api_empty_count + exception_count
+        fail_count = api_empty_count + exception_count + partial_count
         if fail_count == 0 and no_data_count == 0:
-            list_sync_ts_set(seg_key, _now_ts_str())
+            market_sync_ts_set(seg_key, _now_ts_str())
         else:
             reasons = []
             if exception_count > 0:
                 reasons.append(f"{exception_count} 只网络异常")
             if api_empty_count > 0:
                 reasons.append(f"{api_empty_count} 只API返回空")
+            if partial_count > 0:
+                reasons.append(f"{partial_count} 只部分完成")
             if no_data_count > 0:
                 reasons.append(f"{no_data_count} 只无新数据")
             print(f"[sync] {label} 有 {', '.join(reasons)}，本次不更新 sync_ts，下次更新将重试")
@@ -1012,9 +1059,10 @@ def _run_update(seg_key):
         _sync_status['inactive_count'] = inactive_count
         _sync_status['api_empty_count'] = api_empty_count
         _sync_status['exception_count'] = exception_count
+        _sync_status['partial_count'] = partial_count
 
         el = time.time() - t0
-        print(f"[sync] {label} 更新完成: 拉取成功 {success_count} 只, 无新数据 {no_data_count} 只, 可能已退市 {inactive_count} 只, API返回空 {api_empty_count} 只, 网络异常 {exception_count} 只, 耗时 {el:.0f}s")
+        print(f"[sync] {label} 更新完成: 拉取成功 {success_count} 只, 部分完成 {partial_count} 只, 无新数据 {no_data_count} 只, 可能已退市 {inactive_count} 只, API返回空 {api_empty_count} 只, 网络异常 {exception_count} 只, 耗时 {el:.0f}s")
     finally:
         if _sync_status['phase'] not in ('cancelled', 'error'):
             _sync_status['running'] = False
@@ -1045,18 +1093,12 @@ def cancel_init():
 
 def get_segments_info():
     """返回各分段状态"""
-    markets = list_markets()
+    markets = market_all()
     result = []
     for key, seg in SEGMENTS.items():
         synced = key in markets
-        ts = list_sync_ts_get(key) if synced else None
-        count = 0
-        if synced:
-            import sqlite3 as _sq, os as _os2
-            conn_detail = _sq.connect(
-                _os2.path.join(_os2.path.dirname(_os2.path.dirname(__file__)), 'data', 'stock_detail_list.db'))
-            count = conn_detail.execute('SELECT COUNT(DISTINCT code) FROM klines WHERE market=?', (key,)).fetchone()[0]
-            conn_detail.close()
+        ts = market_sync_ts_get(key) if synced else None
+        count = klines_count_market(key) if synced else 0
         result.append({'key': key, 'label': seg['label'], 'synced': synced, 'sync_ts': ts, 'kline_count': count})
     return {
         'segments': result,
@@ -1073,7 +1115,7 @@ def clear_market(seg_key):
     """清除指定市场的所有数据（列表 + K线 + 元信息）"""
     if seg_key not in SEGMENTS:
         return {'success': False, 'error': '无效的市场分段'}
-    if seg_key not in list_markets():
+    if seg_key not in market_all():
         return {'success': False, 'error': '该市场无数据可清除'}
 
     with _syncing_markets_lock:
@@ -1083,8 +1125,9 @@ def clear_market(seg_key):
     label = SEGMENTS[seg_key]['label']
     print(f"[sync] 清除 {label} 数据...")
 
-    detail_clear_market(seg_key)
-    list_replace_market(seg_key, [])
+    stock_info_clear_market(seg_key)
+    stock_list_replace_market(seg_key, [])
+    market_remove(seg_key)
 
     print(f"[sync] {label} 数据已清除")
     return {'success': True, 'message': f'{label} 数据已清除'}

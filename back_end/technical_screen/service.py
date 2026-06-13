@@ -1,4 +1,4 @@
-"""技术选股 — 基于 stock_detail_list.db 的 K 线缓存扫描"""
+"""技术选股 — 基于 stock_lib.db 的 K 线缓存扫描"""
 import os, json, threading, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -17,7 +17,7 @@ STRATEGIES = {
 
 def _kline_conn():
     import sqlite3
-    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_detail_list.db')
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_lib.db')
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
@@ -25,7 +25,7 @@ def _kline_conn():
 
 def _list_conn():
     import sqlite3
-    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_list.db')
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_lib.db')
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
@@ -38,15 +38,15 @@ def _scan_one(code, name, strategy_key):
         return None
     conn = _kline_conn()
     daily_rows = conn.execute(
-        'SELECT date, open, high, low, close, volume FROM klines '
+        'SELECT date, open, high, low, close, volume FROM stock_klines '
         'WHERE code=? AND period=? ORDER BY date DESC LIMIT 120',
         (code, 'daily')).fetchall()
     weekly_rows = conn.execute(
-        'SELECT date, open, high, low, close, volume FROM klines '
+        'SELECT date, open, high, low, close, volume FROM stock_klines '
         'WHERE code=? AND period=? ORDER BY date DESC LIMIT 60',
         (code, 'weekly')).fetchall()
     monthly_rows = conn.execute(
-        'SELECT date, open, high, low, close, volume FROM klines '
+        'SELECT date, open, high, low, close, volume FROM stock_klines '
         'WHERE code=? AND period=? ORDER BY date DESC LIMIT 36',
         (code, 'monthly')).fetchall()
     conn.close()
@@ -130,13 +130,13 @@ def _do_scan(strategy_keys, market, max_workers):
     global _scan_state
     try:
         conn = _list_conn()
-        rows = conn.execute('SELECT code, name FROM stocks WHERE market=? ORDER BY code', (market,)).fetchall()
+        rows = conn.execute('SELECT code, name FROM market_stock_list WHERE market=? ORDER BY code', (market,)).fetchall()
         conn.close()
         all_stocks = [(r['code'], r['name']) for r in rows]
 
         conn2 = _kline_conn()
         has_kline = set(r['code'] for r in
-            conn2.execute('SELECT DISTINCT code FROM klines WHERE period="daily" AND market=?', (market,)).fetchall())
+            conn2.execute('SELECT DISTINCT code FROM stock_klines WHERE period="daily" AND market=?', (market,)).fetchall())
         conn2.close()
         scan_list = [(c, n) for c, n in all_stocks if c in has_kline]
 
@@ -162,7 +162,7 @@ def _do_scan(strategy_keys, market, max_workers):
                 try:
                     conn = _kline_conn()
                     rows = conn.execute(
-                        'SELECT date, open, high, low, close, volume FROM klines '
+                        'SELECT date, open, high, low, close, volume FROM stock_klines '
                         'WHERE code=? AND period=? ORDER BY date DESC LIMIT 120',
                         (r['code'], 'daily')).fetchall()
                     conn.close()

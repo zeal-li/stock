@@ -25,8 +25,7 @@ stock/
 │   │   └── finance.py                 # 商誉率 + 质押率
 │   │
 │   ├── data/                          # 运行时数据（.gitignore）
-│   │   ├── stock_list.db              # 在市的股票列表
-│   │   ├── stock_detail_list.db       # K线 + 股票元信息
+│   │   ├── stock_lib.db               # 市场 + 股票列表 + K线 + 股票元信息（合并单库）
 │   │   ├── money_flow.db              # 资金流、融资融券历史数据
 │   │   └── watchlist.db               # 自选股持久化
 │   │
@@ -116,53 +115,53 @@ stock/
 
 ## SQLite 数据库表结构
 
-### data/stock_list.db — 在市的股票列表
+### data/stock_lib.db — 市场 + 股票列表 + K线 + 股票元信息（合并单库）
 
 ```sql
--- 股票列表（含市场级同步时间戳）
-CREATE TABLE stocks (
-    code          TEXT NOT NULL,  -- 股票代码
-    market        TEXT NOT NULL,  -- 市场分段（hs_main/gem/star/hs_etf/hk_main/us_main）
-    name          TEXT,           -- 股票名称
-    sync_ts       TEXT,           -- K线上次同步完成时间（市场级，全部个股完成后统一 UPDATE）
-    list_sync_ts  TEXT,           -- 股票列表上次拉取时间（市场级）
+-- 市场元信息（每个市场一条记录）
+CREATE TABLE stock_market (
+    market       TEXT PRIMARY KEY,  -- 市场分段（hs_main/gem/star/hs_etf/hk_main/us_main）
+    sync_ts      TEXT,              -- K线上次同步完成时间（全部个股成功后写入）
+    list_sync_ts TEXT               -- 股票列表上次拉取时间
+);
+
+-- 股票列表（每个市场 N 条记录）
+CREATE TABLE market_stock_list (
+    code   TEXT NOT NULL,
+    market TEXT NOT NULL,
+    name   TEXT,                    -- 股票名称
     PRIMARY KEY (code, market)
 );
-```
 
-> `sync_ts` 和 `list_sync_ts` 是市场级时间戳，写入时对该市场所有股票统一 `UPDATE`，不会出现同市场内不同股票时间戳不同的情况。
-
-### data/stock_detail_list.db — K 线 + 股票元信息
-
-```sql
 -- K 线数据
-CREATE TABLE klines (
-    code   TEXT NOT NULL,    -- 股票代码
-    market TEXT NOT NULL,    -- 市场分段（hs_main/gem/star/hs_etf/hk_main/us_main）
-    period TEXT NOT NULL,    -- 周期（daily/weekly/monthly）
-    date   TEXT NOT NULL,    -- 日期（YYYYMMDD）
-    open   REAL,             -- 开盘价
-    high   REAL,             -- 最高价
-    low    REAL,             -- 最低价
-    close  REAL,             -- 收盘价
-    volume REAL,             -- 成交量
-    amount REAL,             -- 成交额
+CREATE TABLE stock_klines (
+    code   TEXT NOT NULL,
+    market TEXT NOT NULL,
+    period TEXT NOT NULL,           -- daily / weekly / monthly
+    date   TEXT NOT NULL,           -- YYYYMMDD
+    open   REAL,
+    high   REAL,
+    low    REAL,
+    close  REAL,
+    volume REAL,
+    amount REAL,
     PRIMARY KEY (code, market, period, date)
 );
+CREATE INDEX idx_klines_market ON stock_klines(market, code, period, date);
 
--- 索引：按市场批量查询
-CREATE INDEX idx_klines_market ON klines(market, code, period, date);
-
--- 股票元信息
+-- 股票元信息（per-period 独立时间戳）
 CREATE TABLE stock_info (
-    code              TEXT NOT NULL,  -- 股票代码
-    market            TEXT NOT NULL,  -- 市场分段
-    latest_kline_date TEXT,           -- 最新 K 线日期（增量同步核心字段：与 latest_trading 比较）
+    code       TEXT NOT NULL,
+    market     TEXT NOT NULL,
+    name       TEXT,                -- 股票名称
+    daily_ts   TEXT,                -- 日K最后更新成功时间戳（判断是否需拉取日K）
+    weekly_ts  TEXT,                -- 周K最后更新成功时间戳
+    monthly_ts TEXT,                -- 月K最后更新成功时间戳
     PRIMARY KEY (code, market)
 );
 ```
 
-> `latest_kline_date` 是增量同步的核心判断字段：如果某只股票的 `latest_kline_date` 已经等于最近交易日，则跳过拉取。该字段在 `detail_sync_atomic()` 中与 K 线数据在同一事务原子写入。
+> `daily_ts` / `weekly_ts` / `monthly_ts`：三个周期独立记录最后更新时间戳。增量更新时各周期独立判断是否需要拉取——日K落后了就只拉日K，周K月K没落后就跳过。该字段与 K 线数据在 `stock_info_sync_atomic()` 中同一事务原子写入。
 
 ### data/watchlist.db — 自选股
 
@@ -220,13 +219,13 @@ init_segment(seg_key)
     ↓
 _fetch_stocks_by_segment()    → 拉取完整股票列表（分页）
     ↓
-list_replace_market()         → 全量替换写入 stock_list.db
+stock_list_replace_market()   → 全量替换写入 market_stock_list
     ↓
-全量 K 线同步（4 线程）        → 每只股票拉日/周/月线，detail_sync_atomic 原子写 stock_info
+全量 K 线同步（4 线程）        → 每只股票拉日/周/月线，stock_info_sync_atomic 原子写 stock_info
     ↓
-_cleanup_delisted()           → 清理 detail 有但 list 无的退市股
+_cleanup_delisted()           → 清理 stock_info 有但列表无的退市股
     ↓
-list_sync_ts_set()            → 全部完成后写入 stocks.sync_ts
+market_sync_ts_set()          → 全部完成后写入 stock_market.sync_ts
 ```
 
 - A 股/ETF 数据来源：同花顺 K 线 API（d.10jqka.com.cn）
@@ -241,22 +240,22 @@ list_sync_ts_set()            → 全部完成后写入 stocks.sync_ts
 ```
 update_market(seg_key)
     ↓
-_need_update()                → 检查 stocks.sync_ts，判断市场是否需要更新
+_need_update()                → 检查 stock_market.sync_ts，判断市场是否需要更新
     ↓
 _list_need_refresh()          → 判断股票列表是否需要重拉（需要则拉取并全量替换）
     ↓
-筛选 to_update                → 对比 stock_info.latest_kline_date 与最近交易日
+筛选 to_update                → 对比 stock_info 的 daily_ts/weekly_ts/monthly_ts 与最近交易日
     ↓
-增量 K 线同步（4 线程）        → 每只线程内原子写 stock_info（last_update_ts + latest_kline_date）
+增量 K 线同步（4 线程）        → per-period 独立判断，只拉需要更新的周期
     ↓（全部个股完成后）
-list_sync_ts_set()            → 写入 stocks.sync_ts
+market_sync_ts_set()          → 写入 stock_market.sync_ts
     ↓
 _cleanup_delisted()
 ```
 
-- **中途终止不回退**：已完成个股的 kline + stock_info 已落地，stocks.sync_ts 未写。下次更新自动跳已完成个股，续传剩余
-- `_need_update()` 逻辑：对比 stocks.sync_ts 与当前时间，考虑各市场交易时间（A 股 9:30-15:00，港股 9:30-16:00，美股 21:30-04:00），跨 1 个交易日以上需更新
-- 增量优化：差 ≤7 天只拉日线，≤31 天拉日线+周线，>31 天或全新拉全量
+- **中途终止不回退**：已完成个股的 kline + stock_info 已落地，stock_market.sync_ts 未写。下次更新自动跳已完成个股，续传剩余
+- `_need_update()` 逻辑：对比 stock_market.sync_ts 与当前时间，考虑各市场交易时间（A 股 9:30-15:00，港股 9:30-16:00，美股 21:30-04:00），跨 1 个交易日以上需更新
+- per-period 增量判断：各周期独立对比时间戳，日K落后只拉日K，周K月K不落后就跳过
 
 #### 收市后定时增量同步
 
@@ -362,26 +361,22 @@ app.run()
   │
   └─ [延迟 2s] 全市场同步线程 _startup_worker()（4 线程并发）
       │
-      ├─ 步骤1 _refresh_stock_list()  →  拉取在市的股票列表 → stock_list.db
-      │     只拉取 stock_list.db 中已存在的市场分段（非全部 SEGMENTS）
+      ├─ 步骤1 _refresh_stock_list()  →  拉取在市的股票列表 → market_stock_list
+      │     只拉取 stock_market 中已存在的市场分段（非全部 SEGMENTS）
       │     分页拉取（东方财富 push2delay，每页 1000 条）
       │     通过 f2（价格）字段过滤退市股（价格为 '-' 的排除）
-      │     list_replace_market 全量替换：该段旧数据全部删除后重新写入
-      │     按 stocks.sync_ts 同日已同步的市场跳过
+      │     stock_list_replace_market 全量替换：该段旧数据全部删除后重新写入
+      │     按 stock_market.sync_ts 同日已同步的市场跳过
       │
-      ├─ 步骤2 _sync_klines()  →  遍历 stock_list.db → 增量/全量 K 线 → stock_detail_list.db
+      ├─ 步骤2 _sync_klines()  →  遍历 market_stock_list → 增量/全量 K 线 → stock_klines + stock_info
       │     预加载 stock_info 为内存 map（避免每只查 DB），仅提交需要更新的股票
       │     周末自动推算最近交易日（周六/日回退到周五），非交易时段跳过已同步股票
-      │     增量优化：
-      │       · 按实际间隔天数请求条数（差 1 天只拉 11 条，而非 800 条）
-      │       · 差 ≤7 天只拉日线（周/月线新周期未生成）
-      │       · 差 ≤31 天拉日线 + 周线
-      │       · >31 天或全新才拉日/周/月全量
-      │     写入使用 BEGIN IMMEDIATE 单事务，klines + stock_info（含 latest_kline_date）原子落盘
+      │     per-period 独立判断：各周期独立对比时间戳，只拉需要的周期
+      │     写入使用 BEGIN IMMEDIATE 单事务，stock_klines + stock_info 原子落盘
       │     SQLite WAL 模式 + PRAGMA synchronous=FULL，中途重启不丢进度
-      │     全部个股完成后写入 stocks.sync_ts
+      │     全部个股完成后写入 stock_market.sync_ts
       │
-      └─ 步骤3 _cleanup_delisted()  →  detail 里有 list 里没有的 → 删除 K 线和元信息（退市股票）
+      └─ 步骤3 _cleanup_delisted()  →  stock_info 有但列表里没有的 → 删除 K 线和元信息（退市股票）
 ```
 
 ### 按需加载（API 实时拉取）
@@ -427,12 +422,12 @@ app.run()
   GET  /api/market-db/segments          →  获取各市场状态 + 股票数
   GET  /api/market-db/status            →  总股票数统计
 
-技术选股（离线扫描，基于 stock_detail_list.db，不请求外部数据源）：
+技术选股（离线扫描，基于 stock_lib.db，不请求外部数据源）：
   GET  /api/technical/strategies                   →  获取可用策略列表（三上悠亚）
   POST /api/technical/ascending-channel            →  启动扫描 {market, strategy}，支持 pipeline 串联，扫描完成后自动附加预测评分
   GET  /api/technical/ascending-channel/status     →  轮询进度 + 结果（按评分降序）
 
-个股预测评分（基于 stock_detail_list.db K 线多因子模型）：
+个股预测评分（基于 stock_lib.db K 线多因子模型）：
   POST /api/stock-predictions                      →  批量评分 {stocks: [{code, market}]}，返回 {code: {direction, score, detail}}
 ```
 
