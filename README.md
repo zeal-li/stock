@@ -119,31 +119,34 @@ stock/
 ### data/stock_list.db — 在市的股票列表
 
 ```sql
--- 股票列表（含市场同步时间戳）
+-- 股票列表（含市场级同步时间戳）
 CREATE TABLE stocks (
-    code TEXT NOT NULL,          -- 股票代码（6位）
-    market TEXT NOT NULL,        -- 市场分段（hs_main/gem/star/hs_etf/hk_main/us_main）
-    name TEXT,                   -- 股票名称
-    sync_ts TEXT,                -- 市场同步时间戳（该市场所有股票共享，全部个股更新完毕后写入）
+    code          TEXT NOT NULL,  -- 股票代码
+    market        TEXT NOT NULL,  -- 市场分段（hs_main/gem/star/hs_etf/hk_main/us_main）
+    name          TEXT,           -- 股票名称
+    sync_ts       TEXT,           -- K线上次同步完成时间（市场级，全部个股完成后统一 UPDATE）
+    list_sync_ts  TEXT,           -- 股票列表上次拉取时间（市场级）
     PRIMARY KEY (code, market)
 );
 ```
 
-### data/stock_detail_list.db — K 线数据
+> `sync_ts` 和 `list_sync_ts` 是市场级时间戳，写入时对该市场所有股票统一 `UPDATE`，不会出现同市场内不同股票时间戳不同的情况。
+
+### data/stock_detail_list.db — K 线 + 股票元信息
 
 ```sql
 -- K 线数据
 CREATE TABLE klines (
-    code TEXT NOT NULL,          -- 股票代码
-    market TEXT NOT NULL,        -- 市场分段
-    period TEXT NOT NULL,        -- 周期（daily/weekly/monthly）
-    date TEXT NOT NULL,          -- 日期
-    open REAL,                   -- 开盘价
-    high REAL,                   -- 最高价
-    low REAL,                    -- 最低价
-    close REAL,                  -- 收盘价
-    volume REAL,                 -- 成交量
-    amount REAL,                 -- 成交额
+    code   TEXT NOT NULL,    -- 股票代码
+    market TEXT NOT NULL,    -- 市场分段（hs_main/gem/star/hs_etf/hk_main/us_main）
+    period TEXT NOT NULL,    -- 周期（daily/weekly/monthly）
+    date   TEXT NOT NULL,    -- 日期（YYYYMMDD）
+    open   REAL,             -- 开盘价
+    high   REAL,             -- 最高价
+    low    REAL,             -- 最低价
+    close  REAL,             -- 收盘价
+    volume REAL,             -- 成交量
+    amount REAL,             -- 成交额
     PRIMARY KEY (code, market, period, date)
 );
 
@@ -152,14 +155,14 @@ CREATE INDEX idx_klines_market ON klines(market, code, period, date);
 
 -- 股票元信息
 CREATE TABLE stock_info (
-    code TEXT NOT NULL,          -- 股票代码
-    market TEXT NOT NULL,        -- 市场分段
-    name TEXT,                   -- 股票名称
-    last_update_ts TEXT,         -- 上次 K 线更新时间戳
-    latest_kline_date TEXT,      -- 最新K线日期（增量同步时判断差几天）
+    code              TEXT NOT NULL,  -- 股票代码
+    market            TEXT NOT NULL,  -- 市场分段
+    latest_kline_date TEXT,           -- 最新 K 线日期（增量同步核心字段：与 latest_trading 比较）
     PRIMARY KEY (code, market)
 );
 ```
+
+> `latest_kline_date` 是增量同步的核心判断字段：如果某只股票的 `latest_kline_date` 已经等于最近交易日，则跳过拉取。该字段在 `detail_sync_atomic()` 中与 K 线数据在同一事务原子写入。
 
 ### data/watchlist.db — 自选股
 
@@ -583,7 +586,7 @@ app.run()
 
 | 数据 | 接口 |
 |------|------|
-| A 股 K 线（日/周/月，前复权，含成交额/换手率） | `d.10jqka.com.cn/v2/line/hs_{code}/{period}/last.js` |
+| A 股 K 线（日/周/月，前复权，含成交额/换手率） | `d.10jqka.com.cn/v4/line/{prefix}_{code}/{period_code}/{year}.js` |
 | 全市场成交额分时 | `dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data` |
 
 ### 新浪财经
