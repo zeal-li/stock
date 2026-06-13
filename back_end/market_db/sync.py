@@ -253,8 +253,13 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
         'Referer': 'https://www.10jqka.com.cn/',
     }
 
+    # 4线程×3周期×2年份=24并发，默认连接池10不够，建Session扩到30
+    _session = _rq.Session()
+    _adapter = _rq.adapters.HTTPAdapter(pool_connections=30, pool_maxsize=30)
+    _session.mount('https://', _adapter)
+    _session.mount('http://', _adapter)
+
     # 全量：v4 逐年拉 5 年；增量：v4 只拉当年
-    # 年份串行：同花顺服务器拒收4×3×5=60并发SSL握手，串行后最多4×3×1=12，安全
     if start_date and start_date[:4] == str(current_year):
         urls = [f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{c}/{ths_period_code}/{current_year}.js"]
     else:
@@ -264,7 +269,7 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     def _fetch_one(url):
         for attempt in range(3):
             try:
-                r = _rq.get(url, headers=headers, timeout=5)
+                r = _session.get(url, headers=headers, timeout=5)
                 if r.status_code != 200:
                     if attempt < 2:
                         continue
@@ -281,10 +286,10 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
                     continue
         return None
 
-    # 各年串行请求（同花顺拒高并发SSL握手）
+    # 各年2并发请求（4×3×2=24并发，同花顺可承受）
     from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
     all_raw = []
-    with _TPE(max_workers=1) as pool:
+    with _TPE(max_workers=2) as pool:
         futs = {pool.submit(_fetch_one, u): u for u in urls}
         for fut in _ac(futs):
             raw = fut.result()
