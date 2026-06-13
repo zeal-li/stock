@@ -37,7 +37,7 @@ def _fetch_and_cache_margin():
         combined[d] = {
             'rz': float(row.get('rzye', 0) or 0),
             'rq': float(row.get('rqylje', 0) or 0),
-            'total': float(row.get('rzrqjyzl', 0) or 0),
+            # rzrqjyzl 是每日交易额（流量），不是两融余额（存量），两融余额 = rz + rq，在输出时计算
             'buy': float(row.get('rzmre', 0) or 0),
         }
 
@@ -68,7 +68,6 @@ def _fetch_and_cache_margin():
                         # SZSE 已是亿元，×1e8 转回元与 SSE 统一
                         combined[d]['rz'] += _sz_val('jrrzye') * 1e8
                         combined[d]['rq'] += _sz_val('jrrjye') * 1e8
-                        combined[d]['total'] += _sz_val('jrrzrjye') * 1e8
                         combined[d]['buy'] += _sz_val('jrrzmr') * 1e8
             except Exception:
                 pass
@@ -84,10 +83,20 @@ def _fetch_and_cache_margin():
         fmt = d[:4] + '-' + d[4:6] + '-' + d[6:8]
         dates.append(fmt[-5:])
         v = combined[d]
-        rz.append(round(v['rz'] / 1e8, 2))
-        rq.append(round(v['rq'] / 1e8, 2))
-        tot.append(round(v['total'] / 1e8, 2))
+        rz_val = round(v['rz'] / 1e8, 2)
+        rq_val = round(v['rq'] / 1e8, 2)
+        rz.append(rz_val)
+        rq.append(rq_val)
+        tot.append(round(rz_val + rq_val, 2))
         buy.append(round(v['buy'] / 1e8, 2))
+
+    # 末尾日期若 SZSE 数据未出（T+1 延迟），会显著低于前一日（SSE-only），剔除
+    if len(rz) >= 2 and rz[-2] > 0 and rz[-1] < rz[-2] * 0.7:
+        dates.pop()
+        rz.pop()
+        rq.pop()
+        tot.pop()
+        buy.pop()
 
     # 计算变化率
     fin_bal_5d, fin_bal_10d, fin_buy_heat = 0.0, 0.0, 0.0
