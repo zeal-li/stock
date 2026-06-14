@@ -549,12 +549,20 @@ var KlinePopup = (function() {
         _maVals = result.maVals;
         _bbVals = result.bbVals;
         _observer = result.observer;
-        // 初始显示最近一年
+        // 初始显示最近一年，右留空3个月，让最新K线在窗口偏左位置
         if (_klinesData && _klinesData.length > 0) {
             var lastT = _klinesData[_klinesData.length - 1].time;
             var parts = lastT.split('-');
             var oneYearAgo = (parseInt(parts[0]) - 1) + '-' + parts[1] + '-' + parts[2];
-            _chart.timeScale().setVisibleRange({ from: oneYearAgo, to: lastT });
+            // 找一年前对应的数据索引
+            var fromIdx = 0;
+            for (var i = 0; i < _klinesData.length; i++) {
+                if (_klinesData[i].time >= oneYearAgo) { fromIdx = i; break; }
+            }
+            // 右边多留约20%空白，让最新K线不贴边
+            var visibleBars = _klinesData.length - fromIdx;
+            var rightPad = Math.round(visibleBars * 0.2);
+            _chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: _klinesData.length - 1 + rightPad });
         }
     }
 
