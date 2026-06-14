@@ -159,8 +159,6 @@ var KlineChartUtils = {
             tooltip.style.top = top + 'px';
         });
 
-        chart.timeScale().fitContent();
-
         var observer = new ResizeObserver(function() {
             if (chart && el.clientWidth > 0) {
                 chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });

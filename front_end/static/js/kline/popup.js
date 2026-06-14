@@ -549,6 +549,13 @@ var KlinePopup = (function() {
         _maVals = result.maVals;
         _bbVals = result.bbVals;
         _observer = result.observer;
+        // 初始显示最近一年
+        if (_klinesData && _klinesData.length > 0) {
+            var lastT = _klinesData[_klinesData.length - 1].time;
+            var parts = lastT.split('-');
+            var oneYearAgo = (parseInt(parts[0]) - 1) + '-' + parts[1] + '-' + parts[2];
+            _chart.timeScale().setVisibleRange({ from: oneYearAgo, to: lastT });
+        }
     }
 
     // ---- 填充主营构成 ----
