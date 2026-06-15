@@ -547,8 +547,11 @@ def stock_kline():
                 'Referer': 'https://www.10jqka.com.cn/',
             }
 
+            # 同花顺前缀：按交易所区分，market=0 深交所(sz_)，其余上交所(sh_)
+            ths_prefix = 'sz' if market == '0' else 'sh'
+
             def _fetch_year(y):
-                url = f"https://d.10jqka.com.cn/v4/line/hs_{code}/{ths_period_code}/{y}.js"
+                url = f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{code}/{ths_period_code}/{y}.js"
                 r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
                 if r.status_code != 200:
                     return None

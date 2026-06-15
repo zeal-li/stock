@@ -239,13 +239,13 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     ths_period_code = {'daily': '01', 'weekly': '11', 'monthly': '21'}.get(period, '01')
     current_year = _dt.datetime.now().year
 
-    # 同花顺前缀：上交所ETF用 sh_，深交所ETF用 sz_，其余用 hs_
-    if c.startswith('5'):
+    # 同花顺前缀：按交易所区分
+    # 上交所：60xxxx/688xxx(沪A/科创), 51xxxx/56xxxx/58xxxx(沪ETF/基), 11xxxx(沪债), 9xxxxx(沪B)
+    # 深交所：00xxxx~003xxx(深A), 30xxxx/301xxx(创业), 159xxx/16xxxx/18xxxx(深ETF/基), 12xxxx(深债)
+    if c[0] == '6' or c.startswith(('5', '11', '9')):
         ths_prefix = 'sh'
-    elif c.startswith('159'):
-        ths_prefix = 'sz'
     else:
-        ths_prefix = 'hs'
+        ths_prefix = 'sz'
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
