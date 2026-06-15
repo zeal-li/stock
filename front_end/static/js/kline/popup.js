@@ -661,6 +661,16 @@ var KlinePopup = (function() {
     }
 
     // ---- 公开方法 ----
+    // 解析行情 API 返回的成交量/成交额格式化字符串为数值（如 "11.25亿股"→1125000000, "4556.99万"→45569900）
+    function _parseVolAmt(str) {
+        if (!str || str === '-') return 0;
+        var v = parseFloat(str);
+        if (isNaN(v)) return 0;
+        if (str.indexOf('亿') >= 0) return v * 1e8;
+        if (str.indexOf('万') >= 0) return v * 1e4;
+        return v;
+    }
+
     function _limitRate(code) {
         var c = String(code);
         if (/^30[04]/.test(c) || /^68/.test(c)) return 0.20;
@@ -813,10 +823,27 @@ var KlinePopup = (function() {
 
             if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
                 _klinesData = kdata.data.klines;
-                var last = _klinesData[_klinesData.length - 1];
-                if (quote) {
-                    if (last.amount == null && quote.amount_raw != null && quote.amount_raw !== '-') last.amount = parseFloat(quote.amount_raw);
-                    if (last.turnover == null && quote.turnover_raw != null && quote.turnover_raw !== '-') last.turnover = parseFloat(quote.turnover_raw);
+                if (quote && quote.price && quote.price !== '-') {
+                    // 同花顺日K接口当天可能还没有今天这根K线，用行情API数据生成一根插入
+                    var today = new Date();
+                    var todayStr = today.getFullYear() + '-' +
+                                   String(today.getMonth() + 1).padStart(2, '0') + '-' +
+                                   String(today.getDate()).padStart(2, '0');
+                    var last = _klinesData[_klinesData.length - 1];
+                    if (last.time !== todayStr) {
+                        var p = parseFloat;
+                        var newK = {
+                            time: todayStr,
+                            open: p(quote.open),
+                            high: p(quote.high),
+                            low: p(quote.low),
+                            close: p(quote.price),
+                            volume: _parseVolAmt(quote.volume),
+                            amount: quote.amount_raw != null && quote.amount_raw !== '-' ? p(quote.amount_raw) : _parseVolAmt(quote.amount),
+                            turnover: quote.turnover_raw != null && quote.turnover_raw !== '-' ? p(quote.turnover_raw) : null,
+                        };
+                        _klinesData.push(newK);
+                    }
                 }
             }
 

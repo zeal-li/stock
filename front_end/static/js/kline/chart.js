@@ -36,7 +36,17 @@ var KlineChartUtils = {
                      k.volume >= 1e4 ? (k.volume / 1e4).toFixed(2) + '万' : String(k.volume);
         var amtStr = k.amount ? (k.amount >= 1e8 ? (k.amount / 1e8).toFixed(2) + '亿' : (k.amount / 1e4).toFixed(2) + '万') : '--';
         var tDec = isEtf ? 3 : 2;
-        var n = function(v) { return '<span style="color:#ddd;">' + v.toFixed(tDec) + '</span>'; };
+        // 相对前一根K线收盘价上色
+        var pc = prevClose && prevClose !== 0 ? prevClose : null;
+        var relColor = function(val) {
+            if (pc == null) return '#ddd';
+            if (val > pc) return '#ef5350';
+            if (val < pc) return '#26a69a';
+            return '#ddd';
+        };
+        var relSpan = function(val) {
+            return '<span style="color:' + relColor(val) + ';">' + val.toFixed(tDec) + '</span>';
+        };
         var row = function(l, v, r, rv) {
             return '<tr><td style="color:#888;padding-right:4px;">' + l + '</td><td>' + v + '</td>' +
                    '<td style="color:#888;padding:0 4px;">' + r + '</td><td>' + rv + '</td></tr>';
@@ -44,9 +54,9 @@ var KlineChartUtils = {
         return (
             '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + k.time + '</div>' +
             '<table style="border-spacing:0;">' +
-                row('高', '<span style="color:#ef5350;">' + k.high.toFixed(tDec) + '</span>',
-                    '低', '<span style="color:#26a69a;">' + k.low.toFixed(tDec) + '</span>') +
-                row('开', n(k.open), '收', '<span style="color:' + color + ';">' + k.close.toFixed(tDec) + '</span>') +
+                row('高', relSpan(k.high),
+                    '低', relSpan(k.low)) +
+                row('开', relSpan(k.open), '收', relSpan(k.close)) +
                 row('涨跌额', '<span style="color:' + color + ';">' + sign + chg.toFixed(tDec) + '</span>',
                     '涨跌幅', '<span style="color:' + color + ';">' + sign + chgPct.toFixed(2) + '%</span>') +
                 row('量', '<span style="color:#ddd;">' + volStr + '</span>',
