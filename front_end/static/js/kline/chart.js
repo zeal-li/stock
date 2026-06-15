@@ -56,7 +56,7 @@ var KlineChartUtils = {
         );
     },
     // 渲染 K 线图，返回 { chart, series, volSeries, maLines, bbLines, observer }
-    render: function(el, klinesData, stockCode) {
+    render: function(el, klinesData, stockCode, stockMarket) {
         el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
 
         var chart = LightweightCharts.createChart(el, {
@@ -146,7 +146,7 @@ var KlineChartUtils = {
             }
             if (!k) { tooltip.style.display = 'none'; return; }
             var prevClose = idx > 0 ? klinesData[idx - 1].close : null;
-            var isEtf = stockCode && (stockCode.indexOf('51') === 0 || stockCode.indexOf('15') === 0);
+            var isEtf = isETF(stockCode, stockMarket);
             tooltip.innerHTML = KlineChartUtils.tooltipText(k, prevClose, isEtf);
             tooltip.style.display = 'block';
             var rect = el.getBoundingClientRect();

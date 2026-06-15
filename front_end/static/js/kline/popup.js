@@ -427,7 +427,7 @@ var KlinePopup = (function() {
         var el = document.getElementById('klChart');
         if (_observer) _observer.disconnect();
         _minutePreClose = preClose;
-        var result = KlineMinute.render(el, times, prices, volumes, amounts, preClose, _stockMarket);
+        var result = KlineMinute.render(el, times, prices, volumes, amounts, preClose, _stockMarket, _stockCode);
         _chart = result.chart;
         _minuteSeries = result.series;
         _minuteAvgLine = result.avgLine;
@@ -540,7 +540,7 @@ var KlinePopup = (function() {
         _klinesData = data.klines;
         var el = document.getElementById('klChart');
         if (_observer) _observer.disconnect();
-        var result = KlineChartUtils.render(el, _klinesData, _stockCode);
+        var result = KlineChartUtils.render(el, _klinesData, _stockCode, _stockMarket);
         _chart = result.chart;
         _series = result.series;
         _volSeries = result.volSeries;
@@ -604,7 +604,7 @@ var KlinePopup = (function() {
         function cell(label, value) { return '<span style="white-space:nowrap;"><span style="color:#8b8b9e;">' + label + '</span> ' + v(value) + '</span>'; }
 
         var latest = (_klinesData && _klinesData.length > 0) ? _klinesData[_klinesData.length - 1] : null;
-        var isEtf = _stockCode && (_stockCode.startsWith('51') || _stockCode.startsWith('15'));
+        var isEtf = isETF(_stockCode, _stockMarket);
         var fixVal = function(val, qv) { return isEtf ? parseFloat(qv) : (val != null ? val : null); };
 
         // 相对昨收上色

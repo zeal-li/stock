@@ -1,8 +1,9 @@
 // ==================== 分时图渲染 ====================
 
 var KlineMinute = {
-    render: function(el, times, prices, volumes, amounts, preClose, stockMarket) {
+    render: function(el, times, prices, volumes, amounts, preClose, stockMarket, stockCode) {
         el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
+        var priceDec = isETF(stockCode, stockMarket) ? 3 : 2;
         var isUS = stockMarket === '106', isHK = stockMarket === '116';
         var today = new Date(); var base = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000;
         var fullTimes = times.map(function(t) {
@@ -92,8 +93,8 @@ var KlineMinute = {
             var av = idx < avgData.length ? avgData[idx].value : null;
             var ap = (av != null && preClose) ? (av * preClose / 100 + preClose) : null;
             tooltip.innerHTML = '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">'+ds+' '+ts+'</div><table style="border-spacing:0;">'+
-                '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">'+pr.toFixed(2)+'</span></td></tr>'+
-                '<tr><td style="color:#888;">均价</td><td><span style="color:#fbbf24;">'+(ap?ap.toFixed(2):'--')+'</span></td></tr>'+
+                '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">'+pr.toFixed(priceDec)+'</span></td></tr>'+
+                '<tr><td style="color:#888;">均价</td><td><span style="color:#fbbf24;">'+(ap?ap.toFixed(priceDec):'--')+'</span></td></tr>'+
                 '<tr><td style="color:#888;">涨幅</td><td><span style="color:'+pcc+';">'+pcs+pc.toFixed(2)+'%</span></td></tr>'+
                 '<tr><td style="color:#888;">成交</td><td><span style="color:#ddd;">'+vs+'</span></td></tr>'+
                 '<tr><td style="color:#888;">成交额</td><td><span style="color:#ddd;">'+as+'</span></td></tr></table>';
@@ -112,7 +113,7 @@ var KlineMinute = {
         var lChg = preClose ? lastP - preClose : 0, lChgPct = preClose ? lChg / preClose * 100 : 0;
         var ls = lChg >= 0 ? '+' : '', lc = lChg >= 0 ? '#ef5350' : '#26a69a';
         var mv = document.getElementById('klMinuteVals');
-        if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(2):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(2)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
+        if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
 
         chart.timeScale().fitContent();
         chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });

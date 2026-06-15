@@ -1,5 +1,10 @@
 // ==================== 公共接口 ====================
 
+// 判断是否为ETF
+function isETF(code, market) {
+    return getStockType(code, market).indexOf('ETF') >= 0;
+}
+
 // 清除所有本地缓存数据
 function clearAllCaches() {
     try {
