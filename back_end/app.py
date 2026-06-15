@@ -578,16 +578,26 @@ def stock_kline():
                 if d in seen:
                     continue
                 seen.add(d)
-                o = float(parts[1])
-                if o <= 0:          # 跳过同花顺早期年份的脏数据（负数价格）
+                o = float(parts[1]) if parts[1] else 0
+                h = float(parts[2]) if parts[2] else 0
+                l = float(parts[3]) if parts[3] else 0
+                c = float(parts[4]) if parts[4] else 0
+                if c <= 0:
                     continue
+                # 开/高/低为空或为 0 时，用收盘价补上（同花顺当天可能只有收盘价）
+                if o <= 0:
+                    o = c
+                if h <= 0:
+                    h = c
+                if l <= 0:
+                    l = c
                 row = {
                     'time': d[:4] + '-' + d[4:6] + '-' + d[6:8],
-                    'open': o, 'close': float(parts[4]),
-                    'high': float(parts[2]), 'low': float(parts[3]),
-                    'volume': int(float(parts[5])),
-                    'amount': float(parts[6]),
-                    'turnover': round(float(parts[7]), 2),
+                    'open': o, 'close': c,
+                    'high': h, 'low': l,
+                    'volume': int(float(parts[5]) if parts[5] else 0),
+                    'amount': float(parts[6]) if parts[6] else 0,
+                    'turnover': round(float(parts[7]) if parts[7] else 0, 2),
                 }
                 rows.append(row)
             rows.sort(key=lambda r: r['time'])
