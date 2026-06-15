@@ -8,6 +8,7 @@ var KlinePopup = (function() {
     var _klinesData = null;
     var _stockCode = '';
     var _stockMarket = '';
+    var _quoteData = null;       // 最新行情数据，用于补全/覆盖当日K线
     var _indicatorMode = 'ma';   // ma | bb
     var _currentPeriod = 'day';  // day | week | month
     var _isMinute = false;       // 是否分时模式
@@ -538,6 +539,30 @@ var KlinePopup = (function() {
     // ---- 渲染图表 ----
     function _renderChart(data) {
         _klinesData = data.klines;
+        // 渲染前用行情数据覆盖/插入今日K线（同花顺日K当天数据可能缺失或不完整）
+        if (_quoteData && _klinesData && _klinesData.length > 0) {
+            var today = new Date();
+            var todayStr = today.getFullYear() + '-' +
+                           String(today.getMonth() + 1).padStart(2, '0') + '-' +
+                           String(today.getDate()).padStart(2, '0');
+            var p = parseFloat;
+            var todayK = {
+                time: todayStr,
+                open: p(_quoteData.open),
+                high: p(_quoteData.high),
+                low: p(_quoteData.low),
+                close: p(_quoteData.price),
+                volume: _parseVolAmt(_quoteData.volume),
+                amount: _quoteData.amount_raw != null && _quoteData.amount_raw !== '-' ? p(_quoteData.amount_raw) : _parseVolAmt(_quoteData.amount),
+                turnover: _quoteData.turnover_raw != null && _quoteData.turnover_raw !== '-' ? p(_quoteData.turnover_raw) : null,
+            };
+            var last = _klinesData[_klinesData.length - 1];
+            if (last.time === todayStr) {
+                _klinesData[_klinesData.length - 1] = todayK;
+            } else {
+                _klinesData.push(todayK);
+            }
+        }
         var el = document.getElementById('klChart');
         if (_observer) _observer.disconnect();
         var result = KlineChartUtils.render(el, _klinesData, _stockCode, _stockMarket);
@@ -818,33 +843,12 @@ var KlinePopup = (function() {
             }
             if (goodwill) quote.goodwill = goodwill;
             if (extra) { quote.volume_ratio = extra.volume_ratio; quote.bid_ratio = extra.bid_ratio; }
+            _quoteData = (quote && quote.price && quote.price !== '-') ? quote : null;
 
             _fillBizComp(bizComp);
 
             if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
                 _klinesData = kdata.data.klines;
-                if (quote && quote.price && quote.price !== '-') {
-                    // 同花顺日K接口当天可能还没有今天这根K线，用行情API数据生成一根插入
-                    var today = new Date();
-                    var todayStr = today.getFullYear() + '-' +
-                                   String(today.getMonth() + 1).padStart(2, '0') + '-' +
-                                   String(today.getDate()).padStart(2, '0');
-                    var last = _klinesData[_klinesData.length - 1];
-                    if (last.time !== todayStr) {
-                        var p = parseFloat;
-                        var newK = {
-                            time: todayStr,
-                            open: p(quote.open),
-                            high: p(quote.high),
-                            low: p(quote.low),
-                            close: p(quote.price),
-                            volume: _parseVolAmt(quote.volume),
-                            amount: quote.amount_raw != null && quote.amount_raw !== '-' ? p(quote.amount_raw) : _parseVolAmt(quote.amount),
-                            turnover: quote.turnover_raw != null && quote.turnover_raw !== '-' ? p(quote.turnover_raw) : null,
-                        };
-                        _klinesData.push(newK);
-                    }
-                }
             }
 
             try { _fillHeader(quote); }
