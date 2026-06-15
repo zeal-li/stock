@@ -982,7 +982,7 @@ def _run_update(seg_key):
             return
 
         # 第三步：增量同步 K 线（per-period 独立判断）
-        _sync_status['total'] = len(stock_list)
+        _sync_status['total'] = len(to_update)
         _sync_status['done'] = 0
         _sync_status['phase'] = 'kline'
         global _sync_fail_count
