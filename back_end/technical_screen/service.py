@@ -3,6 +3,7 @@ import os, json, threading, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .strategies.san_shang_you_ya import calc as san_shang_you_ya_calc
+from .strategies.ml_score import calc as ml_score_calc
 
 # 策略注册表：{key: {name, calc, desc}}
 STRATEGIES = {
@@ -10,6 +11,11 @@ STRATEGIES = {
         'name': '三上悠亚',
         'calc': san_shang_you_ya_calc,
         'desc': '日K/周K/月K布林中上轨共振：三周期大部分时间运行在中轨到上轨之间，布林带温和向上倾斜，跌破中轨能快速修复视为强势，近期无极端涨跌',
+    },
+    'ml_score': {
+        'name': 'ML量化打分',
+        'calc': ml_score_calc,
+        'desc': 'XGBoost 机器学习模型打分：从历史数据自动学习技术指标组合（需先运行 ml_train/train.py 训练模型）',
     },
 }
 
