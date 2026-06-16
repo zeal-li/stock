@@ -17,7 +17,6 @@ from watchlist.service import get_all, add, remove as wl_remove
 import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
-from technical_screen.strategies.san_shang_score import calc as prediction_calc
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock
 
 import sys as _sys, os as _os
@@ -173,56 +172,6 @@ def stock_quotes():
         return jsonify({'success': True, 'data': result})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'data': {}})
-
-
-# ==================== 个股补充 ====================
-
-@app.route('/api/stock-predictions', methods=['POST'])
-def stock_predictions():
-    """批量获取股票的预测评分（基于K线多因子模型）"""
-    import json as _json
-    try:
-        body = request.get_json(force=True)
-        stocks = body.get('stocks', []) if body else []
-    except Exception:
-        stocks = []
-    if not stocks:
-        return jsonify({'success': False, 'error': '缺少参数', 'data': {}})
-
-    # 去重
-    seen = set()
-    unique = []
-    for s in stocks:
-        key = (s.get('code', ''), s.get('market', ''))
-        if key not in seen and key[0] and key[1]:
-            seen.add(key)
-            unique.append(key)
-
-    result = {}
-    import sqlite3, os as _os
-    db_path = _os.path.join(_os.path.dirname(__file__), 'data', 'stock_lib.db')
-    if not _os.path.exists(db_path):
-        return jsonify({'success': True, 'data': result})
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        for code, market in unique:
-            try:
-                rows = conn.execute(
-                    'SELECT date, open, high, low, close, volume FROM stock_klines '
-                    'WHERE code=? AND period=? ORDER BY date DESC LIMIT 120',
-                    (code, 'daily')).fetchall()
-                if rows and len(rows) >= 20:
-                    klines = [dict(r) for r in reversed(rows)]
-                    pred = prediction_calc(klines)
-                    result[code] = pred
-            except Exception:
-                pass
-    finally:
-        conn.close()
-
-    return jsonify({'success': True, 'data': result})
 
 
 @app.route('/api/stock-extra')

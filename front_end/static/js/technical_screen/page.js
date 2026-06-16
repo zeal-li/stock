@@ -693,10 +693,9 @@ async function _techRenderTable(results) {
             '<td><span style="color:#8b8b9e;">' + (_marketLabels[mk] || mk) + '</span></td>' +
             '<td><span style="color:#ddd;">' + price + '</span></td>' +
             '<td><span style="color:#fbbf24;font-weight:bold;">' + s.score + '</span></td>' +
-            _renderPredictionCell(s) +
         '</tr>';
     });
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>评分</th><th>预测评分</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>评分</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
     document.getElementById('techScreenResult').innerHTML = html;
 }
 

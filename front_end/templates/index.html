@@ -252,7 +252,6 @@
                 document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
                 document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
-                if (page === 'watchlist' && typeof watchlistStocks !== 'undefined' && watchlistStocks.length > 0) refreshPredictions(watchlistStocks, true);
 
                 if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }
                 if (page === 'earnings') { populateStockFilters(); loadEarningsList(); }
