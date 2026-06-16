@@ -29,7 +29,7 @@ from ml_train.features import extract_features
 
 # ===== 训练参数 =====
 FORWARD_DAYS = 10          # 标签：未来 N 个交易日
-RISE_THRESHOLD = 0.03      # 涨幅超过 3% 标记为正样本
+RISE_THRESHOLD = 0.05      # 涨幅超过 5% 标记为正样本
 TRAIN_CUTOFF = '2025-03-01'  # 此日期前的样本用作训练，之后用作测试
 MIN_KLINES = 180           # 最少需要 180 根日K线（120根特征窗口 + 最大前视）
 MAX_TRAIN_SAMPLES = 200000 # 训练样本上限（避免内存爆炸）
