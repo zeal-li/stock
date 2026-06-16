@@ -13,13 +13,14 @@
 import os
 import sys
 import math
+import csv
 import sqlite3
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
 from xgboost import XGBClassifier
-from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.metrics import classification_report, roc_auc_score, precision_recall_fscore_support
 import joblib
 
 # 将 back_end 加入 sys.path，确保可以 import 项目模块
@@ -28,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ml_train.features import extract_features
 
 # ===== 训练参数 =====
-FORWARD_DAYS = 10          # 标签：未来 N 个交易日
+FORWARD_DAYS = 3           # 标签：未来 N 个交易日
 RISE_THRESHOLD = 0.05      # 涨幅超过 5% 标记为正样本
 TRAIN_CUTOFF = '2025-03-01'  # 此日期前的样本用作训练，之后用作测试
 MIN_KLINES = 180           # 最少需要 180 根日K线（120根特征窗口 + 最大前视）
@@ -202,18 +203,24 @@ def train():
     )
 
     # --- 6. 评估 ---
-    print("\n=== 训练集评估 ===")
     train_pred = model.predict(X_train)
     train_proba = model.predict_proba(X_train)[:, 1]
+    train_auc = roc_auc_score(y_train, train_proba)
+    train_p, train_r, train_f1, _ = precision_recall_fscore_support(y_train, train_pred, average='binary', zero_division=0)
+    print("\n=== 训练集评估 ===")
     print(classification_report(y_train, train_pred, target_names=['不涨', '涨']))
-    print(f"  AUC: {roc_auc_score(y_train, train_proba):.4f}")
+    print(f"  AUC: {train_auc:.4f}")
 
+    test_auc = None
+    test_p = test_r = test_f1 = None
     if X_test is not None:
         print("\n=== 测试集评估 ===")
         test_pred = model.predict(X_test)
         test_proba = model.predict_proba(X_test)[:, 1]
+        test_auc = roc_auc_score(y_test, test_proba)
+        test_p, test_r, test_f1, _ = precision_recall_fscore_support(y_test, test_pred, average='binary', zero_division=0)
         print(classification_report(y_test, test_pred, target_names=['不涨', '涨']))
-        print(f"  AUC: {roc_auc_score(y_test, test_proba):.4f}")
+        print(f"  AUC: {test_auc:.4f}")
 
     # --- 7. 特征重要性 ---
     print("\n=== 特征重要性 Top 20 ===")
@@ -222,10 +229,24 @@ def train():
     for i, (name, imp) in enumerate(feat_imp[:20]):
         print(f"  {i+1:2d}. {name:25s} {imp:.4f}")
 
-    # --- 8. 保存模型 ---
+    # --- 8. 保存模型（只保留最优） ---
     os.makedirs(MODEL_DIR, exist_ok=True)
+    ts = datetime.now().strftime('%Y%m%d_%H%M')
 
-    # 保存模型 + 特征名 + 元信息
+    # 本次核心指标：优先用测试 AUC，没有测试集则用训练 AUC
+    new_score = test_auc if test_auc is not None else train_auc
+    metric_name = '测试AUC' if test_auc is not None else '训练AUC'
+
+    # 读取旧最优模型的得分
+    old_score = None
+    old_ts = None
+    if os.path.exists(MODEL_PATH):
+        old_bundle = joblib.load(MODEL_PATH)
+        old_meta = old_bundle['meta']
+        old_score = old_meta.get('best_score', None)
+        old_ts = old_meta.get('train_ts', None)
+
+    # 模型数据
     bundle = {
         'model': model,
         'feature_names': feature_names,
@@ -236,15 +257,59 @@ def train():
             'train_samples': len(all_train_samples),
             'test_samples': len(all_test_samples),
             'positive_ratio': float(pos_ratio),
+            'best_score': max(new_score, old_score or 0),
+            'train_auc': float(train_auc),
+            'test_auc': float(test_auc) if test_auc is not None else None,
+            'metric_name': metric_name,
+            'train_ts': ts,
         }
     }
-    joblib.dump(bundle, MODEL_PATH)
-    print(f"\n模型已保存: {MODEL_PATH}")
 
-    # 保存特征名（纯文本，方便查阅）
+    # 判断是否替换
+    replaced = False
+    if old_score is None:
+        replaced = True
+        print(f"\n首次训练，{metric_name}={new_score:.4f} → 设为当前最优")
+    elif new_score > old_score:
+        # 旧的最优归档（只保留被淘汰的"前最优"）
+        archive_path = os.path.join(MODEL_DIR, f'model_{old_ts}.pkl')
+        joblib.dump(old_bundle, archive_path)
+        print(f"\n前最优已归档: model_{old_ts}.pkl  ({metric_name}={old_score:.4f})")
+        replaced = True
+        print(f"新最优: {old_score:.4f} → {new_score:.4f}  (+{new_score-old_score:.4f})")
+    else:
+        print(f"\n{metric_name}={new_score:.4f} <= 当前最优 {old_score:.4f} → 已丢弃")
+
+    if replaced:
+        joblib.dump(bundle, MODEL_PATH)
+        print(f"最优模型已更新: {MODEL_PATH}")
+    else:
+        print(f"最优模型未变: {MODEL_PATH}")
+
+    # 保存特征名
     with open(FEATURE_NAMES_PATH, 'w', encoding='utf-8') as f:
         f.write('\n'.join(feature_names))
-    print(f"特征名已保存: {FEATURE_NAMES_PATH}")
+
+    # --- 训练记录 CSV（记录每次训练，标记是否替换） ---
+    history_path = os.path.join(MODEL_DIR, 'training_history.csv')
+    file_exists = os.path.exists(history_path)
+    with open(history_path, 'a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(['时间', '阈值', '训练样本', '测试样本', '正样本占比',
+                             '训练AUC', '训练Precision', '训练Recall', '训练F1',
+                             '测试AUC', '测试Precision', '测试Recall', '测试F1', '是否最优'])
+        writer.writerow([
+            ts, f'{RISE_THRESHOLD*100:.0f}%',
+            len(all_train_samples), len(all_test_samples), f'{pos_ratio*100:.1f}%',
+            f'{train_auc:.4f}', f'{train_p:.4f}', f'{train_r:.4f}', f'{train_f1:.4f}',
+            f'{test_auc:.4f}' if test_auc is not None else '-',
+            f'{test_p:.4f}' if test_p is not None else '-',
+            f'{test_r:.4f}' if test_r is not None else '-',
+            f'{test_f1:.4f}' if test_f1 is not None else '-',
+            '是' if replaced else '否',
+        ])
+    print(f"训练记录已追加: {history_path}")
 
 
 if __name__ == '__main__':

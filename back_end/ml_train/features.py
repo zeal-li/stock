@@ -40,7 +40,7 @@ def _min(values):
 
 
 def extract_features(klines):
-    """从日K线列表提取 38 维特征向量
+    """从日K线列表提取特征向量
 
     klines: [{open, high, low, close, volume, amount, date}, ...] 按时间升序
 
@@ -153,6 +153,22 @@ def extract_features(klines):
         # 创新高 / 创新低
         f[f'new_high_{n}d'] = 1.0 if last_close >= highest * 0.995 else 0.0
 
+    # ===== 15. KDJ 随机指标 (3维) =====
+    k, d, j = _calc_kdj(highs, lows, closes)
+    f['kdj_k'] = k
+    f['kdj_d'] = d
+    f['kdj_j'] = j
+
+    # ===== 16. OBV 能量潮变化率 (1维) =====
+    f['obv_roc_10'] = _calc_obv_roc(closes, volumes, 10)
+
+    # ===== 17. CCI 商品通道指标 (2维) =====
+    f['cci_14'] = _calc_cci(highs, lows, closes, 14)
+    f['cci_20'] = _calc_cci(highs, lows, closes, 20)
+
+    # ===== 18. WR 威廉指标 (1维) =====
+    f['wr_14'] = _calc_wr(highs, lows, closes, 14)
+
     return f
 
 
@@ -231,3 +247,65 @@ def _calc_max_drawdown(closes, period):
         if dd > max_dd:
             max_dd = dd
     return max_dd
+
+
+def _calc_kdj(highs, lows, closes, n=9):
+    """KDJ 随机指标，返回 (K, D, J)"""
+    if len(closes) < n + 1:
+        return 50.0, 50.0, 50.0
+    k = 50.0
+    d = 50.0
+    for i in range(n, len(closes)):
+        low_n = min(lows[i - n:i])
+        high_n = max(highs[i - n:i])
+        rng = high_n - low_n
+        rsv = ((closes[i] - low_n) / rng * 100) if rng > 0 else 50.0
+        k = 2/3 * k + 1/3 * rsv
+        d = 2/3 * d + 1/3 * k
+    j = 3 * k - 2 * d
+    return round(k, 4), round(d, 4), round(j, 4)
+
+
+def _calc_obv_roc(closes, volumes, period=10):
+    """OBV 能量潮 N 日变化率"""
+    if len(closes) < 2:
+        return 0
+    obv_series = []
+    obv = 0
+    for i in range(len(closes)):
+        if i == 0:
+            obv = volumes[0]
+        elif closes[i] > closes[i - 1]:
+            obv += volumes[i]
+        elif closes[i] < closes[i - 1]:
+            obv -= volumes[i]
+        obv_series.append(obv)
+    if len(obv_series) < period + 1 or obv_series[-period - 1] == 0:
+        return 0
+    return obv_series[-1] / obv_series[-period - 1] - 1
+
+
+def _calc_cci(highs, lows, closes, n=14):
+    """CCI 商品通道指标"""
+    if len(closes) < n:
+        return 0
+    tp_list = [(highs[i] + lows[i] + closes[i]) / 3 for i in range(-n, 0)]
+    tp_ma = sum(tp_list) / n
+    md = sum(abs(tp - tp_ma) for tp in tp_list) / n
+    if md == 0:
+        return 0
+    tp_now = (highs[-1] + lows[-1] + closes[-1]) / 3
+    return round((tp_now - tp_ma) / (0.015 * md), 4)
+
+
+def _calc_wr(highs, lows, closes, n=14):
+    """WR 威廉指标 (0 ~ -100，转为正值)"""
+    if len(closes) < n:
+        return -50.0
+    high_n = max(highs[-n:])
+    low_n = min(lows[-n:])
+    rng = high_n - low_n
+    if rng == 0:
+        return -50.0
+    wr = (high_n - closes[-1]) / rng * -100
+    return round(wr, 4)
