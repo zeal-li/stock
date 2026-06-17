@@ -7,8 +7,8 @@
 import os
 import joblib
 
-# 模型文件路径
-_MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ml_train')
+# 模型文件路径 (technical_screen/strategies/ → 上三层到 back_end/ → ml_train/)
+_MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'ml_train')
 _MODEL_PATH = os.path.join(_MODEL_DIR, 'model.pkl')
 
 _bundle = None
@@ -59,8 +59,8 @@ def calc(daily_klines, weekly_klines=None, monthly_klines=None, index_klines=Non
     X = np.array([[features[k] for k in _feature_names]], dtype=np.float32)
 
     # 预测上涨概率
-    proba = _model.predict_proba(X)[0][1]
-    score = round(proba * 100)
+    proba = float(_model.predict_proba(X)[0][1])
+    score = int(round(proba * 100))
 
     detail = {
         'probability': round(proba, 4),

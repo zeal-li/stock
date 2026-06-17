@@ -662,11 +662,6 @@ function _doClear(key, sel) {
 
 
 
-var _marketLabels = {
-    'hs_main': '沪深A', 'gem': '创业板', 'star': '科创板',
-    'hs_etf': '沪深ETF', 'hk_main': '港股', 'us_main': '美股'
-};
-
 async function _techRenderTable(results) {
     if (!results || results.length === 0) {
         document.getElementById('techScreenResult').innerHTML = '';
@@ -683,14 +678,14 @@ async function _techRenderTable(results) {
     var rowsHtml = '';
     results.forEach(function(s) {
         var c = String(s.code);
-        var mk = s.market || '';
         var popupMk = (/^(6|9|5|11)/.test(c)) ? '1' : '0';
-        var q = quotes[mk + '.' + c] || {};
+        var marketName = getStockType(c, popupMk);
+        var q = quotes[popupMk + '.' + c] || {};
         var price = q.price || s.price || '-';
         rowsHtml += '<tr>' +
             '<td><span style="color:#888;">' + c + '</span></td>' +
             '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + c + '\',\'' + popupMk + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
-            '<td><span style="color:#8b8b9e;">' + (_marketLabels[mk] || mk) + '</span></td>' +
+            '<td><span style="color:#8b8b9e;">' + marketName + '</span></td>' +
             '<td><span style="color:#ddd;">' + price + '</span></td>' +
             '<td><span style="color:#fbbf24;font-weight:bold;">' + s.score + '</span></td>' +
         '</tr>';
