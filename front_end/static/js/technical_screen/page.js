@@ -725,7 +725,7 @@ async function runTechScreen() {
                     status.textContent = '已完成，共找到 ' + pd.results.length + ' 只';
                     status.style.color = '#4ade80';
                     btn.disabled = false;
-                    if (pd.results.length > 0) _techRenderTable(pd.results);
+                    _techRenderTable(pd.results);
                 }
             } catch(e) {
                 clearInterval(_techPollTimer); _techPollTimer = null;
