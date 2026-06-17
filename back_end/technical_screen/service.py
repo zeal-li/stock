@@ -43,7 +43,7 @@ def _scan_one(code, name, strategy_key):
         return None
     conn = _kline_conn()
     daily_rows = conn.execute(
-        'SELECT date, open, high, low, close, volume FROM stock_klines '
+        'SELECT date, open, high, low, close, volume, amount FROM stock_klines '
         'WHERE code=? AND period=? ORDER BY date DESC LIMIT 120',
         (code, 'daily')).fetchall()
     weekly_rows = conn.execute(
@@ -60,7 +60,7 @@ def _scan_one(code, name, strategy_key):
     klines = [dict(r) for r in reversed(daily_rows)]
     weekly_klines = [dict(r) for r in reversed(weekly_rows)]
     monthly_klines = [dict(r) for r in reversed(monthly_rows)]
-    score, detail = strategy['calc'](klines, weekly_klines=weekly_klines, monthly_klines=monthly_klines)
+    score, detail = strategy['calc'](klines, weekly_klines=weekly_klines, monthly_klines=monthly_klines, index_klines=_index_klines_cache)
     if score <= 0:
         return None
     return {
@@ -73,6 +73,7 @@ def _scan_one(code, name, strategy_key):
 # ---- 异步扫描 ----
 
 _scan_state = {'running': False, 'total': 0, 'done': 0, 'results': []}
+_index_klines_cache = None  # 扫描期间缓存的指数日K数据
 
 
 def get_strategies():
@@ -132,8 +133,17 @@ def _batch_scan(stocks, strategy_key, market, max_workers, done_offset=0):
 
 
 def _do_scan(strategy_keys, market, max_workers):
-    global _scan_state
+    global _scan_state, _index_klines_cache
     try:
+        # 预加载上证指数数据（大盘对比特征需要）
+        conn_idx = _kline_conn()
+        idx_rows = conn_idx.execute(
+            "SELECT date, open, high, low, close, volume, amount FROM stock_klines "
+            "WHERE code='000001' AND market=? AND period='daily' ORDER BY date ASC",
+            ('hs_main',)).fetchall()
+        conn_idx.close()
+        _index_klines_cache = [dict(r) for r in idx_rows]
+
         conn = _list_conn()
         rows = conn.execute('SELECT code, name FROM market_stock_list WHERE market=? ORDER BY code', (market,)).fetchall()
         conn.close()

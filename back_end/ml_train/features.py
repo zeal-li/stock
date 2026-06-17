@@ -39,10 +39,11 @@ def _min(values):
     return min(values) if values else 0
 
 
-def extract_features(klines):
+def extract_features(klines, index_klines=None):
     """从日K线列表提取特征向量
 
     klines: [{open, high, low, close, volume, amount, date}, ...] 按时间升序
+    index_klines: 大盘指数K线列表（同上结构），可选，按时间升序
 
     返回: {feature_name: value} 字典
     """
@@ -54,6 +55,7 @@ def extract_features(klines):
     highs = [k['high'] for k in klines]
     lows = [k['low'] for k in klines]
     volumes = [k['volume'] for k in klines]
+    amounts = [k.get('amount', 0) for k in klines]
 
     last_close = closes[-1]
     f = {}
@@ -168,6 +170,96 @@ def extract_features(klines):
 
     # ===== 18. WR 威廉指标 (1维) =====
     f['wr_14'] = _calc_wr(highs, lows, closes, 14)
+
+    # ===== 19. 量价关系特征 (7维) =====
+    # 19a. 量价相关性：近20日价格变化与成交量变化的相关性
+    f['vol_price_corr_20d'] = _calc_vol_price_corr(closes, volumes, 20)
+
+    # 19b. 涨跌量比：近20日上涨日成交量总和 / 总成交量
+    vol_up = 0.0
+    vol_down = 0.0
+    for i in range(-20, 0):
+        if closes[i] > closes[i - 1]:
+            vol_up += volumes[i]
+        else:
+            vol_down += volumes[i]
+    total_vol = vol_up + vol_down
+    f['up_vol_ratio'] = vol_up / total_vol if total_vol > 0 else 0.5
+
+    # 19c. 放量程度：当日成交量在近60日中的分位数
+    if len(volumes) >= 60:
+        vol_60 = sorted(volumes[-60:])
+        cur_vol = volumes[-1]
+        rank = sum(1 for v in vol_60 if v <= cur_vol)
+        f['vol_percentile_60d'] = rank / 60.0
+    else:
+        f['vol_percentile_60d'] = 0.5
+
+    # 19d. 缩量蓄力：连续缩量天数、缩量程度
+    vol_shrink_days = 0
+    vol_shrink_ratio = 1.0
+    for i in range(len(volumes) - 1, max(len(volumes) - 10, 0), -1):
+        if volumes[i] < volumes[i - 1]:
+            vol_shrink_days += 1
+        else:
+            break
+    if vol_shrink_days >= 2 and len(volumes) > vol_shrink_days:
+        vol_shrink_ratio = volumes[-1] / volumes[-vol_shrink_days - 1]
+    f['vol_shrink_days'] = vol_shrink_days
+    f['vol_shrink_ratio'] = vol_shrink_ratio if vol_shrink_ratio != 1.0 else 1.0
+
+    # 19e. MFI 资金流量指标 (14日)
+    f['mfi_14'] = _calc_mfi(highs, lows, closes, volumes, 14)
+
+    # ===== 20. 成交额特征：流动性/市值代理 (3维) =====
+    avg_amt_5 = _ma(amounts, 5)
+    avg_amt_20 = _ma(amounts, 20)
+    f['amount_log'] = math.log(amounts[-1] + 1) if amounts[-1] > 0 else 0
+    f['amount_ratio_5'] = (amounts[-1] / avg_amt_5) if avg_amt_5 > 0 else 1.0
+    f['amount_ratio_20'] = (amounts[-1] / avg_amt_20) if avg_amt_20 > 0 else 1.0
+
+    # ===== 20. 大盘指数对比 (8维) =====
+    if index_klines:
+        idx_closes = [k['close'] for k in index_klines]
+        idx_dates = [k['date'] for k in index_klines]
+        stock_dates = [k.get('date', '') for k in klines]
+        # 日期对齐：建立 stock date -> index close 映射
+        idx_map = dict(zip(idx_dates, idx_closes))
+        aligned = []
+        for d in stock_dates:
+            aligned.append(idx_map.get(d, None))
+
+        if len(aligned) >= 60 and all(v is not None for v in aligned[-20:]):
+            # 相对收益率：stock - index
+            for n in [1, 5, 10, 20]:
+                if len(closes) > n and aligned[-1] and aligned[-n-1]:
+                    stock_ret = closes[-1] / closes[-n-1] - 1
+                    idx_ret = aligned[-1] / aligned[-n-1] - 1
+                    f[f'rel_ret_{n}d'] = stock_ret - idx_ret
+
+            # 相关性：近60日股票日收益率 vs 指数日收益率
+            f['idx_corr_60d'] = _calc_correlation(closes, aligned, 60)
+
+            # beta：近60日股票对指数的回归斜率
+            f['idx_beta_60d'] = _calc_beta(closes, aligned, 60)
+
+            # 相对位置：股票相对自身120日高点的位置 vs 指数
+            if len(closes) >= 120:
+                stock_high_pos = (closes[-1] - _min(closes[-120:])) / (_max(closes[-120:]) - _min(closes[-120:]) + 0.0001)
+                idx_high_pos = (aligned[-1] - _min(aligned[-120:])) / (_max(aligned[-120:]) - _min(aligned[-120:]) + 0.0001)
+                f['rel_high_pos'] = stock_high_pos - idx_high_pos
+        else:
+            for n in [1, 5, 10, 20]:
+                f[f'rel_ret_{n}d'] = 0
+            f['idx_corr_60d'] = 0
+            f['idx_beta_60d'] = 0
+            f['rel_high_pos'] = 0
+    else:
+        for n in [1, 5, 10, 20]:
+            f[f'rel_ret_{n}d'] = 0
+        f['idx_corr_60d'] = 0
+        f['idx_beta_60d'] = 0
+        f['rel_high_pos'] = 0
 
     return f
 
@@ -309,3 +401,75 @@ def _calc_wr(highs, lows, closes, n=14):
         return -50.0
     wr = (high_n - closes[-1]) / rng * -100
     return round(wr, 4)
+
+
+def _calc_correlation(closes1, closes2, period):
+    """计算两组价格的日收益率在近 period 日的 Pearson 相关系数"""
+    if len(closes1) < period + 1 or len(closes2) < period + 1:
+        return 0
+    rets1 = [math.log(closes1[i] / closes1[i-1]) for i in range(-period + 1, 1)]
+    rets2 = [math.log(closes2[i] / closes2[i-1]) for i in range(-period + 1, 1)]
+    n = len(rets1)
+    avg1 = sum(rets1) / n
+    avg2 = sum(rets2) / n
+    cov = sum((rets1[i] - avg1) * (rets2[i] - avg2) for i in range(n))
+    std1 = (sum((r - avg1) ** 2 for r in rets1)) ** 0.5
+    std2 = (sum((r - avg2) ** 2 for r in rets2)) ** 0.5
+    if std1 == 0 or std2 == 0:
+        return 0
+    return cov / (std1 * std2 * n)
+
+
+def _calc_beta(closes1, closes2, period):
+    """计算股票对指数的 beta：Cov(stock, index) / Var(index)"""
+    if len(closes1) < period + 1 or len(closes2) < period + 1:
+        return 1.0
+    rets1 = [math.log(closes1[i] / closes1[i-1]) for i in range(-period + 1, 1)]
+    rets2 = [math.log(closes2[i] / closes2[i-1]) for i in range(-period + 1, 1)]
+    n = len(rets1)
+    avg1 = sum(rets1) / n
+    avg2 = sum(rets2) / n
+    cov = sum((rets1[i] - avg1) * (rets2[i] - avg2) for i in range(n)) / n
+    var2 = sum((r - avg2) ** 2 for r in rets2) / n
+    if var2 == 0:
+        return 1.0
+    return cov / var2
+
+
+def _calc_vol_price_corr(closes, volumes, period):
+    """量价相关性：近 period 日价格变化率与成交量变化率的相关系数"""
+    if len(closes) < period + 2 or len(volumes) < period + 2:
+        return 0
+    price_chg = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(-period, 0) if closes[i-1] > 0]
+    vol_chg = [(volumes[i] - volumes[i-1]) / volumes[i-1] for i in range(-period, 0) if volumes[i-1] > 0]
+    n = min(len(price_chg), len(vol_chg))
+    if n < 3:
+        return 0
+    avg_p = sum(price_chg[:n]) / n
+    avg_v = sum(vol_chg[:n]) / n
+    cov = sum((price_chg[i] - avg_p) * (vol_chg[i] - avg_v) for i in range(n))
+    std_p = (sum((p - avg_p) ** 2 for p in price_chg[:n])) ** 0.5
+    std_v = (sum((v - avg_v) ** 2 for v in vol_chg[:n])) ** 0.5
+    if std_p == 0 or std_v == 0:
+        return 0
+    return cov / (std_p * std_v * n)
+
+
+def _calc_mfi(highs, lows, closes, volumes, period=14):
+    """MFI 资金流量指标"""
+    if len(closes) < period + 1:
+        return 50.0
+    pos_flow = 0.0
+    neg_flow = 0.0
+    for i in range(-period, 0):
+        tp = (highs[i] + lows[i] + closes[i]) / 3
+        prev_tp = (highs[i-1] + lows[i-1] + closes[i-1]) / 3
+        mf = tp * volumes[i]
+        if tp > prev_tp:
+            pos_flow += mf
+        else:
+            neg_flow += mf
+    if neg_flow == 0:
+        return 100.0
+    mfr = pos_flow / neg_flow
+    return 100.0 - 100.0 / (1.0 + mfr)

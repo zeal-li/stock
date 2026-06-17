@@ -31,9 +31,10 @@ from ml_train.features import extract_features
 # ===== 训练参数 =====
 FORWARD_DAYS = 3           # 标签：未来 N 个交易日
 RISE_THRESHOLD = 0.05      # 涨幅超过 5% 标记为正样本
-TRAIN_CUTOFF = '2025-03-01'  # 此日期前的样本用作训练，之后用作测试
+TEST_MONTHS = 6              # 最近 N 个月数据作为测试集，之前的作为训练
+# TRAIN_CUTOFF 由当前日期减去 TEST_MONTHS 自动计算
 MIN_KLINES = 180           # 最少需要 180 根日K线（120根特征窗口 + 最大前视）
-MAX_TRAIN_SAMPLES = 200000 # 训练样本上限（避免内存爆炸）
+MAX_TRAIN_SAMPLES = 2000000 # 训练样本上限
 
 # ===== 路径 =====
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_lib.db')
@@ -76,24 +77,42 @@ def get_klines(code):
     return [dict(r) for r in rows]
 
 
-def generate_samples(klines):
+def get_index_klines():
+    """读取上证指数日K线（按时间升序），用作大盘对比特征"""
+    conn = _kline_conn()
+    rows = conn.execute(
+        'SELECT date, open, high, low, close, volume, amount FROM stock_klines '
+        'WHERE code=? AND market=? AND period=? ORDER BY date ASC',
+        ('000001', 'hs_main', 'daily')
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def generate_samples(klines, index_klines):
     """对一只股票的所有交易日，滑动窗口生成训练样本
 
     klines: 按时间升序的日K线列表
+    index_klines: 上证指数日K线列表（按时间升序），用于大盘对比特征
 
     返回: [(features_dict, label, date), ...]
-      features_dict: 特征字典
-      label: 0/1
     """
     if len(klines) < MIN_KLINES:
         return []
+    if not index_klines:
+        index_klines = []
 
     samples = []
     lookback = 120  # 特征计算窗口
     for i in range(lookback, len(klines) - FORWARD_DAYS):
         # 特征窗口: [i-lookback, i)  共 lookback 根K线
         feat_klines = klines[i - lookback:i]
-        features = extract_features(feat_klines)
+
+        # 对齐指数K线：取相同日期范围的指数数据
+        feat_dates = {k['date'] for k in feat_klines}
+        aligned_idx = [k for k in index_klines if k['date'] in feat_dates]
+
+        features = extract_features(feat_klines, aligned_idx if aligned_idx else None)
         if features is None:
             continue
 
@@ -111,11 +130,18 @@ def generate_samples(klines):
 def train():
     """主训练流程"""
     print(f"=== ML策略训练 ===")
+    from datetime import datetime, timedelta
+    train_cutoff = (datetime.now() - timedelta(days=TEST_MONTHS * 30)).strftime('%Y-%m-%d')
+
     print(f"  DB: {DB_PATH}")
     print(f"  前视天数: {FORWARD_DAYS}天")
     print(f"  涨幅阈值: {RISE_THRESHOLD*100}%")
-    print(f"  训练/测试切分: {TRAIN_CUTOFF}")
+    print(f"  训练/测试切分: 最近{TEST_MONTHS}个月作为测试 → cuttoff={train_cutoff}")
     print()
+
+    # --- 0. 预加载指数数据 ---
+    index_klines = get_index_klines()
+    print(f"上证指数日K线: {len(index_klines)} 根")
 
     # --- 1. 获取股票列表 ---
     stocks = get_stock_list()
@@ -128,10 +154,10 @@ def train():
     for idx, (code, name) in enumerate(stocks):
         try:
             klines = get_klines(code)
-            samples = generate_samples(klines)
+            samples = generate_samples(klines, index_klines)
 
             for feat, label, date in samples:
-                if date < TRAIN_CUTOFF:
+                if date < train_cutoff:
                     all_train_samples.append((feat, label))
                 else:
                     all_test_samples.append((feat, label))
@@ -185,10 +211,13 @@ def train():
     print("\n开始训练 XGBoost ...")
     model = XGBClassifier(
         n_estimators=200,
-        max_depth=6,
+        max_depth=5,
         learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
+        subsample=0.7,
+        colsample_bytree=0.7,
+        reg_alpha=0.5,
+        reg_lambda=1.0,
+        min_child_weight=3,
         scale_pos_weight=scale_pos_weight,
         objective='binary:logistic',
         eval_metric='auc',
@@ -253,7 +282,7 @@ def train():
         'meta': {
             'forward_days': FORWARD_DAYS,
             'rise_threshold': RISE_THRESHOLD,
-            'train_cutoff': TRAIN_CUTOFF,
+            'train_cutoff': train_cutoff,
             'train_samples': len(all_train_samples),
             'test_samples': len(all_test_samples),
             'positive_ratio': float(pos_ratio),

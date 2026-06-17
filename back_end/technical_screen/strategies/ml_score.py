@@ -27,7 +27,7 @@ def _load_model():
         _model = _bundle['model']
 
 
-def calc(daily_klines, weekly_klines=None, monthly_klines=None, lookback=60):
+def calc(daily_klines, weekly_klines=None, monthly_klines=None, index_klines=None, lookback=60):
     """
     ML 打分策略：用训练好的 XGBoost 模型评估当前股票
 
@@ -42,9 +42,15 @@ def calc(daily_klines, weekly_klines=None, monthly_klines=None, lookback=60):
     if len(daily_klines) < 120:
         return 0, {}
 
+    # 对齐指数K线到股票K线日期范围
+    aligned_idx = None
+    if index_klines:
+        stock_dates = {k['date'] for k in daily_klines}
+        aligned_idx = [k for k in index_klines if k['date'] in stock_dates]
+
     # 提取特征
     from ml_train.features import extract_features
-    features = extract_features(daily_klines)
+    features = extract_features(daily_klines, aligned_idx if aligned_idx else None)
     if features is None:
         return 0, {}
 
