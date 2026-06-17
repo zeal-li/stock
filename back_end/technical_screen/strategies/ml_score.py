@@ -62,9 +62,6 @@ def calc(daily_klines, weekly_klines=None, monthly_klines=None, index_klines=Non
     proba = _model.predict_proba(X)[0][1]
     score = round(proba * 100)
 
-    if score <= 0:
-        return 0, {}
-
     detail = {
         'probability': round(proba, 4),
         'model_samples': _bundle['meta'].get('train_samples', '?'),

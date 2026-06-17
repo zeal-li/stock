@@ -61,7 +61,7 @@ def _scan_one(code, name, strategy_key):
     weekly_klines = [dict(r) for r in reversed(weekly_rows)]
     monthly_klines = [dict(r) for r in reversed(monthly_rows)]
     score, detail = strategy['calc'](klines, weekly_klines=weekly_klines, monthly_klines=monthly_klines, index_klines=_index_klines_cache)
-    if score <= 0:
+    if score == 0 and not detail:
         return None
     return {
         'code': code, 'name': name if name else code,
@@ -110,7 +110,7 @@ def get_scan_status():
         'running': _scan_state['running'],
         'total': _scan_state['total'],
         'done': _scan_state['done'],
-        'results': sorted(_scan_state['results'], key=lambda x: x['score'], reverse=True),
+        'results': sorted(_scan_state['results'], key=lambda x: x['score'], reverse=True)[:30],
     }
 
 
