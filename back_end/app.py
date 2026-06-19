@@ -675,7 +675,23 @@ def market_db_status():
     return jsonify({'list_stocks': list_count, 'detail_stocks': kline_count})
 
 
+# ==================== 交易日历 ====================
+
+@app.route('/api/is-trading-day')
+def is_trading_day():
+    """判断今天是否为A股交易日（排除周末和法定节假日）"""
+    import datetime as _dt
+    today = _dt.date.today()
+    try:
+        from chinese_calendar import is_workday
+        result = is_workday(today)
+    except ImportError:
+        result = today.weekday() < 5
+    return jsonify({'date': today.isoformat(), 'is_trading_day': result})
+
+
 # ==================== 公司公告 ====================
+
 
 def _collect_target_codes():
     """收集自选股+选股代码"""

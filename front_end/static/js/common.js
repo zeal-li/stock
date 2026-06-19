@@ -19,6 +19,59 @@ function clearAllCaches() {
     try { loadWatchlistStocks(); } catch(e) {}
 }
 
+// ---- 交易日历缓存（由后端 /api/is-trading-day 填充，排除节假日） ----
+var _tradingDayResult = null;  // {date: '2026-06-19', is_trading_day: true/false}
+
+function initTradingDayCache() {
+    fetch('/api/is-trading-day')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            _tradingDayResult = data;
+        })
+        .catch(function() {
+            _tradingDayResult = null;  // 降级：仅用周末判断
+        });
+}
+
+// ---- 判断当日是否是交易日 ----
+// market: '0','1','2','90'=A股, '116'=港股, '106'=美股
+function isTradingDay(market) {
+    if (market === '106') {
+        // 美股：判断美东时间是否在周一至周五
+        var now = new Date();
+        var year = now.getUTCFullYear();
+        var mar1 = new Date(Date.UTC(year, 2, 1));
+        var dstStartDay = 7 + (7 - mar1.getUTCDay());
+        if (dstStartDay > 14) dstStartDay -= 7;
+        var dstStart = Date.UTC(year, 2, dstStartDay, 7, 0, 0);
+        var nov1 = new Date(Date.UTC(year, 10, 1));
+        var dstEndDay = 7 - nov1.getUTCDay();
+        if (dstEndDay <= 0) dstEndDay += 7;
+        var dstEnd = Date.UTC(year, 10, dstEndDay, 6, 0, 0);
+        var isDST = now.getTime() >= dstStart && now.getTime() < dstEnd;
+        var offset = isDST ? -4 : -5;
+        var et = new Date(now.getTime() + offset * 3600000);
+        var etDay = et.getUTCDay();
+        return etDay !== 0 && etDay !== 6;
+    }
+    // A股 / 港股：先排除周末
+    var now = new Date();
+    var day = now.getDay();
+    if (day === 0 || day === 6) return false;
+    // 港股：周末已排除，其余为交易日
+    if (market === '116') return true;
+    // A股：叠加后端交易日历（排除法定节假日）
+    // 缓存未就绪时不注入，避免在节假日误显示今日K线
+    if (_tradingDayResult == null) return false;
+    var todayStr = now.getFullYear() + '-' +
+                   String(now.getMonth() + 1).padStart(2, '0') + '-' +
+                   String(now.getDate()).padStart(2, '0');
+    if (_tradingDayResult.date === todayStr) {
+        return _tradingDayResult.is_trading_day;
+    }
+    return false;
+}
+
 // ---- 各市场交易时间判断 ----
 // market: '0','1','2','90'=A股, '116'=港股, '106'=美股
 function isMarketTradingTime(market) {

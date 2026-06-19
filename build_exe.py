@@ -49,6 +49,7 @@ hidden_imports = [
     'watchlist', 'watchlist.__init__', 'watchlist.service',
     'technical_screen', 'technical_screen.__init__', 'technical_screen.service',
     'market_db', 'market_db.__init__', 'market_db.db', 'market_db.sync',
+    'chinese_calendar',
 ]
 
 PyInstaller.__main__.run([

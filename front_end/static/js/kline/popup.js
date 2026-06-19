@@ -540,7 +540,8 @@ var KlinePopup = (function() {
     function _renderChart(data) {
         _klinesData = data.klines;
         // 渲染前用行情数据覆盖/插入今日K线（同花顺日K当天数据可能缺失或不完整）
-        if (_quoteData && _klinesData && _klinesData.length > 0) {
+        // 非交易日不注入，避免显示无意义的今日K线
+        if (_quoteData && _klinesData && _klinesData.length > 0 && isTradingDay(_stockMarket)) {
             var today = new Date();
             var todayStr = today.getFullYear() + '-' +
                            String(today.getMonth() + 1).padStart(2, '0') + '-' +
