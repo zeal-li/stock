@@ -399,7 +399,7 @@ var KlinePopup = (function() {
     function _renderFiveDayMinute() {
         var el = document.getElementById('klChart');
         if (_observer) _observer.disconnect();
-        var result = KlineFiveDay.render(el, _fiveDayRaw, _stockMarket);
+        var result = KlineFiveDay.render(el, _fiveDayRaw, _stockCode, _stockMarket);
         if (!result) return;
         _chart = result.chart;
         _fiveDayAreaSeries = result.areaSeries;

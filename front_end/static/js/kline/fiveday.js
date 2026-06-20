@@ -1,7 +1,7 @@
 // ==================== 五日分时图渲染 ====================
 
 var KlineFiveDay = {
-    render: function(el, raw, stockMarket) {
+    render: function(el, raw, stockCode, stockMarket) {
         el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
 
         var times = raw.times, prices = raw.prices, volumes = raw.volumes || [], amounts = raw.amounts || [];
@@ -103,7 +103,7 @@ var KlineFiveDay = {
         for (var si = 0; si < allSlots.length; si++) {
             if (allSlots[si].price != null) areaData.push({ time: allSlots[si].ts, value: allSlots[si].price });
         }
-        var _priceDec = _isOverseas5D ? 3 : 2;
+        var _priceDec = (_isOverseas5D || isETF(stockCode, stockMarket)) ? 3 : 2;
         var areaSeries = chart.addAreaSeries({
             lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)',
             lineWidth: 1.5, priceLineVisible: false,
