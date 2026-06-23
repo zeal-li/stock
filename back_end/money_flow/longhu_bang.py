@@ -242,12 +242,12 @@ def get_longhu_bang(trade_date: str = None, tab: str = 'all'):
     data = raw["data"]
     all_list = data.get("list", [])
 
-    # 按 tab 筛选
+    # 按 tab 筛选（互斥：三个榜单不重叠）
     tab_map = {
         'all': lambda _: True,
-        'org': lambda r: r['lhb_type'] in ('org', 'both'),
-        'capital': lambda r: r['lhb_type'] in ('capital', 'both'),
-        'both': lambda r: r['lhb_type'] == 'both',
+        'org': lambda r: r['lhb_type'] == 'org',       # 纯机构，无游资
+        'capital': lambda r: r['lhb_type'] == 'capital', # 纯游资，无机构
+        'both': lambda r: r['lhb_type'] == 'both',      # 机构+游资同时出现
     }
 
     filtered = [r for r in all_list if tab_map.get(tab, tab_map['all'])(r)]

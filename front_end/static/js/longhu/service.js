@@ -68,6 +68,8 @@ function renderLHBDateBar(activeDate) {
 
 function selectLHBDate(date) {
     lhbCurrentDate = date;
+    // 切日期时重置标签文字（新日期的计数会由 prefetch 重新设置）
+    _resetTabLabels();
     renderLHBDateBar(date);
     loadLonghuBang(date);
 }
@@ -91,14 +93,16 @@ async function initLHB() {
     renderLHBDateBar(lhbCurrentDate);
 }
 
-function renderLonghuTable(data, tradeDate) {
+function renderLonghuTable(data, tradeDate, tab) {
     var container = document.getElementById('longhuContent');
     if (!data || data.length === 0) {
         container.innerHTML = '<div class="error">' + (tradeDate || '该日') + ' 暂无龙虎榜数据（非交易日或数据未更新）</div>';
         return;
     }
 
-    var html = '<table class="lhb-table">';
+    var tabLabel = {'all':'全部','org':'机构榜','capital':'游资榜','both':'机构+游资'}[tab] || '';
+    var html = '<div style="margin-bottom:8px;font-size:12px;color:#888;">共 <b style="color:#fbbf24;">' + data.length + '</b> 条' + (tabLabel ? '（' + tabLabel + '）' : '') + '</div>';
+    html += '<table class="lhb-table">';
     html += '<thead><tr>';
     html += '<th style="width:120px;">股票</th>';
     html += '<th style="width:48px;text-align:center;">市场</th>';
@@ -193,28 +197,46 @@ async function loadLonghuBang(tradeDate) {
     var isManual = !!tradeDate;               // 手动选择 vs 首次自动加载
     var date = tradeDate || lhbCurrentDate;
     if (!date) return;
+    var tab = lhbCurrentTab;
+
+    // 切换标签时优先用缓存
+    if (isManual) {
+        var cacheKey = date + '|' + tab;
+        var cached = _lhbCache[cacheKey];
+        if (cached) {
+            _updateTabLabel(tab, cached.list.length);
+            _prefetchTabCounts(date, tab);  // 恢复其他标签计数（resetTabLabels 清空了）
+            renderLonghuTable(cached.list, cached.trade_date, tab);
+            return;
+        }
+    }
 
     try {
-        var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date) + '&tab=' + encodeURIComponent(lhbCurrentTab));
+        var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date) + '&tab=' + encodeURIComponent(tab));
         var result = await res.json();
 
         if (result.success && result.data && result.data.list.length > 0) {
-            // 有数据：如果是首次自动加载找到了更近的交易日，同步日期按钮
+            // 缓存结果
+            var list = result.data.list;
+            _lhbCache[date + '|' + tab] = {list: list, trade_date: result.data.trade_date};
+            // 立即更新当前标签计数 + 后台预加载其他标签
+            _updateTabLabel(tab, list.length);
+            _prefetchTabCounts(date, tab);
+
             if (!isManual && result.data.trade_date !== lhbCurrentDate) {
                 lhbCurrentDate = result.data.trade_date;
                 renderLHBDateBar(lhbCurrentDate);
             }
-            renderLonghuTable(result.data.list, result.data.trade_date);
+            renderLonghuTable(list, result.data.trade_date, tab);
             return;
         }
 
-        // 手动选择无数据：直接显示空
         if (isManual) {
             container.innerHTML = '<div class="error">' + date + ' 暂无龙虎榜数据</div>';
             return;
         }
 
-        // 首次自动加载无数据 → 往历史回溯，找最近一个交易日
+        // 首次自动加载无数据 → 往历史回溯
         var parts = date.split('-');
         var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
         for (var i = 0; i < 10; i++) {
@@ -224,12 +246,15 @@ async function loadLonghuBang(tradeDate) {
             var dd = String(d.getDate()).padStart(2, '0');
             var prevDate = yyyy + '-' + mm + '-' + dd;
 
-            var prevRes = await fetch('/api/longhu-bang?date=' + encodeURIComponent(prevDate) + '&tab=' + encodeURIComponent(lhbCurrentTab));
+            var prevRes = await fetch('/api/longhu-bang?date=' + encodeURIComponent(prevDate) + '&tab=' + tab);
             var prevResult = await prevRes.json();
             if (prevResult.success && prevResult.data && prevResult.data.list.length > 0) {
                 lhbCurrentDate = prevDate;
+                _lhbCache[prevDate + '|' + tab] = {list: prevResult.data.list, trade_date: prevResult.data.trade_date};
+                _updateTabLabel(tab, prevResult.data.list.length);
+                _prefetchTabCounts(prevDate, tab);
                 renderLHBDateBar(lhbCurrentDate);
-                renderLonghuTable(prevResult.data.list, prevResult.data.trade_date);
+                renderLonghuTable(prevResult.data.list, prevResult.data.trade_date, tab);
                 return;
             }
         }
@@ -237,5 +262,42 @@ async function loadLonghuBang(tradeDate) {
     } catch (e) {
         console.log('龙虎榜加载失败:', e);
         container.innerHTML = '<div class="error">龙虎榜加载失败</div>';
+    }
+}
+
+// 后台预加载其他 tab，更新标签计数
+async function _prefetchTabCounts(date, currentTab) {
+    for (var t of ['all', 'org', 'capital', 'both']) {
+        if (t === currentTab) continue;
+        var cacheKey = date + '|' + t;
+        // 已有缓存则直接更新标签，否则请求后端
+        if (_lhbCache[cacheKey]) {
+            _updateTabLabel(t, _lhbCache[cacheKey].list.length);
+            continue;
+        }
+        try {
+            var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date) + '&tab=' + encodeURIComponent(t));
+            var result = await res.json();
+            if (result.success && result.data) {
+                _lhbCache[cacheKey] = {list: result.data.list, trade_date: result.data.trade_date};
+                _updateTabLabel(t, result.data.list.length);
+            }
+        } catch (_) {}
+    }
+}
+
+function _updateTabLabel(tab, count) {
+    var el = document.querySelector('.lhb-tab[data-tab="' + tab + '"]');
+    if (!el) return;
+    var label = el.getAttribute('data-label') || el.textContent.split(' (')[0];
+    el.setAttribute('data-label', label);
+    el.textContent = label + ' (' + count + ')';
+}
+
+function _resetTabLabels() {
+    var tabs = document.querySelectorAll('.lhb-tab');
+    for (var i = 0; i < tabs.length; i++) {
+        var label = tabs[i].getAttribute('data-label');
+        if (label) tabs[i].textContent = label;
     }
 }
