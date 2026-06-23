@@ -277,4 +277,11 @@ def get_longhu_bang(trade_date: str = None, tab: str = 'all'):
             "sell_seats": r["sell_seats"],
         })
 
+    # 排序：涨跌幅↓ → 净买额↓ → 成交额↓
+    output.sort(key=lambda r: (
+        r['change_pct'] if r['change_pct'] is not None else float('-inf'),
+        r['net_amt'] if r['net_amt'] is not None else float('-inf'),
+        r['amount_raw'] if r['amount_raw'] is not None else float('-inf'),
+    ), reverse=True)
+
     return {"success": True, "data": {"trade_date": data["trade_date"], "list": output}}
