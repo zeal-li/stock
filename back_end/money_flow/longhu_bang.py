@@ -24,8 +24,8 @@ def _fetch_longhu_bang(trade_date: str = None):
     if not leftcol:
         return {"success": False, "error": "同花顺龙虎榜页面格式变化，未找到 leftcol"}
 
-    # stockcont 席位明细：rid -> seat rows
-    seat_map = _parse_stockcont(soup)
+    # stockcont: rid -> {seats, reason}
+    seat_map, reason_map = _parse_stockcont(soup)
 
     # 解析 leftcol 表格行
     left_tbody = leftcol.select_one('.twrap tbody')
@@ -102,17 +102,8 @@ def _fetch_longhu_bang(trade_date: str = None):
         else:
             lhb_type = 'other'
 
-        # 统计上榜原因
-        reasons = []
-        if multi_day_label:
-            reasons.append(multi_day_label)
-        # 从席位标签也提取原因
-        all_labels = set()
-        for s in buy_seats + sell_seats:
-            if s['label']:
-                all_labels.add(s['label'])
-        if all_labels:
-            reasons.extend(sorted(all_labels))
+        # 上榜原因：从 stockcont 的 <p> 标签提取
+        reason = reason_map.get(rid, '')
 
         result.append({
             "code": code,
@@ -125,7 +116,7 @@ def _fetch_longhu_bang(trade_date: str = None):
             "lhb_type": lhb_type,
             "buy_seats": buy_seats,
             "sell_seats": sell_seats,
-            "reason": '、'.join(reasons) if reasons else '',
+            "reason": reason,
             "buy_seat_count": len(buy_seats),
             "sell_seat_count": len(sell_seats),
             "trade_date": trade_date,
@@ -138,13 +129,24 @@ def _fetch_longhu_bang(trade_date: str = None):
 
 
 def _parse_stockcont(soup):
-    """解析所有 stockcont div 的席位明细"""
+    """解析所有 stockcont div 的席位明细 + 上榜原因"""
     seat_map = {}
+    reason_map = {}
 
     for sc in soup.select('.stockcont'):
         rid = sc.get('rid', '')
         if not rid:
             continue
+
+        # 提取上榜原因：<p>股票名(代码)明细：原因</p>
+        p_el = sc.find('p')
+        if p_el:
+            p_text = p_el.get_text(strip=True)
+            # 格式: "国华退(000004)明细：退市整理证券"
+            if '明细：' in p_text:
+                reason_map[rid] = p_text.split('明细：', 1)[1].strip()
+            elif '：' in p_text:
+                reason_map[rid] = p_text.split('：', 1)[1].strip()
 
         tables = sc.find_all('table', class_='m-table')
         buy_seats = []
@@ -204,7 +206,7 @@ def _parse_stockcont(soup):
 
         seat_map[rid] = {"buy": buy_seats, "sell": sell_seats}
 
-    return seat_map
+    return seat_map, reason_map
 
 
 def _parse_amount(s):
