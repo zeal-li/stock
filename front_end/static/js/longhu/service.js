@@ -39,13 +39,55 @@ function toggleLHBDetail(idx) {
     }
 }
 
-function renderLonghuTable(data, tradeDate) {
-    var dateEl = document.getElementById('lhbPageDate');
-    if (dateEl) dateEl.textContent = tradeDate || '';
+var lhbCurrentDate = '';
+var _lhbInitialized = false;
 
+function initLHBPicker() {
+    if (_lhbInitialized) return;
+    _lhbInitialized = true;
+    var picker = document.getElementById('lhbDatePicker');
+    if (!picker) return;
+    var today = new Date();
+    var yyyy = today.getFullYear();
+    var mm = String(today.getMonth() + 1).padStart(2, '0');
+    var dd = String(today.getDate()).padStart(2, '0');
+    lhbCurrentDate = yyyy + '-' + mm + '-' + dd;
+    picker.value = lhbCurrentDate;
+    picker.max = lhbCurrentDate;
+}
+
+function onLHBPickerChange() {
+    var picker = document.getElementById('lhbDatePicker');
+    if (picker && picker.value) {
+        lhbCurrentDate = picker.value;
+        loadLonghuBang(lhbCurrentDate);
+    }
+}
+
+function shiftLHBDay(delta) {
+    var parts = lhbCurrentDate.split('-');
+    var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    d.setDate(d.getDate() + delta);
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    if (d > today) return;  // 不能到未来
+    var yyyy = d.getFullYear();
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    lhbCurrentDate = yyyy + '-' + mm + '-' + dd;
+    var picker = document.getElementById('lhbDatePicker');
+    if (picker) picker.value = lhbCurrentDate;
+    loadLonghuBang(lhbCurrentDate);
+}
+
+function prevLHBDay() { shiftLHBDay(-1); }
+function nextLHBDay() { shiftLHBDay(1); }
+
+function renderLonghuTable(data, tradeDate) {
     var container = document.getElementById('longhuContent');
     if (!data || data.length === 0) {
-        container.innerHTML = '<div class="error">今日暂无龙虎榜数据（非交易日或数据未更新）</div>';
+        container.innerHTML = '<div class="error">' + (tradeDate || '该日') + ' 暂无龙虎榜数据（非交易日或数据未更新）</div>';
         return;
     }
 
@@ -114,20 +156,57 @@ function renderLonghuTable(data, tradeDate) {
     container.innerHTML = html;
 }
 
-async function loadLonghuBang() {
+async function loadLonghuBang(tradeDate) {
     var container = document.getElementById('longhuContent');
     if (!container) return;
 
+    if (!lhbCurrentDate) initLHBPicker();
+    var isManual = !!tradeDate;               // 手动选择 vs 首次自动加载
+    var date = tradeDate || lhbCurrentDate;
+    if (!date) return;
+
     try {
-        var res = await fetch('/api/longhu-bang');
+        var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date));
         var result = await res.json();
 
-        if (result.success && result.data) {
+        if (result.success && result.data && result.data.list.length > 0) {
+            // 有数据：如果是首次自动加载找到了更近的交易日，同步 picker
+            if (!isManual && result.data.trade_date !== lhbCurrentDate) {
+                lhbCurrentDate = result.data.trade_date;
+                var picker = document.getElementById('lhbDatePicker');
+                if (picker) picker.value = lhbCurrentDate;
+            }
             renderLonghuTable(result.data.list, result.data.trade_date);
-        } else {
-            container.innerHTML = '<div class="error">暂无龙虎榜数据</div>';
-            document.getElementById('lhbPageDate').textContent = '';
+            return;
         }
+
+        // 手动选择无数据：直接显示空
+        if (isManual) {
+            container.innerHTML = '<div class="error">' + date + ' 暂无龙虎榜数据</div>';
+            return;
+        }
+
+        // 首次自动加载无数据 → 往历史回溯，找最近一个交易日
+        var parts = date.split('-');
+        var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        for (var i = 0; i < 10; i++) {
+            d.setDate(d.getDate() - 1);
+            var yyyy = d.getFullYear();
+            var mm = String(d.getMonth() + 1).padStart(2, '0');
+            var dd = String(d.getDate()).padStart(2, '0');
+            var prevDate = yyyy + '-' + mm + '-' + dd;
+
+            var prevRes = await fetch('/api/longhu-bang?date=' + encodeURIComponent(prevDate));
+            var prevResult = await prevRes.json();
+            if (prevResult.success && prevResult.data && prevResult.data.list.length > 0) {
+                lhbCurrentDate = prevDate;
+                var picker2 = document.getElementById('lhbDatePicker');
+                if (picker2) picker2.value = lhbCurrentDate;
+                renderLonghuTable(prevResult.data.list, prevResult.data.trade_date);
+                return;
+            }
+        }
+        container.innerHTML = '<div class="error">' + date + ' 及此前10日暂无龙虎榜数据</div>';
     } catch (e) {
         console.log('龙虎榜加载失败:', e);
         container.innerHTML = '<div class="error">龙虎榜加载失败</div>';

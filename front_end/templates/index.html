@@ -73,7 +73,11 @@
             <div id="page-longhu" style="display:none;">
                 <div class="page-header">
                     <h1 class="page-title">🐉 龙虎榜</h1>
-                    <span id="lhbPageDate" style="font-size:12px; color:#888;"></span>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <button class="refresh-btn" onclick="prevLHBDay()" style="padding:6px 12px;font-size:13px;" title="前一天">◀</button>
+                        <input type="date" id="lhbDatePicker" onchange="onLHBPickerChange()" style="padding:6px 10px;font-size:13px;background:#1a1a2e;color:#ccc;border:1px solid #0f3460;border-radius:6px;cursor:pointer;">
+                        <button class="refresh-btn" onclick="nextLHBDay()" style="padding:6px 12px;font-size:13px;" title="后一天">▶</button>
+                    </div>
                 </div>
                 <div class="index-card" style="padding:18px;">
                     <div id="longhuContent" style="max-height:700px; overflow-y:auto;">
