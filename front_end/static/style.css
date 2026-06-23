@@ -281,6 +281,75 @@ body {
     color: #ddd;
 }
 
+/* 龙虎榜表格 */
+.lhb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.lhb-table thead {
+    background: #0f3460;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.lhb-table th {
+    padding: 10px 8px;
+    text-align: left;
+    font-weight: 600;
+    color: #888;
+    font-size: 11px;
+    white-space: nowrap;
+    border-bottom: 1px solid #0f3460;
+}
+
+.lhb-table tbody tr.lhb-row {
+    border-bottom: 1px solid rgba(15, 52, 96, 0.6);
+    transition: background 0.2s;
+}
+
+.lhb-table tbody tr.lhb-row:hover {
+    background: rgba(15, 52, 96, 0.5);
+}
+
+.lhb-table td {
+    padding: 8px;
+    vertical-align: middle;
+}
+
+.lhb-stock-name {
+    color: #fff;
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.lhb-stock-name:hover {
+    color: #e94560;
+    text-decoration: underline;
+}
+
+/* 龙虎榜席位详情行 */
+.lhb-detail td {
+    border-bottom: 1px solid #0f3460;
+}
+
+/* 龙虎榜卡片内的滚动条美化 */
+#longhuContent::-webkit-scrollbar {
+    width: 4px;
+}
+
+#longhuContent::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#longhuContent::-webkit-scrollbar-thumb {
+    background: #0f3460;
+    border-radius: 2px;
+}
+
 .change-up {
     color: #e94560 !important;
 }

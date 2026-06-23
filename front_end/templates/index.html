@@ -22,6 +22,10 @@
                     <span class="nav-icon">💰</span>
                     <span>资金流向</span>
                 </div>
+                <div class="nav-item" data-page="longhu">
+                    <span class="nav-icon">🐉</span>
+                    <span>龙虎榜</span>
+                </div>
                 <div class="nav-item" data-page="watchlist">
                     <span class="nav-icon">⭐</span>
                     <span>自选股</span>
@@ -62,6 +66,19 @@
 
                 <div class="index-card" id="index-card">
                     <div class="loading">正在加载上证指数...</div>
+                </div>
+            </div>
+
+            <!-- 龙虎榜页面 -->
+            <div id="page-longhu" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">🐉 龙虎榜</h1>
+                    <span id="lhbPageDate" style="font-size:12px; color:#888;"></span>
+                </div>
+                <div class="index-card" style="padding:18px;">
+                    <div id="longhuContent" style="max-height:700px; overflow-y:auto;">
+                        <div class="loading">加载中...</div>
+                    </div>
                 </div>
             </div>
 
@@ -244,6 +261,7 @@
                 const page = this.getAttribute('data-page');
                 currentNavPage = page;
                 document.getElementById('page-money-flow').style.display = page === 'money-flow' ? 'block' : 'none';
+                document.getElementById('page-longhu').style.display = page === 'longhu' ? 'block' : 'none';
                 document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
                 document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
                 document.getElementById('page-tech-pick').style.display = page === 'tech-pick' ? 'block' : 'none';
@@ -252,6 +270,7 @@
                 document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
                 document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
+                if (page === 'longhu') loadLonghuBang();
 
                 if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }
                 if (page === 'earnings') { populateStockFilters(); loadEarningsList(); }
@@ -282,6 +301,7 @@
     <script src="/static/js/announce/service.js"></script>
     <script src="/static/js/earnings/service.js"></script>
     <script src="/static/js/abnormal/service.js"></script>
+    <script src="/static/js/longhu/service.js"></script>
 
     <!-- 启动（所有 JS 加载完毕后执行） -->
     <script>

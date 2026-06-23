@@ -11,6 +11,7 @@ from money_flow.fund_flow import get_market_fund_flow
 from money_flow.fear_index import get_fear_index
 from money_flow.risk_index import get_risk_index
 from money_flow.margin import get_margin_trading
+from money_flow.longhu_bang import get_longhu_bang
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
@@ -75,6 +76,13 @@ def risk_index():
 @app.route('/api/margin-trading')
 def margin_trading():
     return jsonify(get_margin_trading())
+
+
+@app.route('/api/longhu-bang')
+def longhu_bang():
+    """龙虎榜每日明细"""
+    trade_date = request.args.get('date', '').strip()
+    return jsonify(get_longhu_bang(trade_date or None))
 
 
 # ==================== 搜索 ====================
