@@ -41,48 +41,43 @@ function toggleLHBDetail(idx) {
 
 var lhbCurrentDate = '';
 var _lhbInitialized = false;
+var _lhbDateList = null;   // 后端获取的交易日列表（缓存） ['2026-06-01', ...]
 
-function initLHBPicker() {
+async function fetchTradingDays() {
+    var res = await fetch('/api/trading-days?count=30');
+    var result = await res.json();
+    _lhbDateList = result.data.trading_days;
+    return _lhbDateList;
+}
+
+function renderLHBDateBar(activeDate) {
+    var bar = document.getElementById('lhbDateBar');
+    if (!bar || !_lhbDateList) return;
+
+    var html = '';
+    for (var i = 0; i < _lhbDateList.length; i++) {
+        var date = _lhbDateList[i];
+        var mmdd = date.slice(5);  // "MM-DD"
+        var cls = (date === activeDate) ? 'lhb-date-btn active' : 'lhb-date-btn';
+        html += '<span class="' + cls + '" onclick="selectLHBDate(\'' + date + '\')">' + mmdd + '</span>';
+    }
+    bar.innerHTML = html;
+}
+
+function selectLHBDate(date) {
+    lhbCurrentDate = date;
+    renderLHBDateBar(date);
+    loadLonghuBang(date);
+}
+
+async function initLHB() {
     if (_lhbInitialized) return;
     _lhbInitialized = true;
-    var picker = document.getElementById('lhbDatePicker');
-    if (!picker) return;
-    var today = new Date();
-    var yyyy = today.getFullYear();
-    var mm = String(today.getMonth() + 1).padStart(2, '0');
-    var dd = String(today.getDate()).padStart(2, '0');
-    lhbCurrentDate = yyyy + '-' + mm + '-' + dd;
-    picker.value = lhbCurrentDate;
-    picker.max = lhbCurrentDate;
-}
 
-function onLHBPickerChange() {
-    var picker = document.getElementById('lhbDatePicker');
-    if (picker && picker.value) {
-        lhbCurrentDate = picker.value;
-        loadLonghuBang(lhbCurrentDate);
-    }
+    _lhbDateList = await fetchTradingDays();
+    lhbCurrentDate = _lhbDateList[_lhbDateList.length - 1];  // 默认选中最新交易日
+    renderLHBDateBar(lhbCurrentDate);
 }
-
-function shiftLHBDay(delta) {
-    var parts = lhbCurrentDate.split('-');
-    var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-    d.setDate(d.getDate() + delta);
-    var today = new Date();
-    today.setHours(0, 0, 0, 0);
-    d.setHours(0, 0, 0, 0);
-    if (d > today) return;  // 不能到未来
-    var yyyy = d.getFullYear();
-    var mm = String(d.getMonth() + 1).padStart(2, '0');
-    var dd = String(d.getDate()).padStart(2, '0');
-    lhbCurrentDate = yyyy + '-' + mm + '-' + dd;
-    var picker = document.getElementById('lhbDatePicker');
-    if (picker) picker.value = lhbCurrentDate;
-    loadLonghuBang(lhbCurrentDate);
-}
-
-function prevLHBDay() { shiftLHBDay(-1); }
-function nextLHBDay() { shiftLHBDay(1); }
 
 function renderLonghuTable(data, tradeDate) {
     var container = document.getElementById('longhuContent');
@@ -160,7 +155,7 @@ async function loadLonghuBang(tradeDate) {
     var container = document.getElementById('longhuContent');
     if (!container) return;
 
-    if (!lhbCurrentDate) initLHBPicker();
+    if (!lhbCurrentDate) await initLHB();
     var isManual = !!tradeDate;               // 手动选择 vs 首次自动加载
     var date = tradeDate || lhbCurrentDate;
     if (!date) return;
@@ -170,11 +165,10 @@ async function loadLonghuBang(tradeDate) {
         var result = await res.json();
 
         if (result.success && result.data && result.data.list.length > 0) {
-            // 有数据：如果是首次自动加载找到了更近的交易日，同步 picker
+            // 有数据：如果是首次自动加载找到了更近的交易日，同步日期按钮
             if (!isManual && result.data.trade_date !== lhbCurrentDate) {
                 lhbCurrentDate = result.data.trade_date;
-                var picker = document.getElementById('lhbDatePicker');
-                if (picker) picker.value = lhbCurrentDate;
+                renderLHBDateBar(lhbCurrentDate);
             }
             renderLonghuTable(result.data.list, result.data.trade_date);
             return;
@@ -200,8 +194,7 @@ async function loadLonghuBang(tradeDate) {
             var prevResult = await prevRes.json();
             if (prevResult.success && prevResult.data && prevResult.data.list.length > 0) {
                 lhbCurrentDate = prevDate;
-                var picker2 = document.getElementById('lhbDatePicker');
-                if (picker2) picker2.value = lhbCurrentDate;
+                renderLHBDateBar(lhbCurrentDate);
                 renderLonghuTable(prevResult.data.list, prevResult.data.trade_date);
                 return;
             }

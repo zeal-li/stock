@@ -272,7 +272,7 @@ def train():
     if os.path.exists(MODEL_PATH):
         old_bundle = joblib.load(MODEL_PATH)
         old_meta = old_bundle['meta']
-        old_score = old_meta.get('best_score', None)
+        old_score = old_  meta.get('best_score', None)
         old_ts = old_meta.get('train_ts', None)
 
     # 模型数据

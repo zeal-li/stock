@@ -698,6 +698,23 @@ def is_trading_day():
     return jsonify({'date': today.isoformat(), 'is_trading_day': result})
 
 
+@app.route('/api/trading-days')
+def trading_days():
+    """返回最近N个A股交易日（排除周末和法定节假日）"""
+    import datetime as _dt
+    from chinese_calendar import is_workday
+    count = request.args.get('count', 15, type=int)
+
+    dates = []
+    d = _dt.date.today()
+    while len(dates) < count:
+        if is_workday(d):
+            dates.append(d.isoformat())
+        d = d - _dt.timedelta(days=1)
+    dates.reverse()
+    return jsonify({'success': True, 'data': {'trading_days': dates}})
+
+
 # ==================== 公司公告 ====================
 
 

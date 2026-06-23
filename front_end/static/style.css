@@ -281,6 +281,31 @@ body {
     color: #ddd;
 }
 
+/* 龙虎榜日期按钮行 */
+.lhb-date-btn {
+    display: inline-block;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: #aaa;
+    background: rgba(15, 52, 96, 0.4);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+    transition: all 0.15s;
+}
+.lhb-date-btn:hover {
+    color: #fbbf24;
+    border-color: #0f3460;
+    background: rgba(15, 52, 96, 0.8);
+}
+.lhb-date-btn.active {
+    color: #0f3460;
+    background: #fbbf24;
+    font-weight: 700;
+}
+
 /* 龙虎榜表格 */
 .lhb-table {
     width: 100%;
