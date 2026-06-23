@@ -117,29 +117,33 @@ function isInTradingHours() {
     // 09:15-11:35, 12:55-15:05
 }
 
-// 股票类型判断
+// 股票类型判断（代码前缀决定类型，market 仅兜底）
 function getStockType(code, market) {
     const c = (code || '').toString();
     const m = (market || '').toString();
-    if (m === '1' || m === '2') {
-        if (/^688/.test(c)) return '科创';
-        if (/^60[0135]/.test(c)) return '沪A';
-        if (/^51|^56|^58/.test(c)) return '沪ETF';
-        if (/^5/.test(c)) return '沪基';
-        if (/^11/.test(c)) return '沪债';
-        return '沪市';
-    }
-    if (m === '0') {
-        if (/^30[01]/.test(c)) return '创业';
-        if (/^00[0-3]|^002|^003/.test(c)) return '深A';
-        if (/^159/.test(c)) return '深ETF';
-        if (/^1[6-8]/.test(c)) return '深基';
-        if (/^12/.test(c)) return '深债';
-        return '深市';
-    }
+
+    // 港股/美股/境外 — market 决定，代码前缀无区分能力
     if (m === '116') return '港股';
     if (m === '106') return '美股';
     if (/^1[0-5]/.test(m) && parseInt(m) >= 105) return '境外';
+
+    // A 股：代码前缀确定类型
+    if (/^[48]|^92/.test(c)) return '北交';
+    if (/^688/.test(c)) return '科创';
+    if (/^60[0135]/.test(c)) return '沪A';
+    if (/^30[01]/.test(c)) return '创业';
+    if (/^00[0-3]/.test(c)) return '深A';
+    if (/^51|^56|^58/.test(c)) return '沪ETF';
+    if (/^5/.test(c)) return '沪基';
+    if (/^11/.test(c)) return '沪债';
+    if (/^159/.test(c)) return '深ETF';
+    if (/^1[6-8]/.test(c)) return '深基';
+    if (/^12/.test(c)) return '深债';
+
+    // 代码没匹配到，按 market 兜底
+    if (m === '1') return '沪市';
+    if (m === '2') return '科创';
+    if (m === '0') return '深市';
     return '';
 }
 
