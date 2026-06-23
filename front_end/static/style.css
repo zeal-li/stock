@@ -281,6 +281,29 @@ body {
     color: #ddd;
 }
 
+/* 龙虎榜分类标签 */
+.lhb-tab {
+    display: inline-block;
+    padding: 5px 14px;
+    font-size: 12px;
+    color: #aaa;
+    border: 1px solid #2a2a4e;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: transparent;
+}
+.lhb-tab:hover {
+    color: #fbbf24;
+    border-color: #fbbf24;
+}
+.lhb-tab.active {
+    color: #0f3460;
+    background: #fbbf24;
+    border-color: #fbbf24;
+    font-weight: 700;
+}
+
 /* 龙虎榜日期按钮行 */
 .lhb-date-btn {
     display: inline-block;
@@ -354,6 +377,29 @@ body {
 .lhb-stock-name:hover {
     color: #e94560;
     text-decoration: underline;
+}
+
+/* 龙虎榜分类标签 */
+.lhb-type-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-left: 4px;
+    vertical-align: middle;
+    font-weight: 600;
+}
+.lhb-type-tag.org {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.15);
+}
+.lhb-type-tag.capital {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.15);
+}
+.lhb-type-tag.both {
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.15);
 }
 
 /* 龙虎榜席位详情行 */

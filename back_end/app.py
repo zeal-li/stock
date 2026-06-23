@@ -80,9 +80,10 @@ def margin_trading():
 
 @app.route('/api/longhu-bang')
 def longhu_bang():
-    """龙虎榜每日明细"""
+    """龙虎榜每日明细，支持分类：all/org/capital/both"""
     trade_date = request.args.get('date', '').strip()
-    return jsonify(get_longhu_bang(trade_date or None))
+    tab = request.args.get('tab', 'all').strip()
+    return jsonify(get_longhu_bang(trade_date or None, tab))
 
 
 # ==================== 搜索 ====================

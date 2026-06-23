@@ -75,6 +75,12 @@
                     <h1 class="page-title">🐉 龙虎榜</h1>
                 </div>
                 <div class="index-card" style="padding:18px;">
+                    <div id="lhbTabBar" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+                        <span class="lhb-tab active" data-tab="all" onclick="selectLHBTab('all')">全部</span>
+                        <span class="lhb-tab" data-tab="org" onclick="selectLHBTab('org')">机构榜</span>
+                        <span class="lhb-tab" data-tab="capital" onclick="selectLHBTab('capital')">游资榜</span>
+                        <span class="lhb-tab" data-tab="both" onclick="selectLHBTab('both')">机构+游资</span>
+                    </div>
                     <div id="lhbDateBar" style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;"></div>
                     <div id="longhuContent" style="max-height:650px; overflow-y:auto;">
                         <div class="loading">加载中...</div>

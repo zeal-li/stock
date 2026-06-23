@@ -40,8 +40,10 @@ function toggleLHBDetail(idx) {
 }
 
 var lhbCurrentDate = '';
+var lhbCurrentTab = 'all';
 var _lhbInitialized = false;
-var _lhbDateList = null;   // 后端获取的交易日列表（缓存） ['2026-06-01', ...]
+var _lhbDateList = null;
+var _lhbCache = {};   // date -> {all: data, org: data, ...} 缓存避免重复请求
 
 async function fetchTradingDays() {
     var res = await fetch('/api/trading-days?count=30');
@@ -70,6 +72,16 @@ function selectLHBDate(date) {
     loadLonghuBang(date);
 }
 
+function selectLHBTab(tab) {
+    lhbCurrentTab = tab;
+    // 更新 tab 样式
+    var tabs = document.querySelectorAll('.lhb-tab');
+    for (var i = 0; i < tabs.length; i++) {
+        tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tab);
+    }
+    loadLonghuBang(lhbCurrentDate);
+}
+
 async function initLHB() {
     if (_lhbInitialized) return;
     _lhbInitialized = true;
@@ -88,15 +100,15 @@ function renderLonghuTable(data, tradeDate) {
 
     var html = '<table class="lhb-table">';
     html += '<thead><tr>';
-    html += '<th style="width:130px;">股票</th>';
-    html += '<th style="width:52px;text-align:center;">市场</th>';
-    html += '<th style="width:60px;text-align:right;">收盘价</th>';
-    html += '<th style="width:65px;text-align:right;">涨跌幅</th>';
-    html += '<th style="width:80px;text-align:right;">净买额</th>';
-    html += '<th style="width:80px;text-align:right;">买入额</th>';
-    html += '<th style="width:80px;text-align:right;">卖出额</th>';
-    html += '<th style="width:60px;text-align:right;">换手率</th>';
-    html += '<th style="min-width:160px;">上榜原因</th>';
+    html += '<th style="width:120px;">股票</th>';
+    html += '<th style="width:48px;text-align:center;">市场</th>';
+    html += '<th style="width:55px;text-align:right;">现价</th>';
+    html += '<th style="width:60px;text-align:right;">涨跌幅</th>';
+    html += '<th style="width:85px;text-align:right;">成交额</th>';
+    html += '<th style="width:78px;text-align:right;">总买额</th>';
+    html += '<th style="width:78px;text-align:right;">总卖额</th>';
+    html += '<th style="width:85px;text-align:right;">净买额</th>';
+    html += '<th style="min-width:120px;">上榜原因</th>';
     html += '</tr></thead><tbody>';
 
     for (var i = 0; i < data.length; i++) {
@@ -104,47 +116,67 @@ function renderLonghuTable(data, tradeDate) {
         var netColor = getLHBColor(row.net_amt);
         var changeClass = (row.change_pct != null && Number(row.change_pct) >= 0) ? 'change-up' : 'change-down';
 
+        // 分类标签颜色
+        var typeTag = '';
+        var typeCls = 'lhb-type-tag';
+        if (row.lhb_type === 'org') { typeTag = '机构'; typeCls += ' org'; }
+        else if (row.lhb_type === 'capital') { typeTag = '游资'; typeCls += ' capital'; }
+        else if (row.lhb_type === 'both') { typeTag = '机构+游资'; typeCls += ' both'; }
+
         html += '<tr class="lhb-row" onclick="toggleLHBDetail(' + i + ')" style="cursor:pointer;">';
-        html += '<td><span class="lhb-stock-name" onclick="event.stopPropagation();KlinePopup.open(\'' + row.code + '\',\'' + (row.code.startsWith('6') ? '1' : '0') + '\',\'' + (row.name || row.code) + '\')">' + (row.name || row.code) + '</span><span style="color:#888;font-size:11px;margin-left:4px;">' + row.code + '</span></td>';
-        html += '<td style="text-align:center;color:#888;font-size:12px;">' + getStockType(row.code, row.code.startsWith('6') ? '1' : '0') + '</td>';
+        html += '<td><span class="lhb-stock-name" onclick="event.stopPropagation();KlinePopup.open(\'' + row.code + '\',\'' + (row.code.startsWith('6') ? '1' : '0') + '\',\'' + (row.name || row.code) + '\')">' + (row.name || row.code) + '</span><span style="color:#888;font-size:11px;margin-left:4px;">' + row.code + '</span>';
+        if (typeTag) html += '<span class="' + typeCls + '">' + typeTag + '</span>';
+        html += '</td>';
+        html += '<td style="text-align:center;color:#888;font-size:11px;">' + getStockType(row.code, row.code.startsWith('6') ? '1' : '0') + '</td>';
         html += '<td style="text-align:right;color:#ccc;">' + fmtLHB(row.price, 'price') + '</td>';
         html += '<td style="text-align:right;" class="' + changeClass + '">' + fmtLHB(row.change_pct, 'pct') + '</td>';
+        html += '<td style="text-align:right;color:#888;">' + fmtLHB(row.amount_raw, 'amt') + '</td>';
+        html += '<td style="text-align:right;color:#e94560;">' + fmtLHB(row.total_buy, 'amt') + '</td>';
+        html += '<td style="text-align:right;color:#4ade80;">' + fmtLHB(row.total_sell, 'amt') + '</td>';
         html += '<td style="text-align:right;color:' + netColor + ';font-weight:bold;">' + fmtLHB(row.net_amt, 'amt') + '</td>';
-        html += '<td style="text-align:right;color:#e94560;">' + fmtLHB(row.buy_amt, 'amt') + '</td>';
-        html += '<td style="text-align:right;color:#4ade80;">' + fmtLHB(row.sell_amt, 'amt') + '</td>';
-        html += '<td style="text-align:right;color:#888;">' + fmtLHB(row.turnover_rate, 'turnover') + '</td>';
         html += '<td style="color:#aaa;font-size:12px;">' + (row.reason || '--') + '</td>';
         html += '</tr>';
 
-        // 展开的详情行：席位数量 + 上榜后表现
+        // 展开的详情行：买卖席位明细
         html += '<tr class="lhb-detail" id="lhb-detail-' + i + '" style="display:none;">';
         html += '<td colspan="9" style="padding:0;">';
-        html += '<div style="display:flex; gap:20px; padding:10px 15px; background:#0d1b33; border-radius:4px; margin:4px 0;">';
+        html += '<div style="display:flex; gap:16px; padding:10px 12px; background:#0d1b33; border-radius:4px; margin:4px 0;">';
 
-        // 买卖席位统计
-        html += '<div style="flex:1;">';
-        html += '<div style="font-size:12px; font-weight:bold; color:#fbbf24; margin-bottom:6px;">席位统计</div>';
-        html += '<div style="font-size:11px; color:#ccc; line-height:2;">';
-        html += '<span style="color:#888;">买席位: </span><span style="color:#e94560;">' + (row.buy_seat_count != null ? row.buy_seat_count + '个' : '--') + '</span>&nbsp;&nbsp;';
-        html += '<span style="color:#888;">卖席位: </span><span style="color:#4ade80;">' + (row.sell_seat_count != null ? row.sell_seat_count + '个' : '--') + '</span><br>';
-        html += '<span style="color:#888;">净买额占比: </span><span style="color:#ccc;">' + (row.ratio != null ? (row.ratio * 100).toFixed(2) + '%' : '--') + '</span>&nbsp;&nbsp;';
-        html += '<span style="color:#888;">流通市值: </span><span style="color:#ccc;">' + (row.free_cap != null ? row.free_cap + '亿' : '--') + '</span>&nbsp;&nbsp;';
-        html += '<span style="color:#888;">市场: </span><span style="color:#ccc;">' + (row.market || '--') + '</span>';
-        html += '</div></div>';
-
-        // 上榜后表现
-        html += '<div style="flex:1;">';
-        html += '<div style="font-size:12px; font-weight:bold; color:#60a5fa; margin-bottom:6px;">上榜后表现</div>';
+        // 买方席位
+        html += '<div style="flex:1; min-width:0;">';
+        html += '<div style="font-size:12px; font-weight:bold; color:#e94560; margin-bottom:6px;">买入席位</div>';
         html += '<table style="width:100%; font-size:11px; border-collapse:collapse;">';
-        html += '<thead><tr style="color:#888; border-bottom:1px solid rgba(255,255,255,0.05);">';
-        html += '<th style="padding:3px 4px;text-align:center;">T+1</th><th style="padding:3px 4px;text-align:center;">T+2</th><th style="padding:3px 4px;text-align:center;">T+3</th><th style="padding:3px 4px;text-align:center;">T+5</th><th style="padding:3px 4px;text-align:center;">T+10</th>';
-        html += '</tr></thead><tbody><tr>';
-        html += '<td style="padding:3px 4px;text-align:center;color:' + getLHBColor(row.d1_return) + ';">' + fmtLHB(row.d1_return, 'pct') + '</td>';
-        html += '<td style="padding:3px 4px;text-align:center;color:' + getLHBColor(row.d2_return) + ';">' + fmtLHB(row.d2_return, 'pct') + '</td>';
-        html += '<td style="padding:3px 4px;text-align:center;color:' + getLHBColor(row.d3_return) + ';">' + fmtLHB(row.d3_return, 'pct') + '</td>';
-        html += '<td style="padding:3px 4px;text-align:center;color:' + getLHBColor(row.d5_return) + ';">' + fmtLHB(row.d5_return, 'pct') + '</td>';
-        html += '<td style="padding:3px 4px;text-align:center;color:' + getLHBColor(row.d10_return) + ';">' + fmtLHB(row.d10_return, 'pct') + '</td>';
-        html += '</tr></tbody></table></div>';
+        html += '<thead><tr style="color:#666; border-bottom:1px solid rgba(255,255,255,0.05);"><th style="text-align:left;padding:2px 4px;">营业部</th><th style="text-align:right;padding:2px 4px;width:50px;">买入</th><th style="text-align:right;padding:2px 4px;width:50px;">卖出</th><th style="text-align:right;padding:2px 4px;width:50px;">净额</th></tr></thead><tbody>';
+        var buySeats = row.buy_seats || [];
+        for (var bi = 0; bi < buySeats.length; bi++) {
+            var bs = buySeats[bi];
+            var label = bs.label ? '<span style="color:#fbbf24;font-size:10px;">[' + bs.label + ']</span> ' : '';
+            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">';
+            html += '<td style="padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="' + (bs.name || '') + '">' + label + (bs.name || '--') + '</td>';
+            html += '<td style="text-align:right;padding:2px 4px;color:#e94560;">' + fmtLHB(bs.buy_amt, 'amt') + '</td>';
+            html += '<td style="text-align:right;padding:2px 4px;color:#4ade80;">' + (bs.sell_amt > 0 ? fmtLHB(bs.sell_amt, 'amt') : '--') + '</td>';
+            html += '<td style="text-align:right;padding:2px 4px;color:' + getLHBColor(bs.net_amt) + ';">' + fmtLHB(bs.net_amt, 'amt') + '</td>';
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+
+        // 卖出席位
+        html += '<div style="flex:1; min-width:0;">';
+        html += '<div style="font-size:12px; font-weight:bold; color:#4ade80; margin-bottom:6px;">卖出席位</div>';
+        html += '<table style="width:100%; font-size:11px; border-collapse:collapse;">';
+        html += '<thead><tr style="color:#666; border-bottom:1px solid rgba(255,255,255,0.05);"><th style="text-align:left;padding:2px 4px;">营业部</th><th style="text-align:right;padding:2px 4px;width:50px;">买入</th><th style="text-align:right;padding:2px 4px;width:50px;">卖出</th><th style="text-align:right;padding:2px 4px;width:50px;">净额</th></tr></thead><tbody>';
+        var sellSeats = row.sell_seats || [];
+        for (var si = 0; si < sellSeats.length; si++) {
+            var ss = sellSeats[si];
+            var slabel = ss.label ? '<span style="color:#fbbf24;font-size:10px;">[' + ss.label + ']</span> ' : '';
+            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">';
+            html += '<td style="padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="' + (ss.name || '') + '">' + slabel + (ss.name || '--') + '</td>';
+            html += '<td style="text-align:right;padding:2px 4px;color:#e94560;">' + (ss.buy_amt > 0 ? fmtLHB(ss.buy_amt, 'amt') : '--') + '</td>';
+            html += '<td style="text-align:right;padding:2px 4px;color:#4ade80;">' + fmtLHB(ss.sell_amt, 'amt') + '</td>';
+            html += '<td style="text-align:right;padding:2px 4px;color:' + getLHBColor(ss.net_amt) + ';">' + fmtLHB(ss.net_amt, 'amt') + '</td>';
+            html += '</tr>';
+        }
+        html += '</tbody></table></div>';
 
         html += '</div></td></tr>';
     }
@@ -163,7 +195,7 @@ async function loadLonghuBang(tradeDate) {
     if (!date) return;
 
     try {
-        var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date));
+        var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date) + '&tab=' + encodeURIComponent(lhbCurrentTab));
         var result = await res.json();
 
         if (result.success && result.data && result.data.list.length > 0) {
@@ -192,7 +224,7 @@ async function loadLonghuBang(tradeDate) {
             var dd = String(d.getDate()).padStart(2, '0');
             var prevDate = yyyy + '-' + mm + '-' + dd;
 
-            var prevRes = await fetch('/api/longhu-bang?date=' + encodeURIComponent(prevDate));
+            var prevRes = await fetch('/api/longhu-bang?date=' + encodeURIComponent(prevDate) + '&tab=' + encodeURIComponent(lhbCurrentTab));
             var prevResult = await prevRes.json();
             if (prevResult.success && prevResult.data && prevResult.data.list.length > 0) {
                 lhbCurrentDate = prevDate;
