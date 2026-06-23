@@ -89,6 +89,7 @@ function renderLonghuTable(data, tradeDate) {
     var html = '<table class="lhb-table">';
     html += '<thead><tr>';
     html += '<th style="width:130px;">股票</th>';
+    html += '<th style="width:52px;text-align:center;">市场</th>';
     html += '<th style="width:60px;text-align:right;">收盘价</th>';
     html += '<th style="width:65px;text-align:right;">涨跌幅</th>';
     html += '<th style="width:80px;text-align:right;">净买额</th>';
@@ -105,6 +106,7 @@ function renderLonghuTable(data, tradeDate) {
 
         html += '<tr class="lhb-row" onclick="toggleLHBDetail(' + i + ')" style="cursor:pointer;">';
         html += '<td><span class="lhb-stock-name" onclick="event.stopPropagation();KlinePopup.open(\'' + row.code + '\',\'' + (row.code.startsWith('6') ? '1' : '0') + '\',\'' + (row.name || row.code) + '\')">' + (row.name || row.code) + '</span><span style="color:#888;font-size:11px;margin-left:4px;">' + row.code + '</span></td>';
+        html += '<td style="text-align:center;color:#888;font-size:12px;">' + getStockType(row.code, row.code.startsWith('6') ? '1' : '0') + '</td>';
         html += '<td style="text-align:right;color:#ccc;">' + fmtLHB(row.price, 'price') + '</td>';
         html += '<td style="text-align:right;" class="' + changeClass + '">' + fmtLHB(row.change_pct, 'pct') + '</td>';
         html += '<td style="text-align:right;color:' + netColor + ';font-weight:bold;">' + fmtLHB(row.net_amt, 'amt') + '</td>';
@@ -116,7 +118,7 @@ function renderLonghuTable(data, tradeDate) {
 
         // 展开的详情行：席位数量 + 上榜后表现
         html += '<tr class="lhb-detail" id="lhb-detail-' + i + '" style="display:none;">';
-        html += '<td colspan="8" style="padding:0;">';
+        html += '<td colspan="9" style="padding:0;">';
         html += '<div style="display:flex; gap:20px; padding:10px 15px; background:#0d1b33; border-radius:4px; margin:4px 0;">';
 
         // 买卖席位统计
