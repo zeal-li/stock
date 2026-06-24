@@ -3,7 +3,7 @@
 //       弹窗内部自己请求行情和K线数据
 
 var KlinePopup = (function() {
-    var _chart = null, _overlay = null, _series = null, _volSeries = null;
+    var _charts = null, _chart = null, _overlay = null, _series = null, _volSeries = null;
     var _observer = null;
     var _klinesData = null;
     var _stockCode = '';
@@ -31,6 +31,9 @@ var KlinePopup = (function() {
     var _kdjLines = [];
     var _kdjVals = null;  // {k, d, j}
     var _kdjParams = { n: 9, m1: 3, m2: 3 };  // KDJ 参数
+    var _macdLines = [];
+    var _macdVals = null;  // {dif, dea, macd}
+    var _macdParams = { fast: 12, slow: 26, signal: 9 };  // MACD 参数
 
     // ---- 创建弹窗 DOM ----
     function _ensureDOM() {
@@ -569,8 +572,8 @@ var KlinePopup = (function() {
         }
         var el = document.getElementById('klChart');
         if (_observer) _observer.disconnect();
-        var result = KlineChartUtils.render(el, _klinesData, _stockCode, _stockMarket, _kdjParams);
-        _chart = result.chart;
+        var result = KlineChartUtils.render(el, _klinesData, _stockCode, _stockMarket, _kdjParams, _macdParams);
+        _charts = result.charts;
         _series = result.series;
         _volSeries = result.volSeries;
         _maLines = result.maLines;
@@ -579,6 +582,8 @@ var KlinePopup = (function() {
         _bbVals = result.bbVals;
         _kdjLines = result.kdjLines;
         _kdjVals = result.kdjVals;
+        _macdLines = result.macdLines;
+        _macdVals = result.macdVals;
         _observer = result.observer;
         // 初始显示最近一年，右留空3个月，让最新K线在窗口偏左位置
         if (_klinesData && _klinesData.length > 0) {
@@ -593,7 +598,9 @@ var KlinePopup = (function() {
             // 右边多留约20%空白，让最新K线不贴边
             var visibleBars = _klinesData.length - fromIdx;
             var rightPad = Math.round(visibleBars * 0.2);
-            _chart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: _klinesData.length - 1 + rightPad });
+            _charts.forEach(function(c) {
+                c.timeScale().setVisibleLogicalRange({ from: fromIdx, to: _klinesData.length - 1 + rightPad });
+            });
         }
     }
 
@@ -879,7 +886,8 @@ var KlinePopup = (function() {
         _maybeClearCurrentKlines();
         if (_headerTimer) { clearInterval(_headerTimer); _headerTimer = null; }
         if (_observer) { _observer.disconnect(); _observer = null; }
-        if (_chart) { _chart.remove(); _chart = null; _series = null; _volSeries = null; }
+        if (_charts) { _charts.forEach(function(c) { c.remove(); }); _charts = null; _series = null; _volSeries = null; }
+        if (_chart) { _chart.remove(); _chart = null; }
         if (_overlay) _overlay.style.display = 'none';
         _klinesData = null;
         _maLines = [];

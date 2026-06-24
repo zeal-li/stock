@@ -11,6 +11,26 @@ var KlineChartUtils = {
         }
         return r;
     },
+    // MACD 计算 (EMA快线, EMA慢线, 信号线周期)
+    calcMACD: function(data, fast, slow, signal) {
+        fast = fast || 12; slow = slow || 26; signal = signal || 9;
+        var kF = 2 / (fast + 1), kS = 2 / (slow + 1), kSig = 2 / (signal + 1);
+        var difData = [], deaData = [], macdData = [];
+        var eF = data[0].close, eS = data[0].close, dea = 0;
+        for (var i = 0; i < data.length; i++) {
+            eF = data[i].close * kF + (1 - kF) * eF;
+            eS = data[i].close * kS + (1 - kS) * eS;
+            var dif = eF - eS;
+            difData.push({ time: data[i].time, value: dif });
+        }
+        dea = difData[0].value;
+        for (var i = 0; i < difData.length; i++) {
+            dea = difData[i].value * kSig + (1 - kSig) * dea;
+            deaData.push({ time: difData[i].time, value: dea });
+            macdData.push({ time: difData[i].time, value: (difData[i].value - dea) * 2 });
+        }
+        return { dif: difData, dea: deaData, macd: macdData };
+    },
     // KDJ 计算 (n=RSV周期, m1=K平滑, m2=D平滑)
     calcKDJ: function(data, n, m1, m2) {
         n = n || 9; m1 = m1 || 3; m2 = m2 || 3;
@@ -89,42 +109,109 @@ var KlineChartUtils = {
         );
     },
     // 渲染 K 线图，返回 { chart, series, volSeries, maLines, bbLines, kdjLines, kdjVals, observer }
-    render: function(el, klinesData, stockCode, stockMarket, kdjParams) {
+    render: function(el, klinesData, stockCode, stockMarket, kdjParams, macdParams) {
         kdjParams = kdjParams || { n: 9, m1: 3, m2: 3 };
-        el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
-            '<div id="klKDJTip" style="position:absolute;z-index:9999;pointer-events:none;left:8px;font-size:12px;line-height:1.6;background:rgba(26,26,46,0.88);border-radius:4px;padding:2px 6px;white-space:nowrap;color:#8b8b9e;">' +
-                'KDJ(<input id="kdjN" type="text" inputmode="numeric" value="' + kdjParams.n + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
-                ',<input id="kdjM1" type="text" inputmode="numeric" value="' + kdjParams.m1 + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
-                ',<input id="kdjM2" type="text" inputmode="numeric" value="' + kdjParams.m2 + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
-                ') <span id="kdjTipVals"></span>' +
-            '</div>';
-
-        var chart = LightweightCharts.createChart(el, {
+        macdParams = macdParams || { fast: 12, slow: 26, signal: 9 };
+        el.style.display = 'flex';
+        el.style.flexDirection = 'column';
+        var tickFmt = function(time) {
+            var y, m, d;
+            if (typeof time === 'number') {
+                var dt = new Date(time * 1000);
+                y = dt.getFullYear(); m = dt.getMonth() + 1; d = dt.getDate();
+            } else if (time && time.year) {
+                y = time.year; m = time.month; d = time.day;
+            } else if (typeof time === 'string') {
+                return time;
+            } else {
+                return '';
+            }
+            return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        };
+        var subChartBase = {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 1 },
-            rightPriceScale: { borderColor: '#2a2a4e', scaleMargins: { top: 0.05, bottom: 0.45 } },
-            timeScale: {
-                borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
-                tickMarkFormatter: function(time) {
-                    var y, m, d;
-                    if (typeof time === 'number') {
-                        var dt = new Date(time * 1000);
-                        y = dt.getFullYear(); m = dt.getMonth() + 1; d = dt.getDate();
-                    } else if (time && time.year) {
-                        y = time.year; m = time.month; d = time.day;
-                    } else if (typeof time === 'string') {
-                        return time;
-                    } else {
-                        return '';
-                    }
-                    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-                },
-            },
-            width: el.clientWidth, height: el.clientHeight,
+            rightPriceScale: { visible: false, scaleMargins: { top: 0.05, bottom: 0.02 } },
+            timeScale: { borderColor: '#2a2a4e', visible: false },
+        };
+
+        el.innerHTML =
+            '<style>#klChart a{display:none !important;}</style>' +
+            // 主图（K线 + 均线/布林线）
+            '<div id="klMainWrap" style="flex:3;min-height:0;position:relative;">' +
+                '<div id="klMainCanvas" style="width:100%;height:100%;"></div>' +
+                '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
+            '</div>' +
+            // 成交量指标栏
+            '<div style="flex-shrink:0;padding:2px 7px;font-size:11px;line-height:18px;color:#8b8b9e;white-space:nowrap;border-top:1px solid #2a2a4e;background:#1e1e2e;">VOL <span id="volTipVals"></span></div>' +
+            // 成交量图
+            '<div id="klVolWrap" style="flex:1;min-height:0;position:relative;">' +
+                '<div id="klVolCanvas" style="width:100%;height:100%;"></div>' +
+            '</div>' +
+            // MACD 指标栏
+            '<div style="flex-shrink:0;padding:2px 7px;font-size:11px;line-height:18px;color:#8b8b9e;white-space:nowrap;border-top:1px solid #2a2a4e;background:#1e1e2e;">' +
+                'MACD(' +
+                '<input id="macdFast" type="text" inputmode="numeric" value="' + macdParams.fast + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ',<input id="macdSlow" type="text" inputmode="numeric" value="' + macdParams.slow + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ',<input id="macdSignal" type="text" inputmode="numeric" value="' + macdParams.signal + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ') <span id="macdTipVals"></span>' +
+            '</div>' +
+            // MACD 图
+            '<div id="klMacdWrap" style="flex:1;min-height:0;position:relative;">' +
+                '<div id="klMacdCanvas" style="width:100%;height:100%;"></div>' +
+            '</div>' +
+            // KDJ 指标栏
+            '<div style="flex-shrink:0;padding:2px 7px;font-size:11px;line-height:18px;color:#8b8b9e;white-space:nowrap;border-top:1px solid #2a2a4e;background:#1e1e2e;">' +
+                'KDJ(' +
+                '<input id="kdjN" type="text" inputmode="numeric" value="' + kdjParams.n + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ',<input id="kdjM1" type="text" inputmode="numeric" value="' + kdjParams.m1 + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ',<input id="kdjM2" type="text" inputmode="numeric" value="' + kdjParams.m2 + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ') <span id="kdjTipVals"></span>' +
+            '</div>' +
+            // KDJ 图（最下面，显示时间轴）
+            '<div id="klKdjWrap" style="flex:1;min-height:0;position:relative;">' +
+                '<div id="klKdjCanvas" style="width:100%;height:100%;"></div>' +
+            '</div>';
+
+        // ---- 4 个独立 chart 实例 ----
+        var mainCanvas = document.getElementById('klMainCanvas');
+        var volCanvas = document.getElementById('klVolCanvas');
+        var macdCanvas = document.getElementById('klMacdCanvas');
+        var kdjCanvas = document.getElementById('klKdjCanvas');
+
+        var mainChart = LightweightCharts.createChart(mainCanvas, {
+            layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
+            grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
+            crosshair: { mode: 1 },
+            rightPriceScale: { visible: false, scaleMargins: { top: 0.05, bottom: 0.02 } },
+            timeScale: { borderColor: '#2a2a4e', visible: false },
+            width: mainCanvas.clientWidth, height: mainCanvas.clientHeight,
+        });
+        var volChart = LightweightCharts.createChart(volCanvas, Object.assign({}, subChartBase, { width: volCanvas.clientWidth, height: volCanvas.clientHeight }));
+        var macdChart = LightweightCharts.createChart(macdCanvas, Object.assign({}, subChartBase, { width: macdCanvas.clientWidth, height: macdCanvas.clientHeight }));
+        var kdjChart = LightweightCharts.createChart(kdjCanvas, Object.assign({}, subChartBase, {
+            timeScale: { borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false, tickMarkFormatter: tickFmt },
+            rightPriceScale: { visible: false, scaleMargins: { top: 0.05, bottom: 0.02 } },
+            width: kdjCanvas.clientWidth, height: kdjCanvas.clientHeight,
+        }));
+
+        // ---- 同步时间轴 ----
+        var _syncLock = false;
+        var allCharts = [mainChart, volChart, macdChart, kdjChart];
+        allCharts.forEach(function(c) {
+            c.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
+                if (_syncLock || !range) return;
+                _syncLock = true;
+                allCharts.forEach(function(tc) {
+                    if (tc !== c) tc.timeScale().setVisibleLogicalRange({ from: range.from, to: range.to });
+                });
+                _syncLock = false;
+            });
         });
 
-        var series = chart.addCandlestickSeries({
+        // ---- 主图: K线 + 均线 + 布林线 ----
+        var series = mainChart.addCandlestickSeries({
             upColor: '#ef5350', downColor: '#26a69a',
             borderUpColor: '#ef5350', borderDownColor: '#26a69a',
             wickUpColor: '#ef5350', wickDownColor: '#26a69a',
@@ -133,27 +220,85 @@ var KlineChartUtils = {
             return { time: k.time, open: k.open, high: k.high, low: k.low, close: k.close };
         }));
 
-        var volSeries = chart.addHistogramSeries({
-            priceFormat: { type: 'volume' }, priceScaleId: 'volume', lastValueVisible: false, priceLineVisible: false,
+        // ---- 成交量图 ----
+        var volSeries = volChart.addHistogramSeries({
+            priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false,
         });
-        chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.60, bottom: 0.22 }, visible: false });
         volSeries.setData(klinesData.map(function(k) {
             return { time: k.time, value: k.volume, color: k.close >= k.open ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' };
         }));
 
-        // KDJ 指标（成交量下方）
+        var volMA5 = KlineChartUtils.calcSMA(klinesData.map(function(k) { return { time: k.time, close: k.volume }; }), 5);
+        var volMA10 = KlineChartUtils.calcSMA(klinesData.map(function(k) { return { time: k.time, close: k.volume }; }), 10);
+        var volMA5Line = volChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        volMA5Line.setData(volMA5);
+        var volMA10Line = volChart.addLineSeries({ color: '#60a5fa', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        volMA10Line.setData(volMA10);
+
+        function _fmtVol(v) {
+            if (v == null || isNaN(v) || v <= 0) return '--';
+            return v >= 1e8 ? (v / 1e8).toFixed(2) + '亿' : (v / 1e4).toFixed(2) + '万';
+        }
+        function _buildVolValsHTML(vol, m5, m10, turnover) {
+            return '<span style="color:#ddd;">量:' + _fmtVol(vol) + '</span> <span style="color:#fbbf24;">M5:' + _fmtVol(m5) + '</span> <span style="color:#60a5fa;">M10:' + _fmtVol(m10) + '</span>' +
+                (turnover != null ? ' <span style="color:#8b8b9e;">换手:' + turnover.toFixed(2) + '%</span>' : '');
+        }
+        function _refreshVolVals(idx) {
+            idx = idx !== undefined ? idx : klinesData.length - 1;
+            if (idx >= 0 && idx < klinesData.length) {
+                var k = klinesData[idx];
+                var i5 = idx - 4;
+                var i10 = idx - 9;
+                var m5 = (i5 >= 0 && i5 < volMA5.length) ? volMA5[i5].value : null;
+                var m10 = (i10 >= 0 && i10 < volMA10.length) ? volMA10[i10].value : null;
+                document.getElementById('volTipVals').innerHTML = _buildVolValsHTML(k.volume, m5, m10, k.turnover);
+            } else {
+                document.getElementById('volTipVals').innerHTML = _buildVolValsHTML(null, null, null, null);
+            }
+        }
+
+        // ---- MACD 图 ----
+        var macd = KlineChartUtils.calcMACD(klinesData, macdParams.fast, macdParams.slow, macdParams.signal);
+        var lastMACDArr = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(3) : '--'; };
+        var macdVals = { dif: lastMACDArr(macd.dif), dea: lastMACDArr(macd.dea), macd: lastMACDArr(macd.macd) };
+        var macdLines = [];
+        var macdHist = macdChart.addHistogramSeries({ lastValueVisible: false, priceLineVisible: false });
+        macdHist.setData(macd.macd.map(function(v) { return { time: v.time, value: v.value, color: v.value >= 0 ? '#ef5350' : '#26a69a' }; }));
+        macdLines.push({ s: macdHist, k: 'macd' });
+        var difLine = macdChart.addLineSeries({ color: '#ffffff', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        difLine.setData(macd.dif); macdLines.push({ s: difLine, k: 'dif' });
+        var deaLine = macdChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        deaLine.setData(macd.dea); macdLines.push({ s: deaLine, k: 'dea' });
+
+        function _refreshMacd() {
+            var fast = parseInt(document.getElementById('macdFast').value) || macdParams.fast;
+            var slow = parseInt(document.getElementById('macdSlow').value) || macdParams.slow;
+            var sig = parseInt(document.getElementById('macdSignal').value) || macdParams.signal;
+            fast = Math.max(2, Math.min(250, fast));
+            slow = Math.max(3, Math.min(250, slow));
+            sig = Math.max(1, Math.min(100, sig));
+            macd = KlineChartUtils.calcMACD(klinesData, fast, slow, sig);
+            macdVals.dif = lastMACDArr(macd.dif); macdVals.dea = lastMACDArr(macd.dea); macdVals.macd = lastMACDArr(macd.macd);
+            macdLines.filter(function(x) { return x.k === 'dif'; })[0].s.setData(macd.dif);
+            macdLines.filter(function(x) { return x.k === 'dea'; })[0].s.setData(macd.dea);
+            macdLines.filter(function(x) { return x.k === 'macd'; })[0].s.setData(macd.macd.map(function(v) { return { time: v.time, value: v.value, color: v.value >= 0 ? '#ef5350' : '#26a69a' }; }));
+            _refreshMacdVals();
+        }
+        document.getElementById('macdFast').addEventListener('change', _refreshMacd);
+        document.getElementById('macdSlow').addEventListener('change', _refreshMacd);
+        document.getElementById('macdSignal').addEventListener('change', _refreshMacd);
+
+        // ---- KDJ 图 ----
         var kdj = KlineChartUtils.calcKDJ(klinesData, kdjParams.n, kdjParams.m1, kdjParams.m2);
         var lastKDJ = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
         var kdjVals = { k: lastKDJ(kdj.k), d: lastKDJ(kdj.d), j: lastKDJ(kdj.j) };
         var kdjLines = [];
-        [{v: kdj.k, c: '#ffffff', label: 'K'}, {v: kdj.d, c: '#fbbf24', label: 'D'}, {v: kdj.j, c: '#a78bfa', label: 'J'}].forEach(function(x) {
-            var line = chart.addLineSeries({ color: x.c, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceScaleId: 'kdj' });
+        [{v: kdj.k, c: '#ffffff'}, {v: kdj.d, c: '#fbbf24'}, {v: kdj.j, c: '#a78bfa'}].forEach(function(x) {
+            var line = kdjChart.addLineSeries({ color: x.c, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
             line.setData(x.v);
             kdjLines.push(line);
         });
-        chart.priceScale('kdj').applyOptions({ scaleMargins: { top: 0.82, bottom: 0.01 } });
 
-        // KDJ 参数变更时热更新曲线和标签
         function _buildKdjValsHTML(kVal, dVal, jVal) {
             return '<span style="color:#ffffff;">K:' + kVal + '</span> <span style="color:#fbbf24;">D:' + dVal + '</span> <span style="color:#a78bfa;">J:' + jVal + '</span>';
         }
@@ -176,7 +321,7 @@ var KlineChartUtils = {
         document.getElementById('kdjM1').addEventListener('change', _refreshKdj);
         document.getElementById('kdjM2').addEventListener('change', _refreshKdj);
 
-        // 均线
+        // ---- 均线（主图）----
         var maC = ['#fbbf24', '#60a5fa', '#a78bfa', '#f472b6', '#34d399', '#fb923c'];
         var maP = [5, 10, 20, 30, 60, 120];
         var maData = [];
@@ -184,7 +329,7 @@ var KlineChartUtils = {
         for (var mi = 0; mi < maP.length; mi++) {
             var md = KlineChartUtils.calcSMA(klinesData, maP[mi]);
             maData.push(md);
-            var line = chart.addLineSeries({ color: maC[mi], lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+            var line = mainChart.addLineSeries({ color: maC[mi], lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
             line.setData(md);
             maLines.push(line);
         }
@@ -195,27 +340,66 @@ var KlineChartUtils = {
             ma60: lastMA(maData[4]), ma120: lastMA(maData[5]),
         };
 
-        // 布林线（默认隐藏）
+        // ---- 布林线（主图，默认隐藏）----
         var bbLines = [];
         var bb = KlineChartUtils.calcBB(klinesData);
         var lastBB = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
         var bbVals = { up: lastBB(bb.up), mid: lastBB(bb.mid), lo: lastBB(bb.lo) };
         [{v: bb.up, d: true, c: '#ef5350'}, {v: bb.mid, d: false, c: '#60a5fa'}, {v: bb.lo, d: true, c: '#26a69a'}].forEach(function(x) {
-            var line = chart.addLineSeries({ color: x.c, lineWidth: 1, lineStyle: x.d ? 2 : 0, priceLineVisible: false, lastValueVisible: false, visible: false });
+            var line = mainChart.addLineSeries({ color: x.c, lineWidth: 1, lineStyle: x.d ? 2 : 0, priceLineVisible: false, lastValueVisible: false, visible: false });
             line.setData(x.v);
             bbLines.push(line);
         });
 
-        // 十字线
+        // ---- 十字线（主图）----
         var tooltip = document.getElementById('klTooltip');
-        var kdjTip = document.getElementById('klKDJTip');
-        // 初始显示最新 KDJ 值
+        var mainWrap = document.getElementById('klMainWrap');
+        function _buildMacdValsHTML(difVal, deaVal, macdVal) {
+            return '<span style="color:' + (parseFloat(macdVal) >= 0 ? '#ef5350' : '#26a69a') + ';">MACD:' + macdVal + '</span> <span style="color:#ffffff;">DIFF:' + difVal + '</span> <span style="color:#fbbf24;">DEA:' + deaVal + '</span>';
+        }
+        function _refreshMacdVals() {
+            var mi = macd.dif.length - 1;
+            if (mi >= 0) {
+                document.getElementById('macdTipVals').innerHTML = _buildMacdValsHTML(macd.dif[mi].value.toFixed(3), macd.dea[mi].value.toFixed(3), macd.macd[mi].value.toFixed(3));
+            } else {
+                document.getElementById('macdTipVals').innerHTML = _buildMacdValsHTML(macdVals.dif, macdVals.dea, macdVals.macd);
+            }
+        }
+        _refreshVolVals();
         document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
-        chart.subscribeCrosshairMove(function(param) {
+        _refreshMacdVals();
+
+        // ---- 同步十字光标移动 ----
+        var _crosshairSyncLock = false;
+        allCharts.forEach(function(c) {
+            c.subscribeCrosshairMove(function(param) {
+                if (_crosshairSyncLock || !param || param.time === undefined) return;
+                _crosshairSyncLock = true;
+                allCharts.forEach(function(tc) {
+                    if (tc !== c) {
+                        // 尝试设置十字光标位置（只设置时间，价格设为 null）
+                        // 使用当前图表上的任意 series 作为参考
+                        var targetSeries = null;
+                        if (tc === volChart && volSeries) targetSeries = volSeries;
+                        else if (tc === macdChart && macdHist) targetSeries = macdHist;
+                        else if (tc === kdjChart && kdjLines && kdjLines.length > 0) targetSeries = kdjLines[0];
+                        else if (tc === mainChart && series) targetSeries = series;
+                        
+                        if (targetSeries) {
+                            tc.setCrosshairPosition(null, param.time, targetSeries);
+                        }
+                    }
+                });
+                _crosshairSyncLock = false;
+            });
+        });
+
+        mainChart.subscribeCrosshairMove(function(param) {
             if (!param.time || !param.point || !klinesData) {
                 tooltip.style.display = 'none';
-                // 鼠标离开十字线时恢复最新值
+                _refreshVolVals();
                 document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
+                _refreshMacdVals();
                 return;
             }
             var k = null, idx = -1;
@@ -226,14 +410,16 @@ var KlineChartUtils = {
             }
             if (!k) {
                 tooltip.style.display = 'none';
+                _refreshVolVals();
                 document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
+                _refreshMacdVals();
                 return;
             }
             var prevClose = idx > 0 ? klinesData[idx - 1].close : null;
             var isEtf = isETF(stockCode, stockMarket);
             tooltip.innerHTML = KlineChartUtils.tooltipText(k, prevClose, isEtf);
             tooltip.style.display = 'block';
-            var rect = el.getBoundingClientRect();
+            var rect = mainWrap.getBoundingClientRect();
             var left = param.point.x + 16;
             var top = param.point.y - 10;
             if (left + 160 > rect.width) left = param.point.x - 170;
@@ -241,31 +427,34 @@ var KlineChartUtils = {
             if (top < 0) top = 0;
             tooltip.style.left = left + 'px';
             tooltip.style.top = top + 'px';
-            // 更新 KDJ 左上角值
+            // 更新 KDJ 指标值
             var kdjIdx = idx - 8;
             if (kdjIdx >= 0 && kdjIdx < kdj.k.length) {
                 document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdj.k[kdjIdx].value.toFixed(2), kdj.d[kdjIdx].value.toFixed(2), kdj.j[kdjIdx].value.toFixed(2));
             } else {
                 document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
             }
-        });
-
-        var observer = new ResizeObserver(function() {
-            if (chart && el.clientWidth > 0) {
-                chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
-                // KDJ 标签定位到 KDJ 图表窗格顶部（82% 处）
-                var timeScaleH = 28;
-                var priceH = el.clientHeight - timeScaleH;
-                kdjTip.style.bottom = (timeScaleH + priceH * 0.18 - 2) + 'px';
+            _refreshVolVals(idx);
+            if (idx >= 0 && idx < macd.dif.length) {
+                document.getElementById('macdTipVals').innerHTML = _buildMacdValsHTML(macd.dif[idx].value.toFixed(3), macd.dea[idx].value.toFixed(3), macd.macd[idx].value.toFixed(3));
+            } else {
+                _refreshMacdVals();
             }
         });
-        observer.observe(el);
-        // 初始设置 KDJ 标签位置
-        var timeScaleH0 = 28;
-        var priceH0 = el.clientHeight - timeScaleH0;
-        kdjTip.style.bottom = (timeScaleH0 + priceH0 * 0.18 - 2) + 'px';
 
-        return { chart: chart, series: series, volSeries: volSeries, maLines: maLines, bbLines: bbLines, kdjLines: kdjLines, kdjVals: kdjVals, maVals: maVals, bbVals: bbVals, observer: observer };
+        // ---- ResizeObserver ----
+        var canvases = [mainCanvas, volCanvas, macdCanvas, kdjCanvas];
+        var charts = [mainChart, volChart, macdChart, kdjChart];
+        var observer = new ResizeObserver(function() {
+            for (var i = 0; i < canvases.length; i++) {
+                if (charts[i] && canvases[i].clientWidth > 0) {
+                    charts[i].applyOptions({ width: canvases[i].clientWidth, height: canvases[i].clientHeight });
+                }
+            }
+        });
+        canvases.forEach(function(c) { observer.observe(c); });
+
+        return { charts: charts, mainChart: mainChart, series: series, volSeries: volSeries, volMALines: [volMA5Line, volMA10Line], maLines: maLines, bbLines: bbLines, volVals: { m5: volMA5, m10: volMA10 }, macdLines: macdLines, macdVals: macdVals, kdjLines: kdjLines, kdjVals: kdjVals, maVals: maVals, bbVals: bbVals, observer: observer };
     },
     // 获取指标值 HTML
     getIndHTML: function(indicatorMode, maVals, bbVals, kdjVals) {
