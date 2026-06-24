@@ -17,6 +17,9 @@ var KlinePopup = (function() {
     var _minuteSeries = null;    // 分时面积图引用
     var _minuteAvgLine = null;   // 均价线引用
     var _minuteVolSeries = null; // 成交量柱引用
+    var _minuteMacdLines = null; // MACD 系列引用
+    var _minuteMacd = null;      // MACD 数据
+    var _minuteBuildMacdInput = null; // MACD 输入构建函数
     var _minutePreClose = 0;
     var _minuteFrom = 0, _minuteTo = 0;  // 分时窗口固定范围
     var _fiveDayAreaSeries = null;   // 五日面积线
@@ -436,9 +439,13 @@ var KlinePopup = (function() {
         _minutePreClose = preClose;
         var result = KlineMinute.render(el, times, prices, volumes, amounts, preClose, _stockMarket, _stockCode);
         _chart = result.chart;
+        _charts = result.charts;
         _minuteSeries = result.series;
         _minuteAvgLine = result.avgLine;
         _minuteVolSeries = result.volSeries;
+        _minuteMacdLines = result.macdLines;
+        _minuteMacd = result.macd;
+        _minuteBuildMacdInput = result._buildMacdInput;
         _minuteFrom = result.minuteFrom;
         _minuteTo = result.minuteTo;
         _observer = result.observer;
@@ -500,6 +507,15 @@ var KlinePopup = (function() {
                         volData.push({ time: rAllT[i], value: rAllV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
                     }
                     _minuteVolSeries.setData(volData);
+                }
+                // 更新 MACD
+                if (_minuteBuildMacdInput && _minuteMacdLines) {
+                    var newMacdInput = _minuteBuildMacdInput(rAllT, rAllP, prices);
+                    var newMacd = KlineChartUtils.calcMACD(newMacdInput, 12, 26, 9);
+                    _minuteMacd = newMacd;
+                    _minuteMacdLines.filter(function(x) { return x.k === 'dif'; })[0].s.setData(newMacd.dif);
+                    _minuteMacdLines.filter(function(x) { return x.k === 'dea'; })[0].s.setData(newMacd.dea);
+                    _minuteMacdLines.filter(function(x) { return x.k === 'macd'; })[0].s.setData(newMacd.macd.map(function(v) { return { time: v.time, value: v.value, color: v.value >= 0 ? '#ef5350' : '#26a69a' }; }));
                 }
             })
             .catch(function() {});
@@ -886,7 +902,7 @@ var KlinePopup = (function() {
         _maybeClearCurrentKlines();
         if (_headerTimer) { clearInterval(_headerTimer); _headerTimer = null; }
         if (_observer) { _observer.disconnect(); _observer = null; }
-        if (_charts) { _charts.forEach(function(c) { c.remove(); }); _charts = null; _series = null; _volSeries = null; }
+        if (_charts) { _charts.forEach(function(c) { c.remove(); }); _charts = null; _series = null; _volSeries = null; _chart = null; }
         if (_chart) { _chart.remove(); _chart = null; }
         if (_overlay) _overlay.style.display = 'none';
         _klinesData = null;

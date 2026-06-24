@@ -1,8 +1,8 @@
-// ==================== 分时图渲染 ====================
+// ==================== 分时图渲染（3 面板：分时线 + 量 + MACD） ====================
 
 var KlineMinute = {
     render: function(el, times, prices, volumes, amounts, preClose, stockMarket, stockCode) {
-        el.innerHTML = '<style>#klChart a{display:none !important;}</style><div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
+        el.innerHTML = '<style>#klChart a{display:none !important;}</style>';
         var priceDec = isETF(stockCode, stockMarket) ? 3 : 2;
         var isUS = stockMarket === '106', isHK = stockMarket === '116';
         var today = new Date(); var base = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000;
@@ -28,28 +28,103 @@ var KlineMinute = {
             } else { allP.push(null); allV.push(null); allA.push(null); }
         }
 
-        var chart = LightweightCharts.createChart(el, {
+        // ---- 构建 MACD 输入：用绝对价格前向填充 ----
+        function _buildMacdInput(allT2, allP2, prices2) {
+            var data = [], lastPrice = null, rawCount = 0;
+            for (var i = 0; i < allT2.length; i++) {
+                if (allP2[i] != null) {
+                    lastPrice = prices2[Math.min(rawCount, prices2.length - 1)];
+                    rawCount++;
+                }
+                if (lastPrice != null) {
+                    data.push({ time: allT2[i], close: lastPrice });
+                }
+            }
+            return data;
+        }
+        var macdInput = _buildMacdInput(allT, allP, prices);
+        var macd = KlineChartUtils.calcMACD(macdInput, 12, 26, 9);
+
+        var tickFmt = function(ts) {
+            var d = new Date(ts * 1000), h = d.getHours(), m = d.getMinutes();
+            if (isUS) return (d.getMonth()+1)+'/'+d.getDate()+' '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+            return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+        };
+
+        var subBase = {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 1 },
-            rightPriceScale: { borderColor: '#2a2a4e', scaleMargins: { top: 0.08, bottom: 0.28 } },
+            rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 84, scaleMargins: { top: 0.05, bottom: 0.02 } },
+            timeScale: { borderColor: '#2a2a4e', visible: false },
             handleScroll: { vertTouchDrag: false, horzTouchDrag: false },
             handleScale: { axisPressedMouseMove: false, pinch: false, mouseWheel: false },
-            timeScale: {
-                borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false,
-                tickMarkFormatter: function(ts) {
-                    var d = new Date(ts * 1000), h = d.getHours(), m = d.getMinutes();
-                    if (isUS) return (d.getMonth()+1)+'/'+d.getDate()+' '+String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
-                    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
-                },
-            },
-            width: el.clientWidth, height: el.clientHeight,
+        };
+
+        // ---- DOM 结构 ----
+        el.innerHTML +=
+            '<div style="display:flex;flex-direction:column;height:100%;">' +
+                // 主图（分时线 + 均价线）
+                '<div id="mnMainWrap" style="flex:4;min-height:0;position:relative;">' +
+                    '<div id="mnMainCanvas" style="width:100%;height:100%;"></div>' +
+                    '<div id="mnTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
+                '</div>' +
+                // 成交量指标栏
+                '<div style="flex-shrink:0;padding:2px 7px;font-size:11px;line-height:18px;color:#8b8b9e;white-space:nowrap;border-top:1px solid #2a2a4e;background:#1e1e2e;">VOL <span id="mnVolTip"></span></div>' +
+                // 成交量图
+                '<div id="mnVolWrap" style="flex:1;min-height:0;position:relative;">' +
+                    '<div id="mnVolCanvas" style="width:100%;height:100%;"></div>' +
+                '</div>' +
+                // MACD 指标栏
+                '<div style="flex-shrink:0;padding:2px 7px;font-size:11px;line-height:18px;color:#8b8b9e;white-space:nowrap;border-top:1px solid #2a2a4e;background:#1e1e2e;">' +
+                    'MACD(12,26,9) <span id="mnMacdTip"></span>' +
+                '</div>' +
+                // MACD 图（最下面，显示时间轴）
+                '<div id="mnMacdWrap" style="flex:1;min-height:0;position:relative;">' +
+                    '<div id="mnMacdCanvas" style="width:100%;height:100%;"></div>' +
+                '</div>' +
+            '</div>';
+
+        // ---- 3 个 chart 实例 ----
+        var mainCanvas = document.getElementById('mnMainCanvas');
+        var volCanvas = document.getElementById('mnVolCanvas');
+        var macdCanvas = document.getElementById('mnMacdCanvas');
+
+        var mainChart = LightweightCharts.createChart(mainCanvas, Object.assign({}, subBase, {
+            rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 84, scaleMargins: { top: 0.08, bottom: 0.02 } },
+            width: mainCanvas.clientWidth, height: mainCanvas.clientHeight,
+        }));
+        var volChart = LightweightCharts.createChart(volCanvas, Object.assign({}, subBase, {
+            width: volCanvas.clientWidth, height: volCanvas.clientHeight,
+        }));
+        var macdChart = LightweightCharts.createChart(macdCanvas, Object.assign({}, subBase, {
+            timeScale: { borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false, tickMarkFormatter: tickFmt },
+            width: macdCanvas.clientWidth, height: macdCanvas.clientHeight,
+        }));
+
+        // ---- 同步时间轴 ----
+        var _syncLock = false;
+        var allCharts = [mainChart, volChart, macdChart];
+        allCharts.forEach(function(c) {
+            c.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
+                if (_syncLock || !range) return;
+                _syncLock = true;
+                allCharts.forEach(function(tc) {
+                    if (tc !== c) tc.timeScale().setVisibleLogicalRange({ from: range.from, to: range.to });
+                });
+                _syncLock = false;
+            });
         });
 
+        // ---- 主图：分时面积线 + 均价线 + 零线 ----
         var lastValidIdx = -1;
         for (var vi = allP.length - 1; vi >= 0; vi--) { if (allP[vi] != null) { lastValidIdx = vi; break; } }
 
-        var series = chart.addAreaSeries({ lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)', lineWidth: 1.5, priceLineVisible: false, priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(2) + '%'; } } });
+        var series = mainChart.addAreaSeries({
+            lineColor: '#3b82f6', topColor: 'rgba(59,130,246,0.25)', bottomColor: 'rgba(59,130,246,0.02)',
+            lineWidth: 1.5, priceLineVisible: false,
+            priceFormat: { type: 'custom', formatter: function(v) { return v.toFixed(2) + '%'; } }
+        });
         var lineData = []; for (var i = 0; i <= lastValidIdx; i++) lineData.push({ time: allT[i], value: allP[i] });
         series.setData(lineData);
 
@@ -58,32 +133,68 @@ var KlineMinute = {
             if (allP[i] != null) { avgSum += prices[Math.min(avgN, prices.length - 1)]; avgN++; }
             avgData.push({ time: allT[i], value: allP[i] != null ? (avgN > 0 ? (preClose ? ((avgSum / avgN - preClose) / preClose * 100) : (avgSum / avgN)) : null) : null });
         }
-        var avgLine = chart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        var avgLine = mainChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         avgLine.setData(avgData);
 
-        var zLine = chart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+        var zLine = mainChart.addLineSeries({ color: '#888', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
         zLine.setData([{ time: minuteFrom, value: 0 }, { time: minuteTo, value: 0 }]);
 
-        var volSeries = null;
-        if (volumes && volumes.length > 0) {
-            volSeries = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-            chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.83, bottom: 0 }, visible: false });
-            var vd = [];
-            for (var i = 0; i < allT.length; i++) {
-                var up = (i > 0 && allP[i] != null && allP[i-1] != null) ? allP[i] >= allP[i-1] : true;
-                vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
-            }
-            volSeries.setData(vd);
+        // ---- 成交量图 ----
+        var volSeries = volChart.addHistogramSeries({ priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+        var vd = [];
+        for (var i = 0; i < allT.length; i++) {
+            var up = (i > 0 && allP[i] != null && allP[i-1] != null) ? allP[i] >= allP[i-1] : true;
+            vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
         }
+        volSeries.setData(vd);
 
-        var tooltip = document.getElementById('klTooltip');
-        chart.subscribeCrosshairMove(function(param) {
-            if (!param.time || !param.point) { tooltip.style.display = 'none'; return; }
+        // ---- MACD 图 ----
+        var macdHist = macdChart.addHistogramSeries({ lastValueVisible: false, priceLineVisible: false });
+        macdHist.setData(macd.macd.map(function(v) { return { time: v.time, value: v.value, color: v.value >= 0 ? '#ef5350' : '#26a69a' }; }));
+        var difLine = macdChart.addLineSeries({ color: '#ffffff', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        difLine.setData(macd.dif);
+        var deaLine = macdChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        deaLine.setData(macd.dea);
+
+        // ---- 十字线同步 ----
+        var _crosshairSyncLock = false;
+        allCharts.forEach(function(c) {
+            c.subscribeCrosshairMove(function(param) {
+                if (_crosshairSyncLock || !param || param.time === undefined) return;
+                _crosshairSyncLock = true;
+                allCharts.forEach(function(tc) {
+                    if (tc !== c) {
+                        var targetSeries = null;
+                        if (tc === volChart && volSeries) targetSeries = volSeries;
+                        else if (tc === macdChart && macdHist) targetSeries = macdHist;
+                        else if (tc === mainChart && series) targetSeries = series;
+                        if (targetSeries) tc.setCrosshairPosition(null, param.time, targetSeries);
+                    }
+                });
+                // 非主图触发时手动更新指标栏和游标
+                if (c !== mainChart) _updateMinuteTips(param.time, param.point);
+                _crosshairSyncLock = false;
+            });
+        });
+
+        var tooltip = document.getElementById('mnTooltip');
+        var mainWrap = document.getElementById('mnMainWrap');
+
+        function _updateMinuteTips(time, point) {
+            if (!time) {
+                tooltip.style.display = 'none';
+                _resetMinuteTips();
+                return;
+            }
             var idx = -1;
-            for (var i = 0; i < allT.length; i++) { if (allT[i] === param.time) { idx = i; break; } }
-            if (idx < 0 || allP[idx] == null) { tooltip.style.display = 'none'; return; }
+            for (var i = 0; i < allT.length; i++) { if (allT[i] === time) { idx = i; break; } }
+            if (idx < 0 || allP[idx] == null) {
+                tooltip.style.display = 'none';
+                _resetMinuteTips();
+                return;
+            }
             var rawIdx = 0; for (var ri = 0; ri <= idx; ri++) { if (allP[ri] != null) rawIdx++; } rawIdx--;
-            var d = new Date(param.time * 1000);
+            var d = new Date(time * 1000);
             var ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
             var ts = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
             var pr = prices[rawIdx], vl = volumes[rawIdx] || 0, am = amounts[rawIdx] || 0;
@@ -92,6 +203,8 @@ var KlineMinute = {
             var pc = (pr - preClose) / preClose * 100, pcs = pc >= 0 ? '+' : '', pcc = pc >= 0 ? '#ef5350' : '#26a69a';
             var av = idx < avgData.length ? avgData[idx].value : null;
             var ap = (av != null && preClose) ? (av * preClose / 100 + preClose) : null;
+
+            // 游标
             tooltip.innerHTML = '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">'+ds+' '+ts+'</div><table style="border-spacing:0;">'+
                 '<tr><td style="color:#888;">价格</td><td><span style="color:#3b82f6;">'+pr.toFixed(priceDec)+'</span></td></tr>'+
                 '<tr><td style="color:#888;">均价</td><td><span style="color:#fbbf24;">'+(ap?ap.toFixed(priceDec):'--')+'</span></td></tr>'+
@@ -99,15 +212,51 @@ var KlineMinute = {
                 '<tr><td style="color:#888;">成交</td><td><span style="color:#ddd;">'+vs+'</span></td></tr>'+
                 '<tr><td style="color:#888;">成交额</td><td><span style="color:#ddd;">'+as+'</span></td></tr></table>';
             tooltip.style.display = 'block';
-            var rect = el.getBoundingClientRect();
-            var l = param.point.x + 16, tp = param.point.y - 10;
-            if (l + 120 > rect.width) l = param.point.x - 130;
-            if (tp + 60 > rect.height) tp = rect.height - 70;
-            if (tp < 0) tp = 0;
-            tooltip.style.left = l + 'px'; tooltip.style.top = tp + 'px';
+            var rect = mainWrap.getBoundingClientRect();
+            var left, top;
+            if (point) {
+                left = point.x + 16; top = point.y - 10;
+            } else {
+                left = rect.width / 2 - 80; top = 10;
+            }
+            if (left + 120 > rect.width) left = rect.width - 130;
+            if (top + 80 > rect.height) top = rect.height - 90;
+            if (top < 0) top = 0;
+            if (left < 0) left = 0;
+            tooltip.style.left = left + 'px'; tooltip.style.top = top + 'px';
+
+            // 指标栏
+            var vt = document.getElementById('mnVolTip');
+            if (vt) vt.innerHTML = '<span style="color:#ddd;">量:'+vs+'</span> <span style="color:#ddd;">额:'+as+'</span>';
+            var mt = document.getElementById('mnMacdTip');
+            if (mt) {
+                var macdIdx = macd.macd.length - 1;
+                for (var mi = 0; mi < macd.macd.length; mi++) {
+                    if (macd.macd[mi].time === time || (isUS && Math.abs(macd.macd[mi].time - time) < 120)) { macdIdx = mi; break; }
+                }
+                var macdVal = macd.macd[Math.min(macdIdx, macd.macd.length - 1)];
+                var difVal = macd.dif[Math.min(macdIdx, macd.dif.length - 1)];
+                var deaVal = macd.dea[Math.min(macdIdx, macd.dea.length - 1)];
+                mt.innerHTML = '<span style="color:#ffffff;">DIFF:'+difVal.value.toFixed(3)+'</span> <span style="color:#fbbf24;">DEA:'+deaVal.value.toFixed(3)+'</span> <span style="color:'+(macdVal.value>=0?'#ef5350':'#26a69a')+';">MACD:'+macdVal.value.toFixed(3)+'</span>';
+            }
+        }
+
+        function _resetMinuteTips() {
+            var vt2 = document.getElementById('mnVolTip');
+            if (vt2) vt2.innerHTML = '';
+            var mt2 = document.getElementById('mnMacdTip');
+            if (mt2) mt2.innerHTML = '<span style="color:#ffffff;">DIFF:'+macd.dif[macd.dif.length-1].value.toFixed(3)+'</span> <span style="color:#fbbf24;">DEA:'+macd.dea[macd.dea.length-1].value.toFixed(3)+'</span> <span style="color:'+(macd.macd[macd.macd.length-1].value>=0?'#ef5350':'#26a69a')+';">MACD:'+macd.macd[macd.macd.length-1].value.toFixed(3)+'</span>';
+        }
+
+        mainChart.subscribeCrosshairMove(function(param) {
+            if (!param.time || !param.point) { _updateMinuteTips(null); return; }
+            _updateMinuteTips(param.time, param.point);
         });
 
-        // 底部指标
+        // 初始指标栏
+        _resetMinuteTips();
+
+        // 底部统计
         var lastP = prices[prices.length - 1], lastAvgV = null;
         for (var ai = avgData.length - 1; ai >= 0; ai--) { if (avgData[ai].value != null) { lastAvgV = avgData[ai].value; break; } }
         var lChg = preClose ? lastP - preClose : 0, lChgPct = preClose ? lChg / preClose * 100 : 0;
@@ -115,14 +264,35 @@ var KlineMinute = {
         var mv = document.getElementById('klMinuteVals');
         if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
 
-        chart.timeScale().fitContent();
-        chart.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
+        // ---- fitContent + fixEdges ----
+        allCharts.forEach(function(c) {
+            c.timeScale().fitContent();
+            c.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
+        });
 
-        var observer = new ResizeObserver(function() { if (chart && el.clientWidth > 0) chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); });
-        observer.observe(el);
+        // ---- ResizeObserver ----
+        var canvases = [mainCanvas, volCanvas, macdCanvas];
+        var charts = [mainChart, volChart, macdChart];
+        var observer = new ResizeObserver(function() {
+            for (var i = 0; i < canvases.length; i++) {
+                if (charts[i] && canvases[i].clientWidth > 0) {
+                    charts[i].applyOptions({ width: canvases[i].clientWidth, height: canvases[i].clientHeight });
+                }
+            }
+        });
+        canvases.forEach(function(c) { observer.observe(c); });
 
-        return { chart: chart, series: series, avgLine: avgLine, volSeries: volSeries, 
-                 minuteFrom: minuteFrom, minuteTo: minuteTo, allT: allT, allP: allP, allV: allV, allA: allA,
-                 avgData: avgData, preClose: preClose, observer: observer };
+        return {
+            chart: mainChart, charts: charts,
+            series: series, avgLine: avgLine, volSeries: volSeries,
+            macdLines: [{ s: macdHist, k: 'macd' }, { s: difLine, k: 'dif' }, { s: deaLine, k: 'dea' }],
+            macd: macd,
+            minuteFrom: minuteFrom, minuteTo: minuteTo,
+            allT: allT, allP: allP, allV: allV, allA: allA,
+            avgData: avgData, preClose: preClose,
+            observer: observer,
+            _buildMacdInput: _buildMacdInput,
+            priceDec: priceDec,
+        };
     }
 };
