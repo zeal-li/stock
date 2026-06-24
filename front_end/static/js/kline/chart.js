@@ -374,6 +374,62 @@ var KlineChartUtils = {
         document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
         _refreshMacdVals();
 
+        // ---- 根据时间更新各指标栏数值（VOL/MACD/KDJ）----
+        function _updateTipsByTime(time, point) {
+            if (!time) {
+                tooltip.style.display = 'none';
+                _refreshVolVals();
+                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
+                _refreshMacdVals();
+                return;
+            }
+            var idx = -1;
+            var tKey = typeof time === 'string' ? time :
+                       time.year ? time.year + '-' + String(time.month).padStart(2,'0') + '-' + String(time.day).padStart(2,'0') : '';
+            for (var i = 0; i < klinesData.length; i++) {
+                if (klinesData[i].time === tKey) { idx = i; break; }
+            }
+            if (idx >= 0) {
+                var k = klinesData[idx];
+                var prevClose = idx > 0 ? klinesData[idx - 1].close : null;
+                var etf = isETF(stockCode, stockMarket);
+                tooltip.innerHTML = KlineChartUtils.tooltipText(k, prevClose, etf);
+                tooltip.style.display = 'block';
+                var rect = mainWrap.getBoundingClientRect();
+                var left, top;
+                if (point) {
+                    left = point.x + 16;
+                    top = point.y - 10;
+                } else {
+                    // 从副图触发，游标放到主图中间偏上
+                    left = rect.width / 2 - 80;
+                    top = 10;
+                }
+                if (left + 160 > rect.width) left = rect.width - 170;
+                if (top + 180 > rect.height) top = rect.height - 190;
+                if (top < 0) top = 0;
+                if (left < 0) left = 0;
+                tooltip.style.left = left + 'px';
+                tooltip.style.top = top + 'px';
+                _refreshVolVals(idx);
+                if (idx >= 0 && idx < kdj.k.length && kdj.k[idx].value != null) {
+                    document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdj.k[idx].value.toFixed(2), kdj.d[idx].value.toFixed(2), kdj.j[idx].value.toFixed(2));
+                } else {
+                    document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
+                }
+                if (idx >= 0 && idx < macd.dif.length) {
+                    document.getElementById('macdTipVals').innerHTML = _buildMacdValsHTML(macd.dif[idx].value.toFixed(3), macd.dea[idx].value.toFixed(3), macd.macd[idx].value.toFixed(3));
+                } else {
+                    _refreshMacdVals();
+                }
+            } else {
+                tooltip.style.display = 'none';
+                _refreshVolVals();
+                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
+                _refreshMacdVals();
+            }
+        }
+
         // ---- 同步十字光标移动 ----
         var _crosshairSyncLock = false;
         allCharts.forEach(function(c) {
@@ -382,68 +438,31 @@ var KlineChartUtils = {
                 _crosshairSyncLock = true;
                 allCharts.forEach(function(tc) {
                     if (tc !== c) {
-                        // 尝试设置十字光标位置（只设置时间，价格设为 null）
-                        // 使用当前图表上的任意 series 作为参考
                         var targetSeries = null;
                         if (tc === volChart && volSeries) targetSeries = volSeries;
                         else if (tc === macdChart && macdHist) targetSeries = macdHist;
                         else if (tc === kdjChart && kdjLines && kdjLines.length > 0) targetSeries = kdjLines[0];
                         else if (tc === mainChart && series) targetSeries = series;
-                        
                         if (targetSeries) {
                             tc.setCrosshairPosition(null, param.time, targetSeries);
                         }
                     }
                 });
+                // 鼠标在副图上移动时，setCrosshairPosition 不会触发 subscribeCrosshairMove，
+                // 需要手动更新指标栏数值和游标
+                if (c !== mainChart) {
+                    _updateTipsByTime(param.time, param.point);
+                }
                 _crosshairSyncLock = false;
             });
         });
 
         mainChart.subscribeCrosshairMove(function(param) {
             if (!param.time || !param.point || !klinesData) {
-                tooltip.style.display = 'none';
-                _refreshVolVals();
-                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
-                _refreshMacdVals();
+                _updateTipsByTime(null);
                 return;
             }
-            var k = null, idx = -1;
-            var tKey = typeof param.time === 'string' ? param.time :
-                       param.time.year ? param.time.year + '-' + String(param.time.month).padStart(2,'0') + '-' + String(param.time.day).padStart(2,'0') : '';
-            for (var i = 0; i < klinesData.length; i++) {
-                if (klinesData[i].time === tKey) { k = klinesData[i]; idx = i; break; }
-            }
-            if (!k) {
-                tooltip.style.display = 'none';
-                _refreshVolVals();
-                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
-                _refreshMacdVals();
-                return;
-            }
-            var prevClose = idx > 0 ? klinesData[idx - 1].close : null;
-            var isEtf = isETF(stockCode, stockMarket);
-            tooltip.innerHTML = KlineChartUtils.tooltipText(k, prevClose, isEtf);
-            tooltip.style.display = 'block';
-            var rect = mainWrap.getBoundingClientRect();
-            var left = param.point.x + 16;
-            var top = param.point.y - 10;
-            if (left + 160 > rect.width) left = param.point.x - 170;
-            if (top + 180 > rect.height) top = rect.height - 190;
-            if (top < 0) top = 0;
-            tooltip.style.left = left + 'px';
-            tooltip.style.top = top + 'px';
-            // 更新 KDJ 指标值
-            if (idx >= 0 && idx < kdj.k.length && kdj.k[idx].value != null) {
-                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdj.k[idx].value.toFixed(2), kdj.d[idx].value.toFixed(2), kdj.j[idx].value.toFixed(2));
-            } else {
-                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
-            }
-            _refreshVolVals(idx);
-            if (idx >= 0 && idx < macd.dif.length) {
-                document.getElementById('macdTipVals').innerHTML = _buildMacdValsHTML(macd.dif[idx].value.toFixed(3), macd.dea[idx].value.toFixed(3), macd.macd[idx].value.toFixed(3));
-            } else {
-                _refreshMacdVals();
-            }
+            _updateTipsByTime(param.time, param.point);
         });
 
         // ---- ResizeObserver ----
