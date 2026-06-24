@@ -28,6 +28,8 @@ var KlinePopup = (function() {
     var _bbLines = [];
     var _maVals = null;  // {ma5, ma10, ma20, ma60}
     var _bbVals = null;  // {up, mid, lo}
+    var _kdjLines = [];
+    var _kdjVals = null;  // {k, d, j}
 
     // ---- 创建弹窗 DOM ----
     function _ensureDOM() {
@@ -533,7 +535,7 @@ var KlinePopup = (function() {
     }
     function _updateIndVals() {
         var el = document.getElementById('klIndVals');
-        if (el) el.innerHTML = KlineChartUtils.getIndHTML(_indicatorMode, _maVals, _bbVals);
+        if (el) el.innerHTML = KlineChartUtils.getIndHTML(_indicatorMode, _maVals, _bbVals, _kdjVals);
     }
 
     // ---- 渲染图表 ----
@@ -574,6 +576,8 @@ var KlinePopup = (function() {
         _bbLines = result.bbLines;
         _maVals = result.maVals;
         _bbVals = result.bbVals;
+        _kdjLines = result.kdjLines;
+        _kdjVals = result.kdjVals;
         _observer = result.observer;
         // 初始显示最近一年，右留空3个月，让最新K线在窗口偏左位置
         if (_klinesData && _klinesData.length > 0) {
@@ -881,6 +885,8 @@ var KlinePopup = (function() {
         _bbLines = [];
         _maVals = null;
         _bbVals = null;
+        _kdjLines = [];
+        _kdjVals = null;
         _isMinute = false;
         if (_minuteTimer) { clearInterval(_minuteTimer); _minuteTimer = null; }
         if (_fiveDayTimer) { clearInterval(_fiveDayTimer); _fiveDayTimer = null; }
