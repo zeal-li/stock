@@ -30,6 +30,7 @@ var KlinePopup = (function() {
     var _bbVals = null;  // {up, mid, lo}
     var _kdjLines = [];
     var _kdjVals = null;  // {k, d, j}
+    var _kdjParams = { n: 9, m1: 3, m2: 3 };  // KDJ 参数
 
     // ---- 创建弹窗 DOM ----
     function _ensureDOM() {
@@ -568,7 +569,7 @@ var KlinePopup = (function() {
         }
         var el = document.getElementById('klChart');
         if (_observer) _observer.disconnect();
-        var result = KlineChartUtils.render(el, _klinesData, _stockCode, _stockMarket);
+        var result = KlineChartUtils.render(el, _klinesData, _stockCode, _stockMarket, _kdjParams);
         _chart = result.chart;
         _series = result.series;
         _volSeries = result.volSeries;

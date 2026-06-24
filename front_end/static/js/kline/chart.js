@@ -11,11 +11,12 @@ var KlineChartUtils = {
         }
         return r;
     },
-    // KDJ 计算 (n=9)
-    calcKDJ: function(data, n) {
-        n = n || 9;
+    // KDJ 计算 (n=RSV周期, m1=K平滑, m2=D平滑)
+    calcKDJ: function(data, n, m1, m2) {
+        n = n || 9; m1 = m1 || 3; m2 = m2 || 3;
         var kData = [], dData = [], jData = [];
         var k = 50, d = 50;
+        var a1 = 1 / m1, a2 = 1 / m2;
         for (var i = n - 1; i < data.length; i++) {
             var highN = data[i].high, lowN = data[i].low;
             for (var j = i - n + 1; j <= i; j++) {
@@ -24,8 +25,8 @@ var KlineChartUtils = {
             }
             var rng = highN - lowN;
             var rsv = rng > 0 ? (data[i].close - lowN) / rng * 100 : 50;
-            k = 2/3 * k + 1/3 * rsv;
-            d = 2/3 * d + 1/3 * k;
+            k = (1 - a1) * k + a1 * rsv;
+            d = (1 - a2) * d + a2 * k;
             var j = 3 * k - 2 * d;
             kData.push({ time: data[i].time, value: k });
             dData.push({ time: data[i].time, value: d });
@@ -88,9 +89,15 @@ var KlineChartUtils = {
         );
     },
     // 渲染 K 线图，返回 { chart, series, volSeries, maLines, bbLines, kdjLines, kdjVals, observer }
-    render: function(el, klinesData, stockCode, stockMarket) {
+    render: function(el, klinesData, stockCode, stockMarket, kdjParams) {
+        kdjParams = kdjParams || { n: 9, m1: 3, m2: 3 };
         el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
-            '<div id="klKDJTip" style="position:absolute;z-index:9999;pointer-events:none;left:8px;font-size:12px;line-height:1.6;background:rgba(26,26,46,0.88);border-radius:4px;padding:2px 6px;white-space:nowrap;"></div>';
+            '<div id="klKDJTip" style="position:absolute;z-index:9999;pointer-events:none;left:8px;font-size:12px;line-height:1.6;background:rgba(26,26,46,0.88);border-radius:4px;padding:2px 6px;white-space:nowrap;color:#8b8b9e;">' +
+                'KDJ(<input id="kdjN" type="text" inputmode="numeric" value="' + kdjParams.n + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ',<input id="kdjM1" type="text" inputmode="numeric" value="' + kdjParams.m1 + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ',<input id="kdjM2" type="text" inputmode="numeric" value="' + kdjParams.m2 + '" style="pointer-events:auto;width:24px;height:16px;font-size:11px;line-height:16px;background:#2a2a4e;border:1px solid #3a3a6e;color:#ccc;text-align:center;border-radius:2px;padding:0;vertical-align:middle;">' +
+                ') <span id="kdjTipVals"></span>' +
+            '</div>';
 
         var chart = LightweightCharts.createChart(el, {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
@@ -135,7 +142,7 @@ var KlineChartUtils = {
         }));
 
         // KDJ 指标（成交量下方）
-        var kdj = KlineChartUtils.calcKDJ(klinesData);
+        var kdj = KlineChartUtils.calcKDJ(klinesData, kdjParams.n, kdjParams.m1, kdjParams.m2);
         var lastKDJ = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
         var kdjVals = { k: lastKDJ(kdj.k), d: lastKDJ(kdj.d), j: lastKDJ(kdj.j) };
         var kdjLines = [];
@@ -145,6 +152,29 @@ var KlineChartUtils = {
             kdjLines.push(line);
         });
         chart.priceScale('kdj').applyOptions({ scaleMargins: { top: 0.82, bottom: 0.01 } });
+
+        // KDJ 参数变更时热更新曲线和标签
+        function _buildKdjValsHTML(kVal, dVal, jVal) {
+            return '<span style="color:#ffffff;">K:' + kVal + '</span> <span style="color:#fbbf24;">D:' + dVal + '</span> <span style="color:#a78bfa;">J:' + jVal + '</span>';
+        }
+        function _refreshKdj() {
+            var n = parseInt(document.getElementById('kdjN').value) || kdjParams.n;
+            var m1 = parseInt(document.getElementById('kdjM1').value) || kdjParams.m1;
+            var m2 = parseInt(document.getElementById('kdjM2').value) || kdjParams.m2;
+            n = Math.max(2, Math.min(120, n));
+            m1 = Math.max(1, Math.min(100, m1));
+            m2 = Math.max(1, Math.min(100, m2));
+            kdj = KlineChartUtils.calcKDJ(klinesData, n, m1, m2);
+            kdjVals.k = lastKDJ(kdj.k); kdjVals.d = lastKDJ(kdj.d); kdjVals.j = lastKDJ(kdj.j);
+            [{v: kdj.k, idx: 0}, {v: kdj.d, idx: 1}, {v: kdj.j, idx: 2}].forEach(function(x) {
+                kdjLines[x.idx].setData(x.v);
+            });
+            var tv = document.getElementById('kdjTipVals');
+            if (tv) tv.innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
+        }
+        document.getElementById('kdjN').addEventListener('change', _refreshKdj);
+        document.getElementById('kdjM1').addEventListener('change', _refreshKdj);
+        document.getElementById('kdjM2').addEventListener('change', _refreshKdj);
 
         // 均线
         var maC = ['#fbbf24', '#60a5fa', '#a78bfa', '#f472b6', '#34d399', '#fb923c'];
@@ -180,12 +210,12 @@ var KlineChartUtils = {
         var tooltip = document.getElementById('klTooltip');
         var kdjTip = document.getElementById('klKDJTip');
         // 初始显示最新 KDJ 值
-        kdjTip.innerHTML = 'KDJ(9,3,3) <span style="color:#ffffff;">K:' + kdjVals.k + '</span> <span style="color:#fbbf24;">D:' + kdjVals.d + '</span> <span style="color:#a78bfa;">J:' + kdjVals.j + '</span>';
+        document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
         chart.subscribeCrosshairMove(function(param) {
             if (!param.time || !param.point || !klinesData) {
                 tooltip.style.display = 'none';
                 // 鼠标离开十字线时恢复最新值
-                kdjTip.innerHTML = 'KDJ(9,3,3) <span style="color:#ffffff;">K:' + kdjVals.k + '</span> <span style="color:#fbbf24;">D:' + kdjVals.d + '</span> <span style="color:#a78bfa;">J:' + kdjVals.j + '</span>';
+                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
                 return;
             }
             var k = null, idx = -1;
@@ -196,7 +226,7 @@ var KlineChartUtils = {
             }
             if (!k) {
                 tooltip.style.display = 'none';
-                kdjTip.innerHTML = 'KDJ(9,3,3) <span style="color:#ffffff;">K:' + kdjVals.k + '</span> <span style="color:#fbbf24;">D:' + kdjVals.d + '</span> <span style="color:#a78bfa;">J:' + kdjVals.j + '</span>';
+                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
                 return;
             }
             var prevClose = idx > 0 ? klinesData[idx - 1].close : null;
@@ -214,9 +244,9 @@ var KlineChartUtils = {
             // 更新 KDJ 左上角值
             var kdjIdx = idx - 8;
             if (kdjIdx >= 0 && kdjIdx < kdj.k.length) {
-                kdjTip.innerHTML = 'KDJ(9,3,3) <span style="color:#ffffff;">K:' + kdj.k[kdjIdx].value.toFixed(2) + '</span> <span style="color:#fbbf24;">D:' + kdj.d[kdjIdx].value.toFixed(2) + '</span> <span style="color:#a78bfa;">J:' + kdj.j[kdjIdx].value.toFixed(2) + '</span>';
+                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdj.k[kdjIdx].value.toFixed(2), kdj.d[kdjIdx].value.toFixed(2), kdj.j[kdjIdx].value.toFixed(2));
             } else {
-                kdjTip.innerHTML = 'KDJ(9,3,3) <span style="color:#ffffff;">K:' + kdjVals.k + '</span> <span style="color:#fbbf24;">D:' + kdjVals.d + '</span> <span style="color:#a78bfa;">J:' + kdjVals.j + '</span>';
+                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
             }
         });
 
