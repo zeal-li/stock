@@ -35,6 +35,12 @@ var KlineChartUtils = {
     calcKDJ: function(data, n, m1, m2) {
         n = n || 9; m1 = m1 || 3; m2 = m2 || 3;
         var kData = [], dData = [], jData = [];
+        // 前 n-1 根没有 KDJ 值，填入 null 占位以保持时间轴对齐
+        for (var pi = 0; pi < n - 1; pi++) {
+            kData.push({ time: data[pi].time, value: null });
+            dData.push({ time: data[pi].time, value: null });
+            jData.push({ time: data[pi].time, value: null });
+        }
         var k = 50, d = 50;
         var a1 = 1 / m1, a2 = 1 / m2;
         for (var i = n - 1; i < data.length; i++) {
@@ -132,7 +138,7 @@ var KlineChartUtils = {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 1 },
-            rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 72, scaleMargins: { top: 0.05, bottom: 0.02 } },
+            rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 84, scaleMargins: { top: 0.05, bottom: 0.02 } },
             timeScale: { borderColor: '#2a2a4e', visible: false },
         };
 
@@ -184,7 +190,7 @@ var KlineChartUtils = {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 1 },
-            rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 72, scaleMargins: { top: 0.05, bottom: 0.02 } },
+            rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 84, scaleMargins: { top: 0.05, bottom: 0.02 } },
             timeScale: { borderColor: '#2a2a4e', visible: false },
             width: mainCanvas.clientWidth, height: mainCanvas.clientHeight,
         });
@@ -427,9 +433,8 @@ var KlineChartUtils = {
             tooltip.style.left = left + 'px';
             tooltip.style.top = top + 'px';
             // 更新 KDJ 指标值
-            var kdjIdx = idx - 8;
-            if (kdjIdx >= 0 && kdjIdx < kdj.k.length) {
-                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdj.k[kdjIdx].value.toFixed(2), kdj.d[kdjIdx].value.toFixed(2), kdj.j[kdjIdx].value.toFixed(2));
+            if (idx >= 0 && idx < kdj.k.length && kdj.k[idx].value != null) {
+                document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdj.k[idx].value.toFixed(2), kdj.d[idx].value.toFixed(2), kdj.j[idx].value.toFixed(2));
             } else {
                 document.getElementById('kdjTipVals').innerHTML = _buildKdjValsHTML(kdjVals.k, kdjVals.d, kdjVals.j);
             }
