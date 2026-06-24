@@ -132,7 +132,7 @@ var KlineChartUtils = {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 1 },
-            rightPriceScale: { visible: false, scaleMargins: { top: 0.05, bottom: 0.02 } },
+            rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 72, scaleMargins: { top: 0.05, bottom: 0.02 } },
             timeScale: { borderColor: '#2a2a4e', visible: false },
         };
 
@@ -184,7 +184,7 @@ var KlineChartUtils = {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 1 },
-            rightPriceScale: { visible: false, scaleMargins: { top: 0.05, bottom: 0.02 } },
+            rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 72, scaleMargins: { top: 0.05, bottom: 0.02 } },
             timeScale: { borderColor: '#2a2a4e', visible: false },
             width: mainCanvas.clientWidth, height: mainCanvas.clientHeight,
         });
@@ -192,7 +192,6 @@ var KlineChartUtils = {
         var macdChart = LightweightCharts.createChart(macdCanvas, Object.assign({}, subChartBase, { width: macdCanvas.clientWidth, height: macdCanvas.clientHeight }));
         var kdjChart = LightweightCharts.createChart(kdjCanvas, Object.assign({}, subChartBase, {
             timeScale: { borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false, tickMarkFormatter: tickFmt },
-            rightPriceScale: { visible: false, scaleMargins: { top: 0.05, bottom: 0.02 } },
             width: kdjCanvas.clientWidth, height: kdjCanvas.clientHeight,
         }));
 
