@@ -145,7 +145,7 @@ var KlineChartUtils = {
         el.innerHTML =
             '<style>#klChart a{display:none !important;}</style>' +
             // 主图（K线 + 均线/布林线）
-            '<div id="klMainWrap" style="flex:3;min-height:0;position:relative;">' +
+            '<div id="klMainWrap" style="flex:4;min-height:0;position:relative;">' +
                 '<div id="klMainCanvas" style="width:100%;height:100%;"></div>' +
                 '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
             '</div>' +
