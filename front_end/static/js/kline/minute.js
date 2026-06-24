@@ -2,7 +2,7 @@
 
 var KlineMinute = {
     render: function(el, times, prices, volumes, amounts, preClose, stockMarket, stockCode) {
-        el.innerHTML = '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
+        el.innerHTML = '<style>#klChart a{display:none !important;}</style><div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>';
         var priceDec = isETF(stockCode, stockMarket) ? 3 : 2;
         var isUS = stockMarket === '106', isHK = stockMarket === '116';
         var today = new Date(); var base = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime() / 1000;
