@@ -57,9 +57,17 @@ var KlineMinute = {
             crosshair: { mode: 1 },
             rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 84, scaleMargins: { top: 0.05, bottom: 0.02 } },
             timeScale: { borderColor: '#2a2a4e', visible: false },
-            handleScroll: { vertTouchDrag: false, horzTouchDrag: false },
+            handleScroll: { vertTouchDrag: false, horzTouchDrag: false, pressedMouseMove: false, mouseWheel: false },
             handleScale: { axisPressedMouseMove: false, pinch: false, mouseWheel: false },
         };
+
+        // 生成自定义时间刻度（30 分钟间隔，跳过午休）
+        var customTicks = [];
+        var tickStep = 30 * 60; // 30分钟
+        for (var tt = minuteFrom; tt <= minuteTo; tt += tickStep) {
+            if (!isUS && ((!isHK && tt >= lunchAStart && tt <= lunchAEnd) || (isHK && tt >= lunchHKStart && tt <= lunchHKEnd))) continue;
+            customTicks.push({ time: tt });
+        }
 
         // ---- DOM 结构 ----
         el.innerHTML +=
@@ -98,7 +106,7 @@ var KlineMinute = {
             width: volCanvas.clientWidth, height: volCanvas.clientHeight,
         }));
         var macdChart = LightweightCharts.createChart(macdCanvas, Object.assign({}, subBase, {
-            timeScale: { borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false, tickMarkFormatter: tickFmt },
+            timeScale: { borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false, tickMarkFormatter: tickFmt, ticks: customTicks },
             width: macdCanvas.clientWidth, height: macdCanvas.clientHeight,
         }));
 
@@ -147,6 +155,9 @@ var KlineMinute = {
             vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
         }
         volSeries.setData(vd);
+        // 成交量图隐形锚点（确保时间轴覆盖全交易时段）
+        volChart.addLineSeries({ lineWidth: 0, priceLineVisible: false, lastValueVisible: false })
+            .setData([{ time: minuteFrom, value: 0 }, { time: minuteTo, value: 0 }]);
 
         // ---- MACD 图 ----
         var macdHist = macdChart.addHistogramSeries({ lastValueVisible: false, priceLineVisible: false });
@@ -155,6 +166,9 @@ var KlineMinute = {
         difLine.setData(macd.dif);
         var deaLine = macdChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         deaLine.setData(macd.dea);
+        // MACD 图隐形锚点（MACD 数据因 EMA 热身比主图短，必须补锚点撑开时间轴）
+        macdChart.addLineSeries({ lineWidth: 0, priceLineVisible: false, lastValueVisible: false })
+            .setData([{ time: minuteFrom, value: 0 }, { time: minuteTo, value: 0 }]);
 
         // ---- 十字线同步 ----
         var _crosshairSyncLock = false;
@@ -263,12 +277,6 @@ var KlineMinute = {
         var ls = lChg >= 0 ? '+' : '', lc = lChg >= 0 ? '#ef5350' : '#26a69a';
         var mv = document.getElementById('klMinuteVals');
         if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
-
-        // ---- fitContent + fixEdges ----
-        allCharts.forEach(function(c) {
-            c.timeScale().fitContent();
-            c.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
-        });
 
         // ---- ResizeObserver ----
         var canvases = [mainCanvas, volCanvas, macdCanvas];
