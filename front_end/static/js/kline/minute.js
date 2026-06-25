@@ -278,7 +278,11 @@ var KlineMinute = {
         var mv = document.getElementById('klMinuteVals');
         if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
 
-        // ---- ResizeObserver ----
+        // ---- fitContent + fixEdges ----
+        mainChart.timeScale().fitContent();
+        allCharts.forEach(function(c) {
+            c.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
+        });
         var canvases = [mainCanvas, volCanvas, macdCanvas];
         var charts = [mainChart, volChart, macdChart];
         var observer = new ResizeObserver(function() {
