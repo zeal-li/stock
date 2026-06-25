@@ -90,9 +90,9 @@ var KlinePopup = (function() {
         if (_fiveDayTimer) { clearInterval(_fiveDayTimer); _fiveDayTimer = null; }
         var btn = document.getElementById('klBtnMinute');
         var indBar = document.getElementById('klIndBar');
-        // 五日按钮还原
-        var btn5d = document.querySelector('#klPeriodBar button[data-p="5day"]');
-        if (btn5d) { btn5d.style.background = '#1a1a2e'; btn5d.style.color = '#8b8b9e'; }
+        // 所有周期按钮还原（日K/周K/月K/五日）
+        var pBtns = document.querySelectorAll('#klPeriodBar button[data-p]');
+        pBtns.forEach(function(b) { b.style.background = '#1a1a2e'; b.style.color = '#8b8b9e'; });
 
         if (_isMinute) {
             btn.style.background = '#2a2a4e'; btn.style.color = '#fff';
@@ -601,17 +601,16 @@ var KlinePopup = (function() {
         _macdLines = result.macdLines;
         _macdVals = result.macdVals;
         _observer = result.observer;
-        // 初始显示最近一年，右留空3个月，让最新K线在窗口偏左位置
+        // 初始显示范围：日K≈1年，周K≈3年，月K≈5年，右留空20%，柱宽均匀
         if (_klinesData && _klinesData.length > 0) {
+            var lookbackYears = _currentPeriod === 'week' ? 3 : _currentPeriod === 'month' ? 5 : 1;
             var lastT = _klinesData[_klinesData.length - 1].time;
             var parts = lastT.split('-');
-            var oneYearAgo = (parseInt(parts[0]) - 1) + '-' + parts[1] + '-' + parts[2];
-            // 找一年前对应的数据索引
+            var agoT = (parseInt(parts[0]) - lookbackYears) + '-' + parts[1] + '-' + parts[2];
             var fromIdx = 0;
             for (var i = 0; i < _klinesData.length; i++) {
-                if (_klinesData[i].time >= oneYearAgo) { fromIdx = i; break; }
+                if (_klinesData[i].time >= agoT) { fromIdx = i; break; }
             }
-            // 右边多留约20%空白，让最新K线不贴边
             var visibleBars = _klinesData.length - fromIdx;
             var rightPad = Math.round(visibleBars * 0.2);
             _charts.forEach(function(c) {
