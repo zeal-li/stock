@@ -157,8 +157,8 @@ var KlineMinute = {
             vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
         }
         volSeries.setData(vd);
-        // 成交量图隐形锚点（确保时间轴覆盖全交易时段）
-        volChart.addLineSeries({ lineWidth: 0, priceLineVisible: false, lastValueVisible: false })
+        // 成交量图锚点（确保时间轴覆盖全交易时段）
+        volChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
             .setData([{ time: minuteFrom, value: 0 }, { time: minuteTo, value: 0 }]);
 
         // ---- MACD 图 ----
@@ -168,8 +168,8 @@ var KlineMinute = {
         difLine.setData(macd.dif);
         var deaLine = macdChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         deaLine.setData(macd.dea);
-        // MACD 图隐形锚点（MACD 数据因 EMA 热身比主图短，必须补锚点撑开时间轴）
-        macdChart.addLineSeries({ lineWidth: 0, priceLineVisible: false, lastValueVisible: false })
+        // MACD 图锚点（MACD 数据因 EMA 热身比主图短，必须补锚点撑开时间轴）
+        macdChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
             .setData([{ time: minuteFrom, value: 0 }, { time: minuteTo, value: 0 }]);
 
         // ---- 十字线同步 ----
@@ -280,19 +280,24 @@ var KlineMinute = {
         var mv = document.getElementById('klMinuteVals');
         if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
 
-        // ---- fitContent + fixEdges ----
-        mainChart.timeScale().fitContent();
-        allCharts.forEach(function(c) {
-            c.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
-        });
+        // ---- 固定时间轴范围（9:30-15:00 全交易时段），折线只在已有数据区域绘制 ----
         var canvases = [mainCanvas, volCanvas, macdCanvas];
         var charts = [mainChart, volChart, macdChart];
+        function _fixTimeRange() {
+            _syncLock = true;
+            allCharts.forEach(function(c) {
+                c.timeScale().setVisibleRange({ from: minuteFrom, to: minuteTo });
+            });
+            _syncLock = false;
+        }
+        requestAnimationFrame(function() { _fixTimeRange(); });
         var observer = new ResizeObserver(function() {
             for (var i = 0; i < canvases.length; i++) {
                 if (charts[i] && canvases[i].clientWidth > 0) {
                     charts[i].applyOptions({ width: canvases[i].clientWidth, height: canvases[i].clientHeight });
                 }
             }
+            requestAnimationFrame(function() { _fixTimeRange(); });
         });
         canvases.forEach(function(c) { observer.observe(c); });
 
