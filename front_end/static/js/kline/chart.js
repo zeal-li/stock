@@ -439,22 +439,26 @@ var KlineChartUtils = {
             c.subscribeCrosshairMove(function(param) {
                 if (_crosshairSyncLock || !param || param.time === undefined) return;
                 _crosshairSyncLock = true;
-                allCharts.forEach(function(tc) {
-                    if (tc !== c) {
-                        var targetSeries = null;
-                        if (tc === volChart && volSeries) targetSeries = volSeries;
-                        else if (tc === macdChart && macdHist) targetSeries = macdHist;
-                        else if (tc === kdjChart && kdjLines && kdjLines.length > 0) targetSeries = kdjLines[0];
-                        else if (tc === mainChart && series) targetSeries = series;
-                        if (targetSeries) {
-                            tc.setCrosshairPosition(null, param.time, targetSeries);
+                try {
+                    allCharts.forEach(function(tc) {
+                        if (tc !== c) {
+                            var targetSeries = null;
+                            if (tc === volChart && volSeries) targetSeries = volSeries;
+                            else if (tc === macdChart && macdHist) targetSeries = macdHist;
+                            else if (tc === kdjChart && kdjLines && kdjLines.length > 0 && kdj.k.length > 0) targetSeries = kdjLines[0];
+                            else if (tc === mainChart && series) targetSeries = series;
+                            if (targetSeries) {
+                                tc.setCrosshairPosition(null, param.time, targetSeries);
+                            }
                         }
+                    });
+                    // 鼠标在副图上移动时，setCrosshairPosition 不会触发 subscribeCrosshairMove，
+                    // 需要手动更新指标栏数值和游标
+                    if (c !== mainChart) {
+                        _updateTipsByTime(param.time, param.point);
                     }
-                });
-                // 鼠标在副图上移动时，setCrosshairPosition 不会触发 subscribeCrosshairMove，
-                // 需要手动更新指标栏数值和游标
-                if (c !== mainChart) {
-                    _updateTipsByTime(param.time, param.point);
+                } catch(e) {
+                    // 数据稀疏时 setCrosshairPosition 可能对空序列抛异常，静默忽略
                 }
                 _crosshairSyncLock = false;
             });
