@@ -26,6 +26,15 @@ def _db():
     conn.commit()
     return conn
 
+def cleanup_old_data():
+    """启动时删除 3 个月前的数据"""
+    cutoff = (datetime.date.today() - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
+    conn = _db()
+    conn.execute('DELETE FROM longhu_bang WHERE trade_date < ?', (cutoff,))
+    conn.commit()
+    conn.close()
+
+
 def _fetch_longhu_bang(trade_date: str = None):
     """从同花顺 lhbggxq 获取龙虎榜每日明细 + 席位分类"""
     if not trade_date:

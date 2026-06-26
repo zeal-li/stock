@@ -11,7 +11,7 @@ from money_flow.fund_flow import get_market_fund_flow
 from money_flow.fear_index import get_fear_index
 from money_flow.risk_index import get_risk_index
 from money_flow.margin import get_margin_trading
-from money_flow.longhu_bang import get_longhu_bang
+from money_flow.longhu_bang import get_longhu_bang, cleanup_old_data
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
@@ -1091,5 +1091,6 @@ def abnormal_analyze():
 # ==================== 启动 ====================
 
 if __name__ == '__main__':
+    cleanup_old_data()            # 启动时清理 3 个月前的龙虎榜数据
     start_major_indices_poller()  # 启动后台指数行情轮询
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)
