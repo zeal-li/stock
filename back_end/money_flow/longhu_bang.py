@@ -1,5 +1,8 @@
 """龙虎榜数据（同花顺）"""
 import datetime
+import json
+import os
+import sqlite3
 import requests
 from bs4 import BeautifulSoup
 from common import REQUEST_PROXIES
@@ -8,6 +11,20 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     'Referer': 'https://data.10jqka.com.cn/market/longhu/',
 }
+
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'longhu_bang.db')
+
+
+def _db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute('''CREATE TABLE IF NOT EXISTS longhu_bang (
+        trade_date TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        created_at TEXT DEFAULT (datetime('now'))
+    )''')
+    conn.commit()
+    return conn
 
 def _fetch_longhu_bang(trade_date: str = None):
     """从同花顺 lhbggxq 获取龙虎榜每日明细 + 席位分类"""
@@ -87,21 +104,6 @@ def _fetch_longhu_bang(trade_date: str = None):
         buy_seats = seats.get('buy', [])
         sell_seats = seats.get('sell', [])
 
-        # 分类：机构 vs 游资
-        has_jg = any('机构专用' in s['name'] for s in buy_seats) or \
-                 any('机构专用' in s['name'] for s in sell_seats)
-        has_yz_labels = any(s['label'] for s in buy_seats) or \
-                        any(s['label'] for s in sell_seats)
-
-        if has_jg and has_yz_labels:
-            lhb_type = 'both'
-        elif has_jg:
-            lhb_type = 'org'
-        elif has_yz_labels:
-            lhb_type = 'capital'
-        else:
-            lhb_type = 'other'
-
         # 上榜原因：从 stockcont 的 <p> 标签提取
         reason = reason_map.get(rid, '')
 
@@ -113,12 +115,9 @@ def _fetch_longhu_bang(trade_date: str = None):
             "amount_raw": amount_raw,
             "net_amt": net_amt,
             "multi_day": multi_day_label,
-            "lhb_type": lhb_type,
             "buy_seats": buy_seats,
             "sell_seats": sell_seats,
             "reason": reason,
-            "buy_seat_count": len(buy_seats),
-            "sell_seat_count": len(sell_seats),
             "trade_date": trade_date,
         })
 
@@ -232,56 +231,30 @@ def _parse_amount(s):
         return None
 
 
-def get_longhu_bang(trade_date: str = None, tab: str = 'all'):
-    """获取龙虎榜数据，支持分类筛选"""
-    raw = _fetch_longhu_bang(trade_date)
+def get_longhu_bang(trade_date: str = None):
+    """获取龙虎榜数据。先从 DB 缓存读取，没有则爬取后入库。返回当天的全部原始数据。"""
+    if not trade_date:
+        trade_date = datetime.date.today().strftime("%Y-%m-%d")
 
+    # 1. 查 DB 缓存
+    conn = _db()
+    row = conn.execute('SELECT data FROM longhu_bang WHERE trade_date = ?', (trade_date,)).fetchone()
+    if row:
+        conn.close()
+        return {"success": True, "data": json.loads(row[0])}
+
+    # 2. DB 无数据，爬取
+    raw = _fetch_longhu_bang(trade_date)
     if not raw.get("success"):
+        conn.close()
         return raw
 
     data = raw["data"]
-    all_list = data.get("list", [])
 
-    # 按 tab 筛选（互斥：三个榜单不重叠）
-    tab_map = {
-        'all': lambda _: True,
-        'org': lambda r: r['lhb_type'] == 'org',       # 纯机构，无游资
-        'capital': lambda r: r['lhb_type'] == 'capital', # 纯游资，无机构
-        'both': lambda r: r['lhb_type'] == 'both',      # 机构+游资同时出现
-    }
+    # 3. 有数据则入库
+    conn.execute('INSERT OR REPLACE INTO longhu_bang (trade_date, data) VALUES (?, ?)',
+                 (trade_date, json.dumps(data, ensure_ascii=False)))
+    conn.commit()
+    conn.close()
 
-    filtered = [r for r in all_list if tab_map.get(tab, tab_map['all'])(r)]
-
-    # 精简输出
-    output = []
-    for r in filtered:
-        total_buy = sum(s['buy_amt'] for s in r['buy_seats'])
-        total_sell = sum(s['sell_amt'] for s in r['sell_seats'])
-        output.append({
-            "code": r["code"],
-            "name": r["name"],
-            "price": r["price"],
-            "change_pct": r["change_pct"],
-            "net_amt": r["net_amt"],
-            "amount_raw": r["amount_raw"],
-            "total_buy": total_buy,
-            "total_sell": total_sell,
-            "lhb_type": r["lhb_type"],
-            "multi_day": r["multi_day"],
-            "reason": r["reason"],
-            "buy_seat_count": r["buy_seat_count"],
-            "sell_seat_count": r["sell_seat_count"],
-            "trade_date": r["trade_date"],
-            # 席位详情
-            "buy_seats": r["buy_seats"],
-            "sell_seats": r["sell_seats"],
-        })
-
-    # 排序：净买额/成交额↓ → 涨跌幅↓ → 成交额↓
-    output.sort(key=lambda r: (
-        r['net_amt'] / r['amount_raw'] if r['amount_raw'] else float('-inf'),
-        r['change_pct'] if r['change_pct'] is not None else float('-inf'),
-        r['amount_raw'] if r['amount_raw'] is not None else float('-inf'),
-    ), reverse=True)
-
-    return {"success": True, "data": {"trade_date": data["trade_date"], "list": output}}
+    return {"success": True, "data": data}

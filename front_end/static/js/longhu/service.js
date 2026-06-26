@@ -43,7 +43,52 @@ var lhbCurrentDate = '';
 var lhbCurrentTab = 'all';
 var _lhbInitialized = false;
 var _lhbDateList = null;
-var _lhbCache = {};   // date -> {all: data, org: data, ...} 缓存避免重复请求
+var _lhbCurrentData = [];   // 当前日期的全部股票数据（含 buy_seats/sell_seats）
+
+// ==================== 前端分类 ====================
+
+function _classifyStock(row) {
+    var buySeats = row.buy_seats || [];
+    var sellSeats = row.sell_seats || [];
+    var hasJG = buySeats.some(function(s) { return s.name && s.name.indexOf('机构专用') >= 0; }) ||
+                sellSeats.some(function(s) { return s.name && s.name.indexOf('机构专用') >= 0; });
+    var hasYZ = buySeats.some(function(s) { return s.label; }) ||
+                sellSeats.some(function(s) { return s.label; });
+    if (hasJG && hasYZ) return 'both';
+    if (hasJG) return 'org';
+    if (hasYZ) return 'capital';
+    return 'other';
+}
+
+function _sortLHBList(list) {
+    // 排序：净买额/成交额↓ → 涨跌幅↓ → 成交额↓
+    list.sort(function(a, b) {
+        var ratioA = a.amount_raw ? (a.net_amt / a.amount_raw) : -Infinity;
+        var ratioB = b.amount_raw ? (b.net_amt / b.amount_raw) : -Infinity;
+        if (ratioB !== ratioA) return ratioB - ratioA;
+        var chgA = a.change_pct != null ? a.change_pct : -Infinity;
+        var chgB = b.change_pct != null ? b.change_pct : -Infinity;
+        if (chgB !== chgA) return chgB - chgA;
+        var amtA = a.amount_raw != null ? a.amount_raw : -Infinity;
+        var amtB = b.amount_raw != null ? b.amount_raw : -Infinity;
+        return amtB - amtA;
+    });
+}
+
+function _getFilteredList(tab) {
+    var list;
+    if (tab === 'all') {
+        list = _lhbCurrentData.slice();
+    } else {
+        list = _lhbCurrentData.filter(function(r) {
+            return _classifyStock(r) === tab;
+        });
+    }
+    _sortLHBList(list);
+    return list;
+}
+
+// ==================== 交易日历 ====================
 
 async function fetchTradingDays() {
     var res = await fetch('/api/trading-days?count=30');
@@ -68,21 +113,62 @@ function renderLHBDateBar(activeDate) {
 
 function selectLHBDate(date) {
     lhbCurrentDate = date;
-    // 切日期时重置标签文字（新日期的计数会由 prefetch 重新设置）
     _resetTabLabels();
     renderLHBDateBar(date);
     loadLonghuBang(date);
 }
 
+// ==================== 分类标签 ====================
+
 function selectLHBTab(tab) {
     lhbCurrentTab = tab;
-    // 更新 tab 样式
     var tabs = document.querySelectorAll('.lhb-tab');
     for (var i = 0; i < tabs.length; i++) {
         tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tab);
     }
-    loadLonghuBang(lhbCurrentDate);
+    // 从本地数据筛选渲染，不再请求后端
+    _renderCurrentTab();
 }
+
+function _renderCurrentTab() {
+    var tab = lhbCurrentTab;
+    var list = _getFilteredList(tab);
+    _updateTabLabel(tab, list.length);
+    // 构建显示用的数据（添加 total_buy/total_sell/lhb_type）
+    var displayList = list.map(function(r) {
+        var totalBuy = 0, totalSell = 0;
+        (r.buy_seats || []).forEach(function(s) { totalBuy += s.buy_amt; });
+        (r.sell_seats || []).forEach(function(s) { totalSell += s.sell_amt; });
+        return {
+            code: r.code,
+            name: r.name,
+            price: r.price,
+            change_pct: r.change_pct,
+            amount_raw: r.amount_raw,
+            net_amt: r.net_amt,
+            total_buy: totalBuy,
+            total_sell: totalSell,
+            lhb_type: _classifyStock(r),
+            multi_day: r.multi_day,
+            reason: r.reason,
+            buy_seats: r.buy_seats,
+            sell_seats: r.sell_seats,
+            trade_date: r.trade_date,
+        };
+    });
+    renderLonghuTable(displayList, lhbCurrentDate, tab);
+}
+
+function _updateAllTabLabels() {
+    ['all', 'org', 'capital', 'both'].forEach(function(tab) {
+        var list = tab === 'all'
+            ? _lhbCurrentData
+            : _lhbCurrentData.filter(function(r) { return _classifyStock(r) === tab; });
+        _updateTabLabel(tab, list.length);
+    });
+}
+
+// ==================== 初始化 ====================
 
 async function initLHB() {
     if (_lhbInitialized) return;
@@ -92,6 +178,8 @@ async function initLHB() {
     lhbCurrentDate = _lhbDateList[_lhbDateList.length - 1];  // 默认选中最新交易日
     renderLHBDateBar(lhbCurrentDate);
 }
+
+// ==================== 表格渲染 ====================
 
 function renderLonghuTable(data, tradeDate, tab) {
     var container = document.getElementById('longhuContent');
@@ -189,49 +277,37 @@ function renderLonghuTable(data, tradeDate, tab) {
     container.innerHTML = html;
 }
 
+// ==================== 数据加载（无缓存，每次切日期都请求后端） ====================
+
 async function loadLonghuBang(tradeDate) {
     var container = document.getElementById('longhuContent');
     if (!container) return;
 
     if (!lhbCurrentDate) await initLHB();
-    var isManual = !!tradeDate;               // 手动选择 vs 首次自动加载
+    var isManual = !!tradeDate;
     var date = tradeDate || lhbCurrentDate;
     if (!date) return;
-    var tab = lhbCurrentTab;
-
-    // 切换标签时优先用缓存
-    if (isManual) {
-        var cacheKey = date + '|' + tab;
-        var cached = _lhbCache[cacheKey];
-        if (cached) {
-            _updateTabLabel(tab, cached.list.length);
-            _prefetchTabCounts(date, tab);  // 恢复其他标签计数（resetTabLabels 清空了）
-            renderLonghuTable(cached.list, cached.trade_date, tab);
-            return;
-        }
-    }
 
     try {
-        var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date) + '&tab=' + encodeURIComponent(tab));
+        var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date));
         var result = await res.json();
 
         if (result.success && result.data && result.data.list.length > 0) {
-            // 缓存结果
-            var list = result.data.list;
-            _lhbCache[date + '|' + tab] = {list: list, trade_date: result.data.trade_date};
-            // 立即更新当前标签计数 + 后台预加载其他标签
-            _updateTabLabel(tab, list.length);
-            _prefetchTabCounts(date, tab);
+            _lhbCurrentData = result.data.list;
 
             if (!isManual && result.data.trade_date !== lhbCurrentDate) {
                 lhbCurrentDate = result.data.trade_date;
                 renderLHBDateBar(lhbCurrentDate);
             }
-            renderLonghuTable(list, result.data.trade_date, tab);
+
+            // 更新所有标签计数 + 渲染当前标签
+            _updateAllTabLabels();
+            _renderCurrentTab();
             return;
         }
 
         if (isManual) {
+            _lhbCurrentData = [];
             container.innerHTML = '<div class="error">' + date + ' 暂无龙虎榜数据</div>';
             return;
         }
@@ -246,43 +322,22 @@ async function loadLonghuBang(tradeDate) {
             var dd = String(d.getDate()).padStart(2, '0');
             var prevDate = yyyy + '-' + mm + '-' + dd;
 
-            var prevRes = await fetch('/api/longhu-bang?date=' + encodeURIComponent(prevDate) + '&tab=' + tab);
+            var prevRes = await fetch('/api/longhu-bang?date=' + encodeURIComponent(prevDate));
             var prevResult = await prevRes.json();
             if (prevResult.success && prevResult.data && prevResult.data.list.length > 0) {
                 lhbCurrentDate = prevDate;
-                _lhbCache[prevDate + '|' + tab] = {list: prevResult.data.list, trade_date: prevResult.data.trade_date};
-                _updateTabLabel(tab, prevResult.data.list.length);
-                _prefetchTabCounts(prevDate, tab);
+                _lhbCurrentData = prevResult.data.list;
+                _updateAllTabLabels();
                 renderLHBDateBar(lhbCurrentDate);
-                renderLonghuTable(prevResult.data.list, prevResult.data.trade_date, tab);
+                _renderCurrentTab();
                 return;
             }
         }
+        _lhbCurrentData = [];
         container.innerHTML = '<div class="error">' + date + ' 及此前10日暂无龙虎榜数据</div>';
     } catch (e) {
         console.log('龙虎榜加载失败:', e);
         container.innerHTML = '<div class="error">龙虎榜加载失败</div>';
-    }
-}
-
-// 后台预加载其他 tab，更新标签计数
-async function _prefetchTabCounts(date, currentTab) {
-    for (var t of ['all', 'org', 'capital', 'both']) {
-        if (t === currentTab) continue;
-        var cacheKey = date + '|' + t;
-        // 已有缓存则直接更新标签，否则请求后端
-        if (_lhbCache[cacheKey]) {
-            _updateTabLabel(t, _lhbCache[cacheKey].list.length);
-            continue;
-        }
-        try {
-            var res = await fetch('/api/longhu-bang?date=' + encodeURIComponent(date) + '&tab=' + encodeURIComponent(t));
-            var result = await res.json();
-            if (result.success && result.data) {
-                _lhbCache[cacheKey] = {list: result.data.list, trade_date: result.data.trade_date};
-                _updateTabLabel(t, result.data.list.length);
-            }
-        } catch (_) {}
     }
 }
 
