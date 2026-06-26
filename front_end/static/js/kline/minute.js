@@ -28,13 +28,16 @@ var KlineMinute = {
             } else { allP.push(null); allV.push(null); allA.push(null); }
         }
 
-        // ---- 构建 MACD 输入：用绝对价格前向填充 ----
+        // ---- 构建 MACD 输入：用绝对价格前向填充（午休等空槽位填充，但未来空槽位不填充） ----
         function _buildMacdInput(allT2, allP2, prices2) {
             var data = [], lastPrice = null, rawCount = 0;
             for (var i = 0; i < allT2.length; i++) {
                 if (allP2[i] != null) {
                     lastPrice = prices2[Math.min(rawCount, prices2.length - 1)];
                     rawCount++;
+                } else if (rawCount >= prices2.length) {
+                    // 所有真实数据已消费完毕，后续全是未来空槽位，不再填充
+                    break;
                 }
                 if (lastPrice != null) {
                     data.push({ time: allT2[i], close: lastPrice });
@@ -157,10 +160,6 @@ var KlineMinute = {
             vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
         }
         volSeries.setData(vd);
-        // 成交量图锚点（确保时间轴覆盖全交易时段）
-        volChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
-            .setData([{ time: minuteFrom, value: 0 }, { time: minuteTo, value: 0 }]);
-
         // ---- MACD 图 ----
         var macdHist = macdChart.addHistogramSeries({ lastValueVisible: false, priceLineVisible: false });
         macdHist.setData(macd.macd.map(function(v) { return { time: v.time, value: v.value, color: v.value >= 0 ? '#ef5350' : '#26a69a' }; }));
@@ -168,10 +167,6 @@ var KlineMinute = {
         difLine.setData(macd.dif);
         var deaLine = macdChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         deaLine.setData(macd.dea);
-        // MACD 图锚点（MACD 数据因 EMA 热身比主图短，必须补锚点撑开时间轴）
-        macdChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
-            .setData([{ time: minuteFrom, value: 0 }, { time: minuteTo, value: 0 }]);
-
         // ---- 十字线同步 ----
         var _crosshairSyncLock = false;
         allCharts.forEach(function(c) {
@@ -280,24 +275,31 @@ var KlineMinute = {
         var mv = document.getElementById('klMinuteVals');
         if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
 
-        // ---- 固定时间轴范围（9:30-15:00 全交易时段），折线只在已有数据区域绘制 ----
+        // ---- 固定时间轴范围：全时段隐形线撑开 fitContent，折线只在已有数据区域绘制 ----
+        // 主图：全时段隐形线
+        var _fullRangeData = [];
+        for (var _i = 0; _i < allT.length; _i++) _fullRangeData.push({ time: allT[_i], value: 0 });
+        mainChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
+            .setData(_fullRangeData);
+        // 成交量图：全时段隐形线
+        volChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
+            .setData(_fullRangeData);
+        // MACD 图：全时段隐形线
+        macdChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
+            .setData(_fullRangeData);
+
         var canvases = [mainCanvas, volCanvas, macdCanvas];
         var charts = [mainChart, volChart, macdChart];
-        function _fixTimeRange() {
-            _syncLock = true;
-            allCharts.forEach(function(c) {
-                c.timeScale().setVisibleRange({ from: minuteFrom, to: minuteTo });
-            });
-            _syncLock = false;
-        }
-        requestAnimationFrame(function() { _fixTimeRange(); });
+        mainChart.timeScale().fitContent();
+        allCharts.forEach(function(c) {
+            c.timeScale().applyOptions({ fixLeftEdge: true, fixRightEdge: true });
+        });
         var observer = new ResizeObserver(function() {
             for (var i = 0; i < canvases.length; i++) {
                 if (charts[i] && canvases[i].clientWidth > 0) {
                     charts[i].applyOptions({ width: canvases[i].clientWidth, height: canvases[i].clientHeight });
                 }
             }
-            requestAnimationFrame(function() { _fixTimeRange(); });
         });
         canvases.forEach(function(c) { observer.observe(c); });
 
