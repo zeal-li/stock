@@ -197,6 +197,7 @@ var KlineChartUtils = {
         var volChart = LightweightCharts.createChart(volCanvas, Object.assign({}, subChartBase, { width: volCanvas.clientWidth, height: volCanvas.clientHeight }));
         var macdChart = LightweightCharts.createChart(macdCanvas, Object.assign({}, subChartBase, { width: macdCanvas.clientWidth, height: macdCanvas.clientHeight }));
         var kdjChart = LightweightCharts.createChart(kdjCanvas, Object.assign({}, subChartBase, {
+            crosshair: { mode: 1, vertLine: { labelVisible: false } },
             timeScale: { borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false, tickMarkFormatter: tickFmt },
             width: kdjCanvas.clientWidth, height: kdjCanvas.clientHeight,
         }));

@@ -106,6 +106,7 @@ var KlineMinute = {
             width: volCanvas.clientWidth, height: volCanvas.clientHeight,
         }));
         var macdChart = LightweightCharts.createChart(macdCanvas, Object.assign({}, subBase, {
+            crosshair: { mode: 1, vertLine: { labelVisible: false } },
             timeScale: { borderColor: '#2a2a4e', timeVisible: true, secondsVisible: false, tickMarkFormatter: tickFmt, ticks: customTicks },
             width: macdCanvas.clientWidth, height: macdCanvas.clientHeight,
         }));
