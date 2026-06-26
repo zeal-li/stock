@@ -151,6 +151,7 @@ var KlineMinute = {
         var volSeries = volChart.addHistogramSeries({ priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
         var vd = [];
         for (var i = 0; i < allT.length; i++) {
+            if (allP[i] == null) continue;  // 跳过无数据的空槽位
             var up = (i > 0 && allP[i] != null && allP[i-1] != null) ? allP[i] >= allP[i-1] : true;
             vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
         }

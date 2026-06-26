@@ -336,8 +336,9 @@ def stock_minute():
             d = r.json()
             trends = (d.get('data') or {}).get('trends') or []
             pre_close = (d.get('data') or {}).get('preClose', 0)
-            times, prices, volumes, amounts = [], [], [], []
-            prevVol = prevAmt = 0
+            # 先按原始顺序收集所有数据点
+            raw_points = []
+            prevAmt = 0
             for t in trends:
                 parts = t.split(',')
                 if len(parts) >= 2:
@@ -345,15 +346,39 @@ def stock_minute():
                     tm = full_tm.split(' ')[-1] if ' ' in full_tm else full_tm
                     if market in ('0','1','2','90','116'):
                         if tm < '09:30': continue
-                    times.append(full_tm if market == '106' else tm)
-                    prices.append(float(parts[1]))
                     curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0
                     curAmt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
-                    diffVol = max(0, curVol - prevVol)
-                    if market in ('0', '1', '2', '90'): diffVol *= 100
-                    volumes.append(diffVol)
-                    amounts.append(max(0, curAmt - prevAmt))
-                    prevVol = curVol; prevAmt = curAmt
+                    raw_points.append({
+                        'tm': tm,
+                        'full_tm': full_tm,
+                        'price': float(parts[1]),
+                        'vol': curVol,       # f56 是每分钟增量，不差值
+                        'amt': curAmt,       # f57 也是每分钟增量
+                    })
+
+
+            # 按分钟聚合：同一分钟的多条数据合并 vol/amt，价格取最后一条
+            times, prices, volumes, amounts = [], [], [], []
+            i = 0
+            while i < len(raw_points):
+                p = raw_points[i]
+                minute_key = p['tm'][:5]  # "HH:MM"
+                agg_vol = p['vol']
+                agg_amt = p['amt']
+                last_price = p['price']
+                j = i + 1
+                while j < len(raw_points) and raw_points[j]['tm'][:5] == minute_key:
+                    agg_vol += raw_points[j]['vol']
+                    agg_amt += raw_points[j]['amt']
+                    last_price = raw_points[j]['price']
+                    j += 1
+                if market in ('0', '1', '2', '90'):
+                    agg_vol *= 100
+                times.append(p['full_tm'] if market == '106' else minute_key)
+                prices.append(last_price)
+                volumes.append(agg_vol)
+                amounts.append(agg_amt)
+                i = j
         elif market in ('116', '106'):
             # 港股/美股多日：Yahoo Finance 5分钟K线
             import os as _os2, datetime as _dt2
