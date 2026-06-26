@@ -35,6 +35,8 @@ var KlineChartUtils = {
     calcKDJ: function(data, n, m1, m2) {
         n = n || 9; m1 = m1 || 3; m2 = m2 || 3;
         var kData = [], dData = [], jData = [];
+        // 数据量不足 n 根，无法计算 KDJ
+        if (data.length < n) return { k: kData, d: dData, j: jData };
         // 前 n-1 根没有 KDJ 值，填入 null 占位以保持时间轴对齐
         for (var pi = 0; pi < n - 1; pi++) {
             kData.push({ time: data[pi].time, value: null });
