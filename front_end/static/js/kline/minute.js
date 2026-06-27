@@ -305,13 +305,13 @@ var KlineMinute = {
         // 主图：全时段隐形线
         var _fullRangeData = [];
         for (var _i = 0; _i < allT.length; _i++) _fullRangeData.push({ time: allT[_i], value: 0 });
-        mainChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
+        mainChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
             .setData(_fullRangeData);
         // 成交量图：全时段隐形线
-        volChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
+        volChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
             .setData(_fullRangeData);
         // MACD 图：全时段隐形线
-        macdChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false })
+        macdChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
             .setData(_fullRangeData);
 
         var canvases = [mainCanvas, volCanvas, macdCanvas];
