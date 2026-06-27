@@ -160,6 +160,24 @@ var KlineMinute = {
             vd.push({ time: allT[i], value: allV[i], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
         }
         volSeries.setData(vd);
+
+        // ---- 成交量均线 ----
+        var volData = [];
+        for (var i = 0; i < allT.length; i++) {
+            if (allV[i] != null) volData.push({ time: allT[i], close: allV[i] });
+        }
+        var volMA5 = KlineChartUtils.calcSMA(volData, 5);
+        var volMA10 = KlineChartUtils.calcSMA(volData, 10);
+        var volMA5Line = volChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        volMA5Line.setData(volMA5);
+        var volMA10Line = volChart.addLineSeries({ color: '#60a5fa', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+        volMA10Line.setData(volMA10);
+
+        function _fmtMinuteVol(v) {
+            if (v == null || isNaN(v) || v <= 0) return '--';
+            return v >= 1e8 ? (v / 1e8).toFixed(2) + '亿股' : v >= 1e4 ? (v / 1e4).toFixed(2) + '万股' : v + '股';
+        }
+
         // ---- MACD 图 ----
         var macdHist = macdChart.addHistogramSeries({ lastValueVisible: false, priceLineVisible: false });
         macdHist.setData(macd.macd.map(function(v) { return { time: v.time, value: v.value, color: v.value >= 0 ? '#ef5350' : '#26a69a' }; }));
@@ -238,7 +256,11 @@ var KlineMinute = {
 
             // 指标栏
             var vt = document.getElementById('mnVolTip');
-            if (vt) vt.innerHTML = '<span style="color:#ddd;">量:'+vs+'</span> <span style="color:#ddd;">额:'+as+'</span>';
+            if (vt) {
+                var m5v = (rawIdx >= 4 && rawIdx - 4 < volMA5.length) ? volMA5[rawIdx - 4].value : null;
+                var m10v = (rawIdx >= 9 && rawIdx - 9 < volMA10.length) ? volMA10[rawIdx - 9].value : null;
+                vt.innerHTML = '<span style="color:#ddd;">量:'+vs+'</span> <span style="color:#fbbf24;">M5:'+_fmtMinuteVol(m5v)+'</span> <span style="color:#60a5fa;">M10:'+_fmtMinuteVol(m10v)+'</span> <span style="color:#ddd;">额:'+as+'</span>';
+            }
             var mt = document.getElementById('mnMacdTip');
             if (mt) {
                 var macdIdx = macd.macd.length - 1;
@@ -248,15 +270,19 @@ var KlineMinute = {
                 var macdVal = macd.macd[Math.min(macdIdx, macd.macd.length - 1)];
                 var difVal = macd.dif[Math.min(macdIdx, macd.dif.length - 1)];
                 var deaVal = macd.dea[Math.min(macdIdx, macd.dea.length - 1)];
-                mt.innerHTML = '<span style="color:#ffffff;">DIFF:'+difVal.value.toFixed(3)+'</span> <span style="color:#fbbf24;">DEA:'+deaVal.value.toFixed(3)+'</span> <span style="color:'+(macdVal.value>=0?'#ef5350':'#26a69a')+';">MACD:'+macdVal.value.toFixed(3)+'</span>';
+                mt.innerHTML = '<span style="color:'+(macdVal.value>=0?'#ef5350':'#26a69a')+';">MACD:'+macdVal.value.toFixed(3)+'</span> <span style="color:#ffffff;">DIFF:'+difVal.value.toFixed(3)+'</span> <span style="color:#fbbf24;">DEA:'+deaVal.value.toFixed(3)+'</span>';
             }
         }
 
         function _resetMinuteTips() {
             var vt2 = document.getElementById('mnVolTip');
-            if (vt2) vt2.innerHTML = '';
+            if (vt2) {
+                var lastM5 = volMA5.length > 0 ? volMA5[volMA5.length - 1].value : null;
+                var lastM10 = volMA10.length > 0 ? volMA10[volMA10.length - 1].value : null;
+                vt2.innerHTML = '<span style="color:#ddd;">量:--</span> <span style="color:#fbbf24;">M5:'+_fmtMinuteVol(lastM5)+'</span> <span style="color:#60a5fa;">M10:'+_fmtMinuteVol(lastM10)+'</span> <span style="color:#ddd;">额:--</span>';
+            }
             var mt2 = document.getElementById('mnMacdTip');
-            if (mt2) mt2.innerHTML = '<span style="color:#ffffff;">DIFF:'+macd.dif[macd.dif.length-1].value.toFixed(3)+'</span> <span style="color:#fbbf24;">DEA:'+macd.dea[macd.dea.length-1].value.toFixed(3)+'</span> <span style="color:'+(macd.macd[macd.macd.length-1].value>=0?'#ef5350':'#26a69a')+';">MACD:'+macd.macd[macd.macd.length-1].value.toFixed(3)+'</span>';
+            if (mt2) mt2.innerHTML = '<span style="color:'+(macd.macd[macd.macd.length-1].value>=0?'#ef5350':'#26a69a')+';">MACD:'+macd.macd[macd.macd.length-1].value.toFixed(3)+'</span> <span style="color:#ffffff;">DIFF:'+macd.dif[macd.dif.length-1].value.toFixed(3)+'</span> <span style="color:#fbbf24;">DEA:'+macd.dea[macd.dea.length-1].value.toFixed(3)+'</span>';
         }
 
         mainChart.subscribeCrosshairMove(function(param) {
