@@ -186,6 +186,12 @@ var KlineMinute = {
         var deaLine = macdChart.addLineSeries({ color: '#fbbf24', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         deaLine.setData(macd.dea);
         // ---- 十字线同步 ----
+        function _findCrossPrice(arr, time) {
+            for (var i = 0; i < arr.length; i++) {
+                if (arr[i].time === time) return arr[i].value;
+            }
+            return null;
+        }
         var _crosshairSyncLock = false;
         allCharts.forEach(function(c) {
             c.subscribeCrosshairMove(function(param) {
@@ -194,10 +200,18 @@ var KlineMinute = {
                 allCharts.forEach(function(tc) {
                     if (tc !== c) {
                         var targetSeries = null;
-                        if (tc === volChart && volSeries) targetSeries = volSeries;
-                        else if (tc === macdChart && macdHist) targetSeries = macdHist;
-                        else if (tc === mainChart && series) targetSeries = series;
-                        if (targetSeries) tc.setCrosshairPosition(null, param.time, targetSeries);
+                        var targetPrice = null;
+                        if (tc === volChart && volSeries) {
+                            targetSeries = volSeries;
+                            targetPrice = _findCrossPrice(vd, param.time);
+                        } else if (tc === macdChart && macdHist) {
+                            targetSeries = macdHist;
+                            targetPrice = _findCrossPrice(macd.macd, param.time);
+                        } else if (tc === mainChart && series) {
+                            targetSeries = series;
+                            targetPrice = _findCrossPrice(lineData, param.time);
+                        }
+                        if (targetSeries) tc.setCrosshairPosition(targetPrice, param.time, targetSeries);
                     }
                 });
                 // 非主图触发时手动更新指标栏和游标
