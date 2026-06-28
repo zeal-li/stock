@@ -301,18 +301,13 @@ var KlineMinute = {
         var mv = document.getElementById('klMinuteVals');
         if (mv) mv.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lastAvgV*preClose/100+preClose).toFixed(priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lastP.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChg.toFixed(priceDec)+'</span> <span style="color:'+lc+';">'+ls+lChgPct.toFixed(2)+'%</span>';
 
-        // ---- 固定时间轴范围：全时段隐形线撑开 fitContent，折线只在已有数据区域绘制 ----
+        // ---- 固定时间轴范围：主图全时段隐形线撑开 fitContent，副图通过时间轴同步获取范围 ----
         // 主图：全时段隐形线
         var _fullRangeData = [];
         for (var _i = 0; _i < allT.length; _i++) _fullRangeData.push({ time: allT[_i], value: 0 });
         mainChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
             .setData(_fullRangeData);
-        // 成交量图：全时段隐形线
-        volChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
-            .setData(_fullRangeData);
-        // MACD 图：全时段隐形线
-        macdChart.addLineSeries({ lineWidth: 1, color: 'rgba(0,0,0,0)', priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false })
-            .setData(_fullRangeData);
+        // 副图不添加隐形线，避免干扰 crosshair 水平虚线定位
 
         var canvases = [mainCanvas, volCanvas, macdCanvas];
         var charts = [mainChart, volChart, macdChart];
