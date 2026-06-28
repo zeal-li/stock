@@ -519,11 +519,11 @@ def stock_kline():
         yh_intv = {'day': '1d', 'week': '1wk', 'month': '1mo'}.get(period, '1d')
 
         if market in ('1', '2', '0', '90'):
-            # A 股用同花顺 K 线 API（v4 并发拉取 5 年）
+            # A 股用同花顺 K 线 API（v4 并发拉取 10 年）
             from concurrent.futures import ThreadPoolExecutor, as_completed
             ths_period_code = {'day': '01', 'week': '11', 'month': '21'}.get(tx_period, '01')
             current_year = _dt.datetime.now().year
-            years = range(current_year, current_year - 5, -1)
+            years = range(current_year, current_year - 10, -1)
             ths_headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://www.10jqka.com.cn/',
@@ -543,7 +543,7 @@ def stock_kline():
                 return jd.get('data', '')
 
             year_results = {}
-            with ThreadPoolExecutor(max_workers=5) as pool:
+            with ThreadPoolExecutor(max_workers=10) as pool:
                 futs = {pool.submit(_fetch_year, y): y for y in years}
                 for fut in as_completed(futs):
                     raw = fut.result()
