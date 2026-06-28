@@ -601,9 +601,9 @@ var KlinePopup = (function() {
         _macdLines = result.macdLines;
         _macdVals = result.macdVals;
         _observer = result.observer;
-        // 初始显示范围：日K≈1年，周K≈3年，月K≈5年，右留空20%，柱宽均匀
+        // 初始显示范围：日K≈1年，周K≈5年，月K≈10年，右留空20%，柱宽均匀
         if (_klinesData && _klinesData.length > 0) {
-            var lookbackYears = _currentPeriod === 'week' ? 3 : _currentPeriod === 'month' ? 5 : 1;
+            var lookbackYears = _currentPeriod === 'week' ? 5 : _currentPeriod === 'month' ? 10 : 1;
             var lastT = _klinesData[_klinesData.length - 1].time;
             var parts = lastT.split('-');
             var agoT = (parseInt(parts[0]) - lookbackYears) + '-' + parts[1] + '-' + parts[2];
