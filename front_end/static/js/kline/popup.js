@@ -24,6 +24,8 @@ var KlinePopup = (function() {
     var _minuteFrom = 0, _minuteTo = 0;  // 分时窗口固定范围
     var _fiveDayAreaSeries = null;   // 五日面积线
     var _fiveDayVolSeries = null;    // 五日成交量柱
+    var _fiveDayMacdLines = null;    // 五日MACD系列引用
+    var _fiveDayMacd = null;         // 五日MACD数据
     var _fiveDayPreClose = 0;        // 最新日昨收
     var _fiveDayRaw = null;          // 原始API数据，用于刷新最新一天
     var _fiveDayTimer = null;        // 五日刷新定时器
@@ -411,8 +413,11 @@ var KlinePopup = (function() {
         var result = KlineFiveDay.render(el, _fiveDayRaw, _stockCode, _stockMarket);
         if (!result) return;
         _chart = result.chart;
+        _charts = result.charts;
         _fiveDayAreaSeries = result.areaSeries;
         _fiveDayVolSeries = result.volSeries;
+        _fiveDayMacdLines = result.macdLines;
+        _fiveDayMacd = result.macd;
         _observer = result.observer;
         if (_fiveDayTimer) clearInterval(_fiveDayTimer);
         _fiveDayTimer = setInterval(_refreshFiveDayData, 60000);
@@ -916,6 +921,8 @@ var KlinePopup = (function() {
         if (_fiveDayTimer) { clearInterval(_fiveDayTimer); _fiveDayTimer = null; }
         _fiveDayAreaSeries = null;
         _fiveDayVolSeries = null;
+        _fiveDayMacdLines = null;
+        _fiveDayMacd = null;
         _fiveDayRaw = null;
         var bar = document.getElementById('klIndBar');
         if (bar) bar.style.display = 'none';
