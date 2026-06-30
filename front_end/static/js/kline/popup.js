@@ -884,15 +884,17 @@ var KlinePopup = (function() {
                 _klinesData = kdata.data.klines;
             }
 
-            try { _fillHeader(quote); }
-            catch(e) { document.getElementById('klParams').innerHTML = '<span style="color:#ef5350;">头部渲染失败: ' + (e.message || e) + '</span>'; }
-
             if (!_klinesData) {
                 chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
             } else {
                 try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _switchIndicator(_indicatorMode); }
                 catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             }
+
+            // _fillHeader 必须在 _renderChart 之后调用，
+            // 因为 _renderChart 会用实时行情 _quoteData 的高/低覆盖 _klinesData 中的今日K线
+            try { _fillHeader(quote); }
+            catch(e) { document.getElementById('klParams').innerHTML = '<span style="color:#ef5350;">头部渲染失败: ' + (e.message || e) + '</span>'; }
             document.getElementById('klPeriodBar').style.display = 'flex';
             document.getElementById('klIndBar').style.display = _klinesData ? 'flex' : 'none';
             // 启动头部行情定时刷新
