@@ -102,6 +102,11 @@ SINA_HEADERS = {
 }
 
 
+def _make_url(code: str) -> str:
+    symbol = code.split("_", 1)[1]
+    return f"https://finance.sina.com.cn/futures/quotes/{symbol}.shtml"
+
+
 def _parse_hf(item: str, cfg: dict) -> dict:
     """解析 hf_ 国际期货/现货数据
     字段: 0最新价, 1昨收(spot非空)/空(futures), 2今开, 3最高价, 4最低价, ...
@@ -131,6 +136,7 @@ def _parse_hf(item: str, cfg: dict) -> dict:
         "change": f"{change:+.2f}",
         "change_pct": f"{change_pct:+.2f}%",
         "unit": cfg["unit"],
+        "url": _make_url(cfg["code"]),
     }
 
 
@@ -161,6 +167,7 @@ def _parse_nf(item: str, cfg: dict) -> dict:
         "change": f"{change:+.2f}",
         "change_pct": f"{change_pct:+.2f}%",
         "unit": cfg["unit"],
+        "url": _make_url(cfg["code"]),
     }
 
 
@@ -181,7 +188,7 @@ def get_global_commodities() -> dict:
 
     for i, cfg in enumerate(COMMODITIES):
         if cfg["source"] == "gap":
-            result["data"].append({"name": "", "price": "", "change": "", "change_pct": "", "unit": "", "gap": True})
+            result["data"].append({"name": "", "price": "", "change": "", "change_pct": "", "unit": "", "url": "", "gap": True})
             continue
         data_str = raw_lines[real_idx].split('"')[1]
         real_idx += 1

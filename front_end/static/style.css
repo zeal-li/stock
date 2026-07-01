@@ -143,6 +143,16 @@ body {
     gap: 4px;
 }
 
+.commodity-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+}
+
+.commodity-link:hover .commodity-item {
+    border-color: #00d4aa;
+}
+
 .commodity-item {
     background: #1a1a2e;
     border: 1px solid #0f3460;

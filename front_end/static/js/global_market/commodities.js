@@ -46,6 +46,7 @@ function renderCommodities(list) {
             changeClass = 'down';
         }
 
+        html += '<a href="' + (item.url || '#') + '" target="_blank" class="commodity-link">';
         html += '<div class="commodity-item">';
         html += '  <div class="commodity-name">' + (item.name || '-') + '</div>';
         html += '  <div class="commodity-price ' + changeClass + '">' + (item.price || '-') + '</div>';
@@ -54,6 +55,7 @@ function renderCommodities(list) {
         html += '    <span class="' + changeClass + '"> ' + (item.change_pct || '-') + '</span>';
         html += '  </div>';
         html += '</div>';
+        html += '</a>';
     });
 
     container.innerHTML = html;
