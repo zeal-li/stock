@@ -3,7 +3,7 @@ import requests
 from common import BROWSER_HEADERS
 
 COMMODITIES = [
-    # 第一行：金属 — 金→银→铜，每组伦敦→COMEX→沪
+    # 第一行：金属 — 金银铜铝，每组伦敦→COMEX→沪，铝接在铜后
     {"code": "hf_XAU",  "name": "伦敦金现",   "unit": "美元/盎司", "source": "spot"},
     {"code": "hf_GC",   "name": "COMEX黄金",  "unit": "美元/盎司", "source": "futures"},
     {"code": "nf_AU0",  "name": "沪金主连",   "unit": "元/克",     "source": "nf"},
@@ -13,17 +13,10 @@ COMMODITIES = [
     {"code": "hf_CAD",  "name": "伦敦铜",     "unit": "美元/吨",   "source": "futures"},
     {"code": "hf_HG",   "name": "COMEX铜",    "unit": "美分/磅",   "source": "futures"},
     {"code": "nf_CU0",  "name": "沪铜主连",   "unit": "元/吨",     "source": "nf"},
-    # 第二行：铝 + 7个占位对齐9列
     {"code": "hf_AHD",  "name": "伦铝",       "unit": "美元/吨",   "source": "futures"},
     {"code": "nf_AL0",  "name": "沪铝主连",   "unit": "元/吨",     "source": "nf"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    # 第三行：能源 + 煤炭
+    # 第二行：能源 + 煤炭
     {"code": "hf_OIL",  "name": "布伦特原油", "unit": "美元/桶",   "source": "futures"},
     {"code": "hf_CL",   "name": "WTI原油",    "unit": "美元/桶",   "source": "futures"},
     {"code": "hf_GAS",  "name": "柴油主连",   "unit": "美元/吨",   "source": "futures"},
@@ -33,7 +26,10 @@ COMMODITIES = [
     {"code": "nf_J0",   "name": "焦炭主连",   "unit": "元/吨",     "source": "nf"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    # 第四行：国际农产品 — 大豆链→谷物链→软商品
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    # 第三行：国际农产品 — 大豆链→谷物链→软商品
     {"code": "hf_S",    "name": "美大豆",     "unit": "美分/蒲式耳", "source": "futures"},
     {"code": "hf_SM",   "name": "美豆粕",     "unit": "美元/短吨",   "source": "futures"},
     {"code": "hf_BO",   "name": "美豆油",     "unit": "美分/磅",     "source": "futures"},
@@ -43,7 +39,10 @@ COMMODITIES = [
     {"code": "hf_CC",   "name": "可可",       "unit": "美元/吨",     "source": "futures"},
     {"code": None,       "name": "",           "unit": "",            "source": "gap"},
     {"code": None,       "name": "",           "unit": "",            "source": "gap"},
-    # 第五行：国内农产品 — 油料谷物
+    {"code": None,       "name": "",           "unit": "",            "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",            "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",            "source": "gap"},
+    # 第四行：国内农产品 — 油料谷物
     {"code": "nf_M0",   "name": "豆粕主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_A0",   "name": "豆一主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_Y0",   "name": "豆油主连",   "unit": "元/吨",     "source": "nf"},
@@ -53,11 +52,17 @@ COMMODITIES = [
     {"code": "nf_RM0",  "name": "菜粕主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_SR0",  "name": "白糖主连",   "unit": "元/吨",     "source": "nf"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    # 第六行：国内农产品 — 畜牧园艺
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    # 第五行：国内农产品 — 畜牧园艺
     {"code": "nf_JD0",  "name": "鸡蛋主连",   "unit": "元/500kg",  "source": "nf"},
     {"code": "nf_LH0",  "name": "生猪主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_AP0",  "name": "苹果主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_PK0",  "name": "花生主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},

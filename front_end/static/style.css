@@ -139,7 +139,7 @@ body {
 /* 大宗商品网格（九列） */
 .commodity-grid {
     display: grid;
-    grid-template-columns: repeat(9, 1fr);
+    grid-template-columns: repeat(12, 1fr);
     gap: 4px;
 }
 
