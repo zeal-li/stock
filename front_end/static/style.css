@@ -140,14 +140,14 @@ body {
 .commodity-grid {
     display: grid;
     grid-template-columns: repeat(9, 1fr);
-    gap: 12px;
+    gap: 4px;
 }
 
 .commodity-item {
     background: #1a1a2e;
     border: 1px solid #0f3460;
-    border-radius: 8px;
-    padding: 14px 12px;
+    border-radius: 5px;
+    padding: 6px 4px;
     text-align: center;
 }
 
@@ -158,17 +158,17 @@ body {
 }
 
 .commodity-name {
-    font-size: 13px;
+    font-size: 10px;
     color: #8899aa;
-    margin-bottom: 6px;
+    margin-bottom: 2px;
     white-space: nowrap;
 }
 
 .commodity-price {
-    font-size: 20px;
+    font-size: 13px;
     font-weight: 700;
     color: #e0e0e0;
-    margin-bottom: 4px;
+    margin-bottom: 1px;
 }
 
 .commodity-price.up {
@@ -180,7 +180,7 @@ body {
 }
 
 .commodity-changes {
-    font-size: 13px;
+    font-size: 10px;
 }
 
 .commodity-changes .up {
