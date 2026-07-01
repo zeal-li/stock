@@ -23,12 +23,46 @@ COMMODITIES = [
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    # 第三行：能源
+    # 第三行：能源 + 煤炭
     {"code": "hf_OIL",  "name": "布伦特原油", "unit": "美元/桶",   "source": "futures"},
     {"code": "hf_CL",   "name": "WTI原油",    "unit": "美元/桶",   "source": "futures"},
     {"code": "hf_GAS",  "name": "柴油主连",   "unit": "美元/吨",   "source": "futures"},
     {"code": "hf_HO",   "name": "取暖油主连", "unit": "美元/加仑", "source": "futures"},
     {"code": "hf_NG",   "name": "天然气主连", "unit": "美元/百万英热", "source": "futures"},
+    {"code": "nf_JM0",  "name": "焦煤主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_J0",   "name": "焦炭主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    # 第四行：国际农产品 — 大豆链→谷物链→软商品
+    {"code": "hf_S",    "name": "美大豆",     "unit": "美分/蒲式耳", "source": "futures"},
+    {"code": "hf_SM",   "name": "美豆粕",     "unit": "美元/短吨",   "source": "futures"},
+    {"code": "hf_BO",   "name": "美豆油",     "unit": "美分/磅",     "source": "futures"},
+    {"code": "hf_W",    "name": "美小麦",     "unit": "美分/蒲式耳", "source": "futures"},
+    {"code": "hf_C",    "name": "美玉米",     "unit": "美分/蒲式耳", "source": "futures"},
+    {"code": "hf_CT",   "name": "美棉花",     "unit": "美分/磅",     "source": "futures"},
+    {"code": "hf_CC",   "name": "可可",       "unit": "美元/吨",     "source": "futures"},
+    {"code": None,       "name": "",           "unit": "",            "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",            "source": "gap"},
+    # 第五行：国内农产品 — 油料谷物
+    {"code": "nf_M0",   "name": "豆粕主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_A0",   "name": "豆一主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_Y0",   "name": "豆油主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_P0",   "name": "棕榈油主连", "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_C0",   "name": "玉米主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_CF0",  "name": "棉花主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_RM0",  "name": "菜粕主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_SR0",  "name": "白糖主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    # 第六行：国内农产品 — 畜牧园艺
+    {"code": "nf_JD0",  "name": "鸡蛋主连",   "unit": "元/500kg",  "source": "nf"},
+    {"code": "nf_LH0",  "name": "生猪主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_AP0",  "name": "苹果主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_PK0",  "name": "花生主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
 ]
 
 SINA_HEADERS = {
