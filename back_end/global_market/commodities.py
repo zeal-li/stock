@@ -3,21 +3,16 @@ import requests
 from common import REQUEST_PROXIES, BROWSER_HEADERS
 
 COMMODITIES = [
-    # 第一行：伦敦系
+    # 按品种分组：金→银→铜，每组伦敦→COMEX→沪
     {"secid": "122.XAU",  "name": "伦敦金现",   "divisor": 100,  "unit": "美元/盎司"},
-    {"secid": "122.XAG",  "name": "伦敦银现",   "divisor": 100,  "unit": "美元/盎司"},
-    {"secid": "109.LCPT", "name": "伦敦铜",     "divisor": 100,  "unit": "美元/吨"},
-    # 伦敦铂：东方财富无 LME 铂金行情（LME 2026年中起已停止管理铂金定价）
-    # 第二行：COMEX系
     {"secid": "101.GC00Y", "name": "COMEX黄金",  "divisor": 10,   "unit": "美元/盎司"},
-    {"secid": "101.SI00Y", "name": "COMEX白银",  "divisor": 2000, "unit": "美元/盎司"},
-    {"secid": "101.HG00Y", "name": "COMEX铜",    "divisor": 100,  "unit": "美分/磅"},
-    {"secid": "102.PL00Y", "name": "COMEX铂",    "divisor": 10,   "unit": "美元/盎司"},
-    # 第三行：沪系
     {"secid": "113.aum",   "name": "沪金主连",   "divisor": 100,  "unit": "元/克"},
+    {"secid": "122.XAG",  "name": "伦敦银现",   "divisor": 100,  "unit": "美元/盎司"},
+    {"secid": "101.SI00Y", "name": "COMEX白银",  "divisor": 2000, "unit": "美元/盎司"},
     {"secid": "113.agm",   "name": "沪银主连",   "divisor": 1,    "unit": "元/千克"},
+    {"secid": "109.LCPT", "name": "伦敦铜",     "divisor": 100,  "unit": "美元/吨"},
+    {"secid": "101.HG00Y", "name": "COMEX铜",    "divisor": 100,  "unit": "美分/磅"},
     {"secid": "113.cum",   "name": "沪铜主连",   "divisor": 1,    "unit": "元/吨"},
-    # 沪铂主连：GFEX 225.ptm 接口不稳定，暂无
 ]
 
 ULIST_HEADERS = {

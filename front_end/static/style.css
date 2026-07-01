@@ -139,7 +139,7 @@ body {
 /* 大宗商品网格（九列） */
 .commodity-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(9, 1fr);
     gap: 12px;
 }
 
@@ -163,6 +163,14 @@ body {
     font-weight: 700;
     color: #e0e0e0;
     margin-bottom: 4px;
+}
+
+.commodity-price.up {
+    color: #e94560;
+}
+
+.commodity-price.down {
+    color: #4ade80;
 }
 
 .commodity-changes {
