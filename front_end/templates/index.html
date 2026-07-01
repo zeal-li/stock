@@ -22,6 +22,10 @@
                     <span class="nav-icon">💰</span>
                     <span>资金流向</span>
                 </div>
+                <div class="nav-item" data-page="global-market">
+                    <span class="nav-icon">🌍</span>
+                    <span>全球市场</span>
+                </div>
                 <div class="nav-item" data-page="longhu">
                     <span class="nav-icon">🐉</span>
                     <span>龙虎榜</span>
@@ -66,6 +70,16 @@
 
                 <div class="index-card" id="index-card">
                     <div class="loading">正在加载上证指数...</div>
+                </div>
+            </div>
+
+            <!-- 全球市场页面 -->
+            <div id="page-global-market" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">🌍 全球市场</h1>
+                </div>
+                <div class="index-card">
+                    <div class="loading">内容待定，敬请期待...</div>
                 </div>
             </div>
 
@@ -267,6 +281,7 @@
                 const page = this.getAttribute('data-page');
                 currentNavPage = page;
                 document.getElementById('page-money-flow').style.display = page === 'money-flow' ? 'block' : 'none';
+                document.getElementById('page-global-market').style.display = page === 'global-market' ? 'block' : 'none';
                 document.getElementById('page-longhu').style.display = page === 'longhu' ? 'block' : 'none';
                 document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
                 document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
