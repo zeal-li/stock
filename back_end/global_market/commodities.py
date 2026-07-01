@@ -3,7 +3,7 @@ import requests
 from common import BROWSER_HEADERS
 
 COMMODITIES = [
-    # 按品种分组：金→银→铜，每组伦敦→COMEX→沪
+    # 第一行：金属 — 金→银→铜，每组伦敦→COMEX→沪
     {"code": "hf_XAU",  "name": "伦敦金现",   "unit": "美元/盎司", "source": "spot"},
     {"code": "hf_GC",   "name": "COMEX黄金",  "unit": "美元/盎司", "source": "futures"},
     {"code": "nf_AU0",  "name": "沪金主连",   "unit": "元/克",     "source": "nf"},
@@ -13,6 +13,12 @@ COMMODITIES = [
     {"code": "hf_CAD",  "name": "伦敦铜",     "unit": "美元/吨",   "source": "futures"},
     {"code": "hf_HG",   "name": "COMEX铜",    "unit": "美分/磅",   "source": "futures"},
     {"code": "nf_CU0",  "name": "沪铜主连",   "unit": "元/吨",     "source": "nf"},
+    # 第二行：能源
+    {"code": "hf_OIL",  "name": "布伦特原油", "unit": "美元/桶",   "source": "futures"},
+    {"code": "hf_CL",   "name": "WTI原油",    "unit": "美元/桶",   "source": "futures"},
+    {"code": "hf_GAS",  "name": "柴油主连",   "unit": "美元/吨",   "source": "futures"},
+    {"code": "hf_HO",   "name": "取暖油主连", "unit": "美元/加仑", "source": "futures"},
+    {"code": "hf_NG",   "name": "天然气主连", "unit": "美元/百万英热", "source": "futures"},
 ]
 
 SINA_HEADERS = {
