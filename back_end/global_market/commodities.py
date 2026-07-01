@@ -3,7 +3,7 @@ import requests
 from common import BROWSER_HEADERS
 
 COMMODITIES = [
-    # 第一行：金属 — 金银铜铝，每组伦敦→COMEX→沪，铝接在铜后
+    # 第一行：贵金属 + 铜（金银铜）
     {"code": "hf_XAU",  "name": "伦敦金现",   "unit": "美元/盎司", "source": "spot"},
     {"code": "hf_GC",   "name": "COMEX黄金",  "unit": "美元/盎司", "source": "futures"},
     {"code": "nf_AU0",  "name": "沪金主连",   "unit": "元/克",     "source": "nf"},
@@ -13,23 +13,49 @@ COMMODITIES = [
     {"code": "hf_CAD",  "name": "伦敦铜",     "unit": "美元/吨",   "source": "futures"},
     {"code": "hf_HG",   "name": "COMEX铜",    "unit": "美分/磅",   "source": "futures"},
     {"code": "nf_CU0",  "name": "沪铜主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    # 第二行：有色金属（铝铅锌镍锡）
     {"code": "hf_AHD",  "name": "伦铝",       "unit": "美元/吨",   "source": "futures"},
     {"code": "nf_AL0",  "name": "沪铝主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_PB0",  "name": "铅主连",     "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_ZN0",  "name": "锌主连",     "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_NI0",  "name": "镍主连",     "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_SN0",  "name": "锡主连",     "unit": "元/吨",     "source": "nf"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    # 第二行：能源 + 煤炭
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    # 第三行：能化
     {"code": "hf_OIL",  "name": "布伦特原油", "unit": "美元/桶",   "source": "futures"},
     {"code": "hf_CL",   "name": "WTI原油",    "unit": "美元/桶",   "source": "futures"},
     {"code": "hf_GAS",  "name": "柴油主连",   "unit": "美元/吨",   "source": "futures"},
     {"code": "hf_HO",   "name": "取暖油主连", "unit": "美元/加仑", "source": "futures"},
     {"code": "hf_NG",   "name": "天然气主连", "unit": "美元/百万英热", "source": "futures"},
+    {"code": "nf_BU0",  "name": "沥青主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_L0",   "name": "塑料主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_UR0",  "name": "尿素主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_RU0",  "name": "天然橡胶主连", "unit": "元/吨",   "source": "nf"},
+    {"code": "nf_NR0",  "name": "20号胶主连", "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_SP0",  "name": "纸浆主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    # 第四行：黑色系（铁矿→焦煤焦炭→钢材→合金）
+    {"code": "nf_I0",   "name": "铁矿石主连", "unit": "元/吨",     "source": "nf"},
     {"code": "nf_JM0",  "name": "焦煤主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_J0",   "name": "焦炭主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_RB0",  "name": "螺纹钢主连", "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_HC0",  "name": "热卷主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_SF0",  "name": "硅铁主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_SM0",  "name": "锰硅主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_FG0",  "name": "玻璃主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_SA0",  "name": "纯碱主连",   "unit": "元/吨",     "source": "nf"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    # 第三行：国际农产品 — 大豆链→谷物链→软商品
+    # 第五行：国际农产品（大豆链→谷物→软商品）
     {"code": "hf_S",    "name": "美大豆",     "unit": "美分/蒲式耳", "source": "futures"},
     {"code": "hf_SM",   "name": "美豆粕",     "unit": "美元/短吨",   "source": "futures"},
     {"code": "hf_BO",   "name": "美豆油",     "unit": "美分/磅",     "source": "futures"},
@@ -42,7 +68,7 @@ COMMODITIES = [
     {"code": None,       "name": "",           "unit": "",            "source": "gap"},
     {"code": None,       "name": "",           "unit": "",            "source": "gap"},
     {"code": None,       "name": "",           "unit": "",            "source": "gap"},
-    # 第四行：国内农产品 — 油料谷物
+    # 第六行：国内农产品（油料谷物）
     {"code": "nf_M0",   "name": "豆粕主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_A0",   "name": "豆一主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_Y0",   "name": "豆油主连",   "unit": "元/吨",     "source": "nf"},
@@ -55,13 +81,13 @@ COMMODITIES = [
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    # 第五行：国内农产品 — 畜牧园艺
+    # 第七行：国内农产品（畜牧园艺）
     {"code": "nf_JD0",  "name": "鸡蛋主连",   "unit": "元/500kg",  "source": "nf"},
     {"code": "nf_LH0",  "name": "生猪主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_AP0",  "name": "苹果主连",   "unit": "元/吨",     "source": "nf"},
     {"code": "nf_PK0",  "name": "花生主连",   "unit": "元/吨",     "source": "nf"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
-    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": "nf_CJ0",  "name": "红枣主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": "nf_RS0",  "name": "菜籽主连",   "unit": "元/吨",     "source": "nf"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
