@@ -194,6 +194,8 @@ async function refreshRealtimeData() {
     if (currentNavPage === 'stock-pick') refreshPickedQuotes();
     // ---- 自选股页：刷新行情 ----
     if (currentNavPage === 'watchlist') refreshWatchlistQuotes();
+    // ---- 全球市场页：刷新大宗商品报价 ----
+    if (currentNavPage === 'global-market') loadGlobalCommodities();
 }
 
 // 工具：按 id 更新文本，值为 null 时显示 '--'
