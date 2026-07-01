@@ -13,7 +13,17 @@ COMMODITIES = [
     {"code": "hf_CAD",  "name": "伦敦铜",     "unit": "美元/吨",   "source": "futures"},
     {"code": "hf_HG",   "name": "COMEX铜",    "unit": "美分/磅",   "source": "futures"},
     {"code": "nf_CU0",  "name": "沪铜主连",   "unit": "元/吨",     "source": "nf"},
-    # 第二行：能源
+    # 第二行：铝 + 7个占位对齐9列
+    {"code": "hf_AHD",  "name": "伦铝",       "unit": "美元/吨",   "source": "futures"},
+    {"code": "nf_AL0",  "name": "沪铝主连",   "unit": "元/吨",     "source": "nf"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    {"code": None,       "name": "",           "unit": "",           "source": "gap"},
+    # 第三行：能源
     {"code": "hf_OIL",  "name": "布伦特原油", "unit": "美元/桶",   "source": "futures"},
     {"code": "hf_CL",   "name": "WTI原油",    "unit": "美元/桶",   "source": "futures"},
     {"code": "hf_GAS",  "name": "柴油主连",   "unit": "美元/吨",   "source": "futures"},
@@ -91,25 +101,25 @@ def _parse_nf(item: str, cfg: dict) -> dict:
 
 def get_global_commodities() -> dict:
     """批量获取所有大宗商品行情（单次请求）"""
-    codes = ",".join(c["code"] for c in COMMODITIES)
+    real_items = [c for c in COMMODITIES if c["source"] != "gap"]
+    codes = ",".join(c["code"] for c in real_items)
     url = "https://hq.sinajs.cn/list=" + codes
     r = requests.get(url, headers=SINA_HEADERS, timeout=10)
     r.encoding = "gb2312"
 
     raw_lines = r.text.strip().split("\n")
-    if len(raw_lines) != len(COMMODITIES):
-        return {"success": False, "data": [], "error": f"响应行数不匹配: {len(raw_lines)} vs {len(COMMODITIES)}"}
+    if len(raw_lines) != len(real_items):
+        return {"success": False, "data": [], "error": f"响应行数不匹配: {len(raw_lines)} vs {len(real_items)}"}
 
     result = {"success": True, "data": []}
+    real_idx = 0
 
-    for i, line in enumerate(raw_lines):
-        cfg = COMMODITIES[i]
-        # 提取引号内数据
-        try:
-            data_str = line.split('"')[1]
-        except IndexError:
-            return {"success": False, "data": [], "error": f"解析失败: {cfg['code']}"}
-
+    for i, cfg in enumerate(COMMODITIES):
+        if cfg["source"] == "gap":
+            result["data"].append({"name": "", "price": "", "change": "", "change_pct": "", "unit": "", "gap": True})
+            continue
+        data_str = raw_lines[real_idx].split('"')[1]
+        real_idx += 1
         if not data_str.strip():
             return {"success": False, "data": [], "error": f"{cfg['name']} 无数据"}
 

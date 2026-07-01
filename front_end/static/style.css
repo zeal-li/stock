@@ -151,6 +151,12 @@ body {
     text-align: center;
 }
 
+.commodity-gap {
+    background: transparent;
+    border: none;
+    pointer-events: none;
+}
+
 .commodity-name {
     font-size: 13px;
     color: #8899aa;

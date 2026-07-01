@@ -34,6 +34,10 @@ function renderCommodities(list) {
 
     var html = '';
     list.forEach(function(item) {
+        if (item.gap) {
+            html += '<div class="commodity-item commodity-gap"></div>';
+            return;
+        }
         var changeClass = '';
         var changeStr = item.change || '-';
         if (changeStr.startsWith('+')) {
