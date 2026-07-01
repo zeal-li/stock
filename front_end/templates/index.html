@@ -78,8 +78,24 @@
                 <div class="page-header">
                     <h1 class="page-title">🌍 全球市场</h1>
                 </div>
-                <div class="index-card">
-                    <div class="loading">内容待定，敬请期待...</div>
+                <div class="global-market-grid">
+                    <!-- 全球指数 -->
+                    <div class="index-card">
+                        <h3 class="card-title">📈 全球指数</h3>
+                        <div class="loading">内容待定...</div>
+                    </div>
+                    <!-- 全球商品 -->
+                    <div class="index-card">
+                        <h3 class="card-title">🛢️ 全球商品</h3>
+                        <div id="commodityGrid" class="commodity-grid">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
+                    <!-- 全球汇率 -->
+                    <div class="index-card">
+                        <h3 class="card-title">💱 全球汇率</h3>
+                        <div class="loading">内容待定...</div>
+                    </div>
                 </div>
             </div>
 
@@ -291,6 +307,7 @@
                 document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
                 document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
+                if (page === 'global-market') loadGlobalCommodities();
                 if (page === 'longhu') loadLonghuBang();
 
                 if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }
@@ -323,6 +340,7 @@
     <script src="/static/js/earnings/service.js"></script>
     <script src="/static/js/abnormal/service.js"></script>
     <script src="/static/js/longhu/service.js"></script>
+    <script src="/static/js/global_market/commodities.js"></script>
 
     <!-- 启动（所有 JS 加载完毕后执行） -->
     <script>

@@ -116,6 +116,73 @@ body {
     margin-bottom: 20px;
 }
 
+/* 全球市场三栏布局 */
+.global-market-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+}
+
+.global-market-grid .index-card {
+    margin-bottom: 0;
+}
+
+.card-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #e94560;
+    margin: 0 0 14px 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #0f3460;
+}
+
+@media (max-width: 1024px) {
+    .global-market-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* 大宗商品网格（三列） */
+.commodity-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.commodity-item {
+    background: #1a1a2e;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 14px 12px;
+    text-align: center;
+}
+
+.commodity-name {
+    font-size: 13px;
+    color: #8899aa;
+    margin-bottom: 6px;
+    white-space: nowrap;
+}
+
+.commodity-price {
+    font-size: 20px;
+    font-weight: 700;
+    color: #e0e0e0;
+    margin-bottom: 4px;
+}
+
+.commodity-changes {
+    font-size: 13px;
+}
+
+.commodity-changes .up {
+    color: #f44336;
+}
+
+.commodity-changes .down {
+    color: #4caf50;
+}
+
 .index-header {
     display: flex;
     justify-content: space-between;

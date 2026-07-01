@@ -12,6 +12,7 @@ from money_flow.fear_index import get_fear_index
 from money_flow.risk_index import get_risk_index
 from money_flow.margin import get_margin_trading
 from money_flow.longhu_bang import get_longhu_bang, cleanup_old_data
+from global_market.commodities import get_global_commodities
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
@@ -83,6 +84,12 @@ def longhu_bang():
     """龙虎榜每日明细，返回当天全部数据，前端负责分类筛选和排序"""
     trade_date = request.args.get('date', '').strip()
     return jsonify(get_longhu_bang(trade_date or None))
+
+
+@app.route('/api/global-commodities')
+def global_commodities():
+    """全球大宗商品实时行情"""
+    return jsonify(get_global_commodities())
 
 
 # ==================== 搜索 ====================
