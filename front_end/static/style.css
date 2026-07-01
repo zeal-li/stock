@@ -116,10 +116,10 @@ body {
     margin-bottom: 20px;
 }
 
-/* 全球市场三栏布局 */
+/* 全球市场上中下布局 */
 .global-market-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: 1fr;
     gap: 20px;
 }
 
@@ -136,16 +136,10 @@ body {
     border-bottom: 1px solid #0f3460;
 }
 
-@media (max-width: 1024px) {
-    .global-market-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* 大宗商品网格（三列） */
+/* 大宗商品网格（九列） */
 .commodity-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 12px;
 }
 
