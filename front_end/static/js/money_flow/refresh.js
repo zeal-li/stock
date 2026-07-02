@@ -9,11 +9,13 @@ async function refreshRealtimeData() {
         loadGlobalCommodities();
         loadGlobalForex();
     }
-    if (currentNavPage === 'sector-fund') loadSectorFund();
 
     if (!isInTradingHours()) return;
 
     var onMoneyFlow = currentNavPage === 'money-flow';
+    var onSectorFund = currentNavPage === 'sector-fund';
+
+    if (onSectorFund) loadSectorFund();
 
     try {
         // ---- 资金流向页：刷新图表 & 恐慌/风险指数 ----

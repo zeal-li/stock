@@ -2,7 +2,7 @@
 
 import requests
 from common import REQUEST_PROXIES
-from money_flow.storage import _EM_HEADERS, _EM_UT, _cached, db_set
+from money_flow.storage import _EM_HEADERS, _EM_UT
 
 _API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
 _FIELDS = "f2,f3,f4,f12,f14,f62,f184,f66,f72,f78,f84,f204,f205"
@@ -14,9 +14,6 @@ _SECTOR_TYPES = {
     "industry": "m:90+t:2+f:!50",   # 行业板块
     "concept":  "m:90+t:3+f:!50",   # 概念板块
 }
-
-_SECTOR_FUND_KEY = "sector_fund"
-
 
 def _format_amount(val) -> str:
     """金额格式化：元 → 亿元/万元"""
@@ -95,20 +92,14 @@ def _request_top(fs: str, po: str) -> list:
 
 def get_sector_fund() -> dict:
     """获取行业+概念板块资金流入/流出排行"""
-    cached = _cached(_SECTOR_FUND_KEY, ttl=30)
-    if cached:
-        return cached
-
     industry = _fetch_sector_data(_SECTOR_TYPES["industry"])
     concept = _fetch_sector_data(_SECTOR_TYPES["concept"])
 
-    result = {
+    return {
         "success": True,
         "industry": industry,
         "concept": concept,
     }
-    db_set(_SECTOR_FUND_KEY, result, meta=str(int(__import__("time").time())))
-    return result
 
 
 def get_sector_stocks(sector_code: str) -> dict:
