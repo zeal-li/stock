@@ -1,6 +1,7 @@
 """全球大宗商品行情（新浪财经 hq.sinajs.cn）"""
 import requests
 from common import BROWSER_HEADERS
+from global_market.indices import get_global_indices
 
 COMMODITIES = [
     # 第一行：贵金属 + 铜（金银铜）
@@ -199,5 +200,12 @@ def get_global_commodities() -> dict:
             result["data"].append(_parse_nf(data_str, cfg))
         else:
             result["data"].append(_parse_hf(data_str, cfg))
+
+    # 合并全球指数（A股指数）
+    indices_res = get_global_indices()
+    if indices_res.get('success'):
+        result['indices'] = indices_res['data']
+    else:
+        result['indices'] = []
 
     return result

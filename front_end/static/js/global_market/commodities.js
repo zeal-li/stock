@@ -14,6 +14,7 @@ function loadGlobalCommodities() {
             }
             _commoditiesEverLoaded = true;
             renderCommodities(res.data);
+            renderGlobalIndices(res.indices || []);
         })
         .catch(function(e) {
             console.log('全球商品加载失败:', e);

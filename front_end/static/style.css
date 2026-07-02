@@ -136,7 +136,14 @@ body {
     border-bottom: 1px solid #0f3460;
 }
 
-/* 大宗商品网格（九列） */
+/* 全球指数网格（与商品共用样式，只定义网格） */
+.global-index-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 4px;
+}
+
+/* 大宗商品网格（十二列） */
 .commodity-grid {
     display: grid;
     grid-template-columns: repeat(12, 1fr);
