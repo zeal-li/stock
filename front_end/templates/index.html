@@ -86,17 +86,29 @@
                         <span class="sector-tab" data-type="industry" onclick="switchSectorTab('industry')">行业板块</span>
                     </div>
                 </div>
-                <div class="sector-fund-container">
-                    <div class="sector-fund-section">
-                        <h3 class="card-title" style="color:#d63850;">🔥 主力净流入 TOP20</h3>
-                        <div id="sectorInflowTable" class="sector-table-wrap">
-                            <div class="loading">加载中...</div>
+                <div class="sector-fund-layout">
+                    <div class="sector-fund-main">
+                        <div class="sector-fund-container">
+                            <div class="sector-fund-section">
+                                <h3 class="card-title" style="color:#d63850;">🔥 主力净流入 TOP20</h3>
+                                <div id="sectorInflowTable" class="sector-table-wrap">
+                                    <div class="loading">加载中...</div>
+                                </div>
+                            </div>
+                            <div class="sector-fund-section">
+                                <h3 class="card-title" style="color:#00b894;">💨 主力净流出 TOP20</h3>
+                                <div id="sectorOutflowTable" class="sector-table-wrap">
+                                    <div class="loading">加载中...</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="sector-fund-section">
-                        <h3 class="card-title" style="color:#00b894;">💨 主力净流出 TOP20</h3>
-                        <div id="sectorOutflowTable" class="sector-table-wrap">
-                            <div class="loading">加载中...</div>
+                    <div id="stockPoolPanel" class="stock-pool-panel" style="display:none;">
+                        <div class="stock-pool-header">
+                            <h3 id="stockPoolTitle" class="card-title">板块成分股</h3>
+                            <span class="stock-pool-close" onclick="closeStockPool()">✕</span>
+                        </div>
+                        <div id="stockPoolTableWrap" class="sector-table-wrap">
                         </div>
                     </div>
                 </div>

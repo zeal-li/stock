@@ -6,6 +6,7 @@ from money_flow.storage import _EM_HEADERS, _EM_UT, _cached, db_set
 
 _API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
 _FIELDS = "f2,f3,f4,f12,f14,f62,f184,f66,f72,f78,f84,f204,f205"
+_STOCK_FIELDS = "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f62,f184"
 _PZ = 20  # 每次取 TOP20
 
 # 板块类型 → fs 参数
@@ -108,3 +109,56 @@ def get_sector_fund() -> dict:
     }
     db_set(_SECTOR_FUND_KEY, result, meta=str(int(__import__("time").time())))
     return result
+
+
+def get_sector_stocks(sector_code: str) -> dict:
+    """获取板块成分股列表（按涨跌幅排序）"""
+    if not sector_code:
+        return {"success": False, "error": "缺少板块编码"}
+
+    params = {
+        "pn": "1", "pz": "100", "po": "1", "np": "1",
+        "fltt": "2", "invt": "2",
+        "fid": "f3",  # 按涨跌幅排序
+        "fs": f"b:{sector_code}",
+        "fields": _STOCK_FIELDS,
+        "ut": _EM_UT,
+    }
+    r = requests.get(_API_URL, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+    data = r.json()
+    if not data.get("data") or not data["data"].get("diff"):
+        return {"success": True, "stocks": [], "total": 0}
+
+    total = data["data"].get("total", 0)
+    stocks = []
+    for item in data["data"]["diff"]:
+        name = item.get("f14", "")
+        code = item.get("f12", "")
+        market = item.get("f13", "")
+        if not name or not code:
+            continue
+
+        change_pct = item.get("f3", 0)
+        price = item.get("f2", 0)
+        change_amt = item.get("f4", 0)
+        volume = item.get("f5", 0)
+        amount = item.get("f6", 0)
+        amplitude = item.get("f7", 0)
+        turnover = item.get("f8", 0)
+        main_net = item.get("f62")
+
+        stocks.append({
+            "name": name,
+            "code": code,
+            "market": str(market),
+            "change_pct": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
+            "price": round(price, 2) if price else "-",
+            "change_amt": round(change_amt, 2) if change_amt else "-",
+            "volume": volume,
+            "amount": amount,
+            "amplitude": f"{amplitude:.2f}%" if amplitude else "-",
+            "turnover": f"{turnover:.2f}%" if turnover else "-",
+            "main_net": _format_amount(main_net),
+        })
+
+    return {"success": True, "stocks": stocks, "total": total}
