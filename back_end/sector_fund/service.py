@@ -163,7 +163,7 @@ def get_sector_stocks(sector_code: str) -> dict:
         if not name or not code:
             continue
 
-        change_pct = item.get("f3", 0)
+        change_pct = float(item.get("f3", 0))
         price = item.get("f2", 0)
         change_amt = item.get("f4", 0)
         volume = item.get("f5", 0)
@@ -177,12 +177,12 @@ def get_sector_stocks(sector_code: str) -> dict:
             "code": code,
             "market": str(market),
             "change_pct": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
-            "price": round(price, 2) if price else "-",
-            "change_amt": round(change_amt, 2) if change_amt else "-",
+            "price": round(float(price), 2) if price else "-",
+            "change_amt": round(float(change_amt), 2) if change_amt else "-",
             "volume": volume,
             "amount": amount,
-            "amplitude": f"{amplitude:.2f}%" if amplitude else "-",
-            "turnover": f"{turnover:.2f}%" if turnover else "-",
+            "amplitude": f"{float(amplitude):.2f}%" if amplitude else "-",
+            "turnover": f"{float(turnover):.2f}%" if turnover else "-",
             "main_net": _format_amount(main_net),
         })
 
