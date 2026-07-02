@@ -1,12 +1,13 @@
 """通用格式化函数"""
 
 def is_etf(code, market):
-    """判断是否为ETF（沪市51xxxx，深市15xxxx）"""
+    """判断是否为ETF（沪市51xxxx/56xxxx/58xxxx，深市159xxx）"""
     c = str(code) if code else ''
-    m = str(market) if market else ''
-    if m in ('1', '2') and c[:2] == '51':
+    # 深ETF: 159开头
+    if c[:3] == '159':
         return True
-    if m == '0' and c[:2] == '15':
+    # 沪ETF: 51/56/58开头
+    if c[:2] in ('51', '56', '58'):
         return True
     return False
 
