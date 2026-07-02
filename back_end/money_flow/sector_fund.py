@@ -1,4 +1,4 @@
-"""板块资金流向 — 东方财富行业/概念板块主力资金排行"""
+"""板块资金流向 — 东方财富行业/概念板块主力资金流入/流出排行"""
 
 import requests
 from common import REQUEST_PROXIES
@@ -6,7 +6,7 @@ from money_flow.storage import _EM_HEADERS, _EM_UT, _cached, db_set
 
 _API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
 _FIELDS = "f2,f3,f4,f12,f14,f62,f184,f66,f72,f78,f84,f204,f205"
-_PZ = 20  # 每类取前20名
+_PZ = 20  # 每次取 TOP20
 
 # 板块类型 → fs 参数
 _SECTOR_TYPES = {
@@ -31,12 +31,21 @@ def _format_amount(val) -> str:
         return f"{sign}{abs_val:.0f}元"
 
 
-def _fetch_sector_data(fs: str) -> list:
-    """请求东方财富板块资金数据"""
+def _fetch_sector_data(fs: str) -> dict:
+    """请求东方财富板块资金数据，两次请求分别取流入/流出 TOP20"""
+    # 流入 TOP20：po=1 按主力净流入降序
+    inflow = _request_top(fs, po="1")
+    # 流出 TOP20：po=0 按主力净流入升序（即净流出最大）
+    outflow = _request_top(fs, po="0")
+    return {"inflow": inflow, "outflow": outflow}
+
+
+def _request_top(fs: str, po: str) -> list:
+    """请求 API 返回 TOP20 列表"""
     params = {
-        "pn": "1", "pz": str(_PZ), "po": "1", "np": "1",
+        "pn": "1", "pz": str(_PZ), "po": po, "np": "1",
         "fltt": "2", "invt": "2",
-        "fid": "f62",  # 按主力净流入排序
+        "fid": "f62",
         "fs": fs,
         "fields": _FIELDS,
         "ut": _EM_UT,
@@ -51,18 +60,21 @@ def _fetch_sector_data(fs: str) -> list:
         name = item.get("f14", "")
         if not name:
             continue
+        main_net = item.get("f62")
+        if main_net is None:
+            continue
+
         change_pct = item.get("f3", 0)
-        main_net = item.get("f62")       # 主力净流入（元）
-        main_pct = item.get("f184", 0)   # 主力净占比（%）
-        super_net = item.get("f66")      # 超大单净流入
-        big_net = item.get("f72")        # 大单净流入
-        mid_net = item.get("f78")        # 中单净流入
-        small_net = item.get("f84")      # 小单净流入
+        main_pct = item.get("f184", 0)
+        super_net = item.get("f66")
+        big_net = item.get("f72")
+        mid_net = item.get("f78")
+        small_net = item.get("f84")
         lead_stock = item.get("f204", "")
         lead_code = item.get("f205", "")
         sector_code = item.get("f12", "")
 
-        result.append({
+        row = {
             "name": name,
             "change_pct": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
             "main_net": _format_amount(main_net),
@@ -74,12 +86,14 @@ def _fetch_sector_data(fs: str) -> list:
             "lead_stock": lead_stock,
             "lead_code": lead_code,
             "sector_code": sector_code,
-        })
-    return result
+        }
+        result.append(row)
+
+    return result[:_PZ]
 
 
 def get_sector_fund() -> dict:
-    """获取行业+概念板块资金流向排行"""
+    """获取行业+概念板块资金流入/流出排行"""
     cached = _cached(_SECTOR_FUND_KEY, ttl=30)
     if cached:
         return cached

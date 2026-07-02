@@ -1,28 +1,44 @@
-/** 板块资金流向 — 行业/概念板块主力净流入排行 */
-var _sectorFundEverLoaded = false;
+/** 板块资金流向 — 行业/概念板块主力流入/流出排行 */
+var _sectorFundData = null;
+var _sectorFundType = 'concept';
 
 function loadSectorFund() {
     fetch('/api/sector-fund')
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res.success) {
-                if (!_sectorFundEverLoaded) {
-                    renderSectorTable('industryFundTable', []);
-                    renderSectorTable('conceptFundTable', []);
+                if (!_sectorFundData) {
+                    renderSectorTable('sectorInflowTable', []);
+                    renderSectorTable('sectorOutflowTable', []);
                 }
                 return;
             }
-            _sectorFundEverLoaded = true;
-            renderSectorTable('industryFundTable', res.industry || []);
-            renderSectorTable('conceptFundTable', res.concept || []);
+            _sectorFundData = res;
+            renderCurrentSectorTab();
         })
         .catch(function(e) {
             console.log('板块资金加载失败:', e);
-            if (!_sectorFundEverLoaded) {
-                renderSectorTable('industryFundTable', []);
-                renderSectorTable('conceptFundTable', []);
+            if (!_sectorFundData) {
+                renderSectorTable('sectorInflowTable', []);
+                renderSectorTable('sectorOutflowTable', []);
             }
         });
+}
+
+function switchSectorTab(type) {
+    _sectorFundType = type;
+    // 更新按钮高亮
+    document.querySelectorAll('.sector-tab').forEach(function(t) {
+        t.classList.toggle('active', t.getAttribute('data-type') === type);
+    });
+    renderCurrentSectorTab();
+}
+
+function renderCurrentSectorTab() {
+    if (!_sectorFundData) return;
+    var data = _sectorFundData[_sectorFundType] || {};
+    renderSectorTable('sectorInflowTable', data.inflow || []);
+    renderSectorTable('sectorOutflowTable', data.outflow || []);
 }
 
 function renderSectorTable(containerId, list) {
