@@ -31,6 +31,41 @@ US_INDEX_LIST = [
     ('韩国KOSPI','znb_KOSPI'),
 ]
 
+# znb_ 前缀代码 → globalindex 页面代码映射
+_ZNB_TO_GLOBAL = {
+    'znb_UKX':   'UKX',
+    'znb_DAX':   'DAX',
+    'znb_CAC':   'CAC',
+    'znb_NKY':   'NKY',
+    'znb_KOSPI': 'KOSPI',
+}
+
+# int_ 前缀代码 → usstock 代码映射
+_INT_TO_US = {
+    'int_dji':    '.dji',
+    'int_nasdaq': '.ixic',
+}
+
+
+def _make_index_url(code: str) -> str:
+    # A股指数：s_ 前缀 → realstock/company/{code_without_s_}/nc.shtml
+    if code.startswith('s_'):
+        real_code = code[2:]  # 去掉 s_ 前缀
+        return f"https://finance.sina.com.cn/realstock/company/{real_code}/nc.shtml"
+
+    # 美股指数：int_ 前缀 → usstock/quotes/{code}.html
+    us_code = _INT_TO_US.get(code)
+    if us_code:
+        return f"https://stock.finance.sina.com.cn/usstock/quotes/{us_code}.html"
+
+    # 国际指数：znb_ 前缀 → stock/globalindex/quotes/{code}
+    global_code = _ZNB_TO_GLOBAL.get(code)
+    if global_code:
+        return f"https://finance.sina.com.cn/stock/globalindex/quotes/{global_code}"
+
+    # 兜底（理论上不会走到这里）
+    return f"https://finance.sina.com.cn/realstock/company/{code}/nc.shtml"
+
 
 def get_global_indices():
     """返回 12 列扁平列表，A股第一排 + 空格 + 美股第二排"""
@@ -60,6 +95,7 @@ def get_global_indices():
                 'price': f"{price:.2f}",
                 'change': f"{'+' if chg_pct >= 0 else ''}{chg_pct:.2f}%",
                 'change_value': f"{'+' if chg_val >= 0 else ''}{chg_val:.2f}",
+                'url': _make_index_url(code),
             }
 
         a_data = [parsed[code] for _, code in A_INDEX_LIST if code in parsed]
