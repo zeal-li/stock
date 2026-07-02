@@ -20,11 +20,15 @@ A_INDEX_LIST = [
     ('上证50',   's_sh000016'),
 ]
 
-# 美股指数：名称, 新浪代码（第二排）
+# 海外指数：名称, 新浪代码（第二排）
 US_INDEX_LIST = [
     ('道琼斯',   'int_dji'),
     ('纳斯达克', 'int_nasdaq'),
-    ('标普500',  'int_spx'),
+    ('英国富时', 'znb_UKX'),
+    ('德国DAX',  'znb_DAX'),
+    ('法国CAC',  'znb_CAC'),
+    ('日经225',  'znb_NKY'),
+    ('韩国KOSPI','znb_KOSPI'),
 ]
 
 
