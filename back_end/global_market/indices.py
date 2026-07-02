@@ -23,8 +23,8 @@ A_INDEX_LIST = [
 # 美股指数：名称, 新浪代码（第二排）
 US_INDEX_LIST = [
     ('道琼斯',   'int_dji'),
-    ('纳斯达克', 'int_ixic'),
-    ('标普500',  'int_gspc'),
+    ('纳斯达克', 'int_nasdaq'),
+    ('标普500',  'int_spx'),
 ]
 
 
