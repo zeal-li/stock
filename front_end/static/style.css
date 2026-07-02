@@ -786,12 +786,11 @@ body {
     font-size: 12px;
 }
 
-.stock-pool-table .col-name {
-    color: #a8d8ea;
+.stock-pool-table.sector-fund-table .col-name {
+    color: #eee;
 }
 
 .stock-pool-table tr:hover .col-name {
-    color: #fff;
     text-decoration: underline;
 }
 
