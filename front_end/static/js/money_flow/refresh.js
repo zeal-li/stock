@@ -9,6 +9,7 @@ async function refreshRealtimeData() {
         loadGlobalCommodities();
         loadGlobalForex();
     }
+    if (currentNavPage === 'sector-fund') loadSectorFund();
 
     if (!isInTradingHours()) return;
 

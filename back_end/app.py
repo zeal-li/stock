@@ -14,6 +14,7 @@ from money_flow.margin import get_margin_trading
 from money_flow.longhu_bang import get_longhu_bang, cleanup_old_data
 from global_market.commodities import get_global_commodities
 from global_market.forex import get_forex_rates
+from money_flow.sector_fund import get_sector_fund
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
@@ -97,6 +98,12 @@ def global_commodities():
 def global_forex():
     """全球外汇汇率实时行情"""
     return jsonify(get_forex_rates())
+
+
+@app.route('/api/sector-fund')
+def sector_fund():
+    """板块资金流向排行"""
+    return jsonify(get_sector_fund())
 
 
 # ==================== 搜索 ====================
