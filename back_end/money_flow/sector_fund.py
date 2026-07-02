@@ -5,7 +5,7 @@ from common import REQUEST_PROXIES
 from money_flow.storage import _EM_HEADERS, _EM_UT
 
 _API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
-_FIELDS = "f2,f3,f4,f12,f14,f62,f184,f66,f72,f78,f84,f204,f205"
+_FIELDS = "f2,f3,f4,f12,f14,f62,f66,f72,f78,f84,f204,f205"
 _STOCK_FIELDS = "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f62,f184"
 _PZ = 20  # 每次取 TOP20
 
@@ -63,7 +63,6 @@ def _request_top(fs: str, po: str) -> list:
             continue
 
         change_pct = item.get("f3", 0)
-        main_pct = item.get("f184", 0)
         super_net = item.get("f66")
         big_net = item.get("f72")
         mid_net = item.get("f78")
@@ -76,7 +75,6 @@ def _request_top(fs: str, po: str) -> list:
             "name": name,
             "change_pct": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
             "main_net": _format_amount(main_net),
-            "main_pct": f"{'+' if main_pct >= 0 else ''}{main_pct:.2f}%",
             "super_net": _format_amount(super_net),
             "big_net": _format_amount(big_net),
             "mid_net": _format_amount(mid_net),

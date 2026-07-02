@@ -161,9 +161,10 @@ function renderSectorTable(containerId, list, isInflow) {
     html += '<th>板块</th>';
     html += '<th>涨跌幅</th>';
     html += '<th>主力净流入</th>';
-    html += '<th>主力占比</th>';
     html += '<th>超大单</th>';
     html += '<th>大单</th>';
+    html += '<th>中单</th>';
+    html += '<th>小单</th>';
     html += '<th>领涨股</th>';
     html += '</tr></thead>';
     html += '<tbody>';
@@ -176,7 +177,19 @@ function renderSectorTable(containerId, list, isInflow) {
             cls = pct.startsWith('+') ? 'up' : (pct.startsWith('-') ? 'down' : '');
         }
 
+        // 金额按自身正负着色
+        function amountCls(val) {
+            if (typeof val === 'string') {
+                return val.startsWith('+') ? 'up' : (val.startsWith('-') ? 'down' : '');
+            }
+            return '';
+        }
+
         var mainNet = item.main_net || '-';
+        var superNet = item.super_net || '-';
+        var bigNet = item.big_net || '-';
+        var midNet = item.mid_net || '-';
+        var smallNet = item.small_net || '-';
 
         var sectorCode = item.sector_code || '';
         var sectorName = item.name || '';
@@ -189,10 +202,11 @@ function renderSectorTable(containerId, list, isInflow) {
         html += '<td>' + (idx + 1) + '</td>';
         html += '<td class="col-name ' + flowCls + '">' + sectorName + '</td>';
         html += '<td class="' + cls + '">' + pct + '</td>';
-        html += '<td class="' + flowCls + '">' + mainNet + '</td>';
-        html += '<td class="' + flowCls + '">' + (item.main_pct || '-') + '</td>';
-        html += '<td class="' + flowCls + '">' + (item.super_net || '-') + '</td>';
-        html += '<td class="' + flowCls + '">' + (item.big_net || '-') + '</td>';
+        html += '<td class="' + amountCls(mainNet) + '">' + mainNet + '</td>';
+        html += '<td class="' + amountCls(superNet) + '">' + superNet + '</td>';
+        html += '<td class="' + amountCls(bigNet) + '">' + bigNet + '</td>';
+        html += '<td class="' + amountCls(midNet) + '">' + midNet + '</td>';
+        html += '<td class="' + amountCls(smallNet) + '">' + smallNet + '</td>';
         var leadCode = item.lead_code || '';
         var leadName = item.lead_stock || '';
         if (leadCode && leadName) {
