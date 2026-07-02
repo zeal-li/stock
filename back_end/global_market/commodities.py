@@ -201,7 +201,7 @@ def get_global_commodities() -> dict:
         else:
             result["data"].append(_parse_hf(data_str, cfg))
 
-    # 合并全球指数（A股指数）
+    # 合并全球指数
     indices_res = get_global_indices()
     if indices_res.get('success'):
         result['indices'] = indices_res['data']

@@ -9,6 +9,10 @@ function renderGlobalIndices(list) {
     }
     var html = '';
     list.forEach(function(item) {
+        if (item.gap) {
+            html += '<div class="commodity-item commodity-gap"></div>';
+            return;
+        }
         var changeStr = item.change || '-';
         var changeClass = '';
         if (changeStr.startsWith('+')) {
@@ -26,9 +30,5 @@ function renderGlobalIndices(list) {
         html += '  </div>';
         html += '</div>';
     });
-    // 补3个空格子，12列对齐
-    for (var g = 0; g < 3; g++) {
-        html += '<div class="commodity-item commodity-gap"></div>';
-    }
     container.innerHTML = html;
 }

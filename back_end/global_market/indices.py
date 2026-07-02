@@ -1,62 +1,69 @@
-"""全球指数实时行情 - A股指数（东方财富 push2delay）"""
+"""全球指数实时行情 - 统一新浪财经 hq.sinajs.cn"""
 
 import requests
-from common import REQUEST_PROXIES
+from common import BROWSER_HEADERS
 
-_EM_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Referer': 'https://data.eastmoney.com/',
+_SINA_HEADERS = {
+    **BROWSER_HEADERS,
+    'Referer': 'https://finance.sina.com.cn',
 }
-_EM_UT = 'bd1d9ddb04089700cf9c27f6f7426281'
 
-# A股主要指数：名称, 代码, 市场(1=上海, 0=深圳)
+# A股指数：名称, 新浪代码（第一排）
 A_INDEX_LIST = [
-    ('上证指数', '000001', '1'),
-    ('深证成指', '399001', '0'),
-    ('创业板指', '399006', '0'),
-    ('科创50',   '000688', '1'),
-    ('沪深300',  '000300', '1'),
-    ('中证500',  '000905', '1'),
-    ('中证1000', '000852', '1'),
-    ('北证50',   '899050', '0'),
-    ('上证50',   '000016', '1'),
+    ('上证指数', 's_sh000001'),
+    ('深证成指', 's_sz399001'),
+    ('创业板指', 's_sz399006'),
+    ('科创50',   's_sh000688'),
+    ('沪深300',  's_sh000300'),
+    ('中证500',  's_sh000905'),
+    ('中证1000', 's_sh000852'),
+    ('上证50',   's_sh000016'),
+]
+
+# 美股指数：名称, 新浪代码（第二排）
+US_INDEX_LIST = [
+    ('道琼斯',   'int_dji'),
+    ('纳斯达克', 'int_ixic'),
+    ('标普500',  'int_gspc'),
 ]
 
 
 def get_global_indices():
-    """全球指数实时行情（当前：A股指数）"""
+    """返回 12 列扁平列表，A股第一排 + 空格 + 美股第二排"""
     try:
-        secids = ','.join(f"{m}.{c}" for _, c, m in A_INDEX_LIST)
-        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-        params = {
-            'fltt': 2, 'invt': 2,
-            'fields': 'f2,f3,f4,f12,f14',
-            'secids': secids,
-            'ut': _EM_UT,
-        }
-        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=8, proxies=REQUEST_PROXIES)
-        diff = (r.json().get('data') or {}).get('diff') or []
+        all_codes = [code for _, code in A_INDEX_LIST] + [code for _, code in US_INDEX_LIST]
+        url = "https://hq.sinajs.cn/list=" + ','.join(all_codes)
+        r = requests.get(url, headers=_SINA_HEADERS, timeout=10)
+        r.encoding = "gb2312"
 
-        # 按 secids 参数顺序排列结果
-        ordered = {row.get('f12', ''): row for row in diff}
-        data = []
-        for name, code, market in A_INDEX_LIST:
-            row = ordered.get(code)
-            if not row:
+        parsed = {}
+        for line in r.text.strip().split("\n"):
+            if '=""' in line or '="' not in line:
                 continue
-            price = row.get('f2')
-            change_pct = row.get('f3')
-            change_val = row.get('f4')
-            data.append({
-                'name': name,
-                'code': code,
-                'price': f"{float(price):.2f}" if price is not None else '-',
-                'change': f"{'+' if change_pct and float(change_pct) >= 0 else ''}{float(change_pct):.2f}%" if change_pct is not None else '-',
-                'change_value': f"{'+' if change_val and float(change_val) >= 0 else ''}{float(change_val):.2f}" if change_val is not None else '-',
-            })
+            code = line.split('var hq_str_')[1].split('="')[0]
+            payload = line.split('="')[1].rstrip('";')
+            parts = payload.split(',')
+            if len(parts) < 4:
+                continue
 
-        if data:
-            return {'success': True, 'data': data}
-        return {'success': False, 'error': '暂无指数数据'}
+            name = parts[0].strip()
+            price = float(parts[1]) if parts[1] else 0
+            chg_val = float(parts[2]) if parts[2] else 0
+            chg_pct = float(parts[3]) if parts[3] else 0
+
+            parsed[code] = {
+                'name': name,
+                'price': f"{price:.2f}",
+                'change': f"{'+' if chg_pct >= 0 else ''}{chg_pct:.2f}%",
+                'change_value': f"{'+' if chg_val >= 0 else ''}{chg_val:.2f}",
+            }
+
+        a_data = [parsed[code] for _, code in A_INDEX_LIST if code in parsed]
+        us_data = [parsed[code] for _, code in US_INDEX_LIST if code in parsed]
+
+        # 按实际数量动态补空格，每排填满 12 列
+        result = a_data + [{'gap': True}] * (12 - len(a_data))
+        result += us_data + [{'gap': True}] * (12 - len(us_data))
+        return {'success': True, 'data': result}
     except Exception as e:
         return {'success': False, 'error': str(e)}
