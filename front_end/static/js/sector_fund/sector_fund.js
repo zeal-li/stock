@@ -50,13 +50,22 @@ function switchSectorPeriod(period) {
     loadSectorFund(_sectorFundType, period);
 }
 
-function showStockPool(sectorCode, sectorName) {
+function showStockPool(sectorCode, sectorName, isInflow) {
     _currentSectorCode = sectorCode;
     _currentSectorName = sectorName;
 
     var panel = document.getElementById('stockPoolPanel');
     var titleEl = document.getElementById('stockPoolTitle');
     if (!panel || !titleEl) return;
+
+    // 流入表格（左边）→ 面板浮到右边；流出表格（右边）→ 面板浮到左边
+    if (isInflow) {
+        panel.style.right = '0';
+        panel.style.left = 'auto';
+    } else {
+        panel.style.left = '0';
+        panel.style.right = 'auto';
+    }
 
     titleEl.textContent = sectorName + ' — 成分股';
     panel.style.display = 'block';
@@ -197,7 +206,7 @@ function renderSectorTable(containerId, list, isInflow) {
         var sectorCode = item.sector_code || '';
         var sectorName = item.name || '';
 
-        html += '<tr onclick="showStockPool(\'' + sectorCode + '\',\'' + sectorName + '\')" style="cursor:pointer"';
+        html += '<tr onclick="showStockPool(\'' + sectorCode + '\',\'' + sectorName + '\',' + isInflow + ')" style="cursor:pointer"';
         if (_currentSectorCode === sectorCode) {
             html += ' class="sector-row-active"';
         }
