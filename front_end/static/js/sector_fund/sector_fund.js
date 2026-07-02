@@ -1,11 +1,12 @@
 /** 板块资金流向 — 行业/概念板块主力流入/流出排行 + 板块成分股 */
 var _sectorFundData = null;
 var _sectorFundType = 'concept';
+var _sectorFundPeriod = 'today';
 var _currentSectorCode = null;
 var _currentSectorName = null;
 
 function loadSectorFund() {
-    fetch('/api/sector-fund')
+    fetch('/api/sector-fund?period=' + _sectorFundPeriod)
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res.success) {
@@ -35,6 +36,16 @@ function switchSectorTab(type) {
         t.classList.toggle('active', t.getAttribute('data-type') === type);
     });
     renderCurrentSectorTab();
+}
+
+function switchSectorPeriod(period) {
+    _sectorFundPeriod = period;
+    closeStockPool();
+    document.querySelectorAll('.sector-period').forEach(function(t) {
+        t.classList.toggle('active', t.getAttribute('data-period') === period);
+    });
+    _sectorFundData = null;
+    loadSectorFund();
 }
 
 function renderCurrentSectorTab() {

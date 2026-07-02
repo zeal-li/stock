@@ -103,7 +103,8 @@ def global_forex():
 @app.route('/api/sector-fund')
 def sector_fund():
     """板块资金流向排行"""
-    return jsonify(get_sector_fund())
+    period = request.args.get('period', 'today').strip()
+    return jsonify(get_sector_fund(period))
 
 
 @app.route('/api/sector-stocks')

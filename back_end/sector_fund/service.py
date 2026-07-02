@@ -5,7 +5,7 @@ from common import REQUEST_PROXIES
 from money_flow.storage import _EM_HEADERS, _EM_UT
 
 _API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
-_FIELDS = "f2,f3,f4,f12,f14,f62,f66,f72,f78,f84,f204,f205"
+_FIELDS = "f2,f3,f4,f12,f14,f62,f66,f72,f78,f84,f164,f174,f204,f205"
 _STOCK_FIELDS = "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f62,f184"
 _PZ = 20  # 每次取 TOP20
 
@@ -13,6 +13,13 @@ _PZ = 20  # 每次取 TOP20
 _SECTOR_TYPES = {
     "industry": "m:90+t:2+f:!50",   # 行业板块
     "concept":  "m:90+t:3+f:!50",   # 概念板块
+}
+
+# 时间段 → fid 排序字段 & main_net 提取字段
+_PERIOD_CONFIG = {
+    "today": {"fid": "f62", "field": "f62"},
+    "5d":    {"fid": "f164", "field": "f164"},
+    "10d":   {"fid": "f174", "field": "f174"},
 }
 
 def _format_amount(val) -> str:
@@ -29,21 +36,22 @@ def _format_amount(val) -> str:
         return f"{sign}{abs_val:.0f}元"
 
 
-def _fetch_sector_data(fs: str) -> dict:
+def _fetch_sector_data(fs: str, period: str) -> dict:
     """请求东方财富板块资金数据，两次请求分别取流入/流出 TOP20"""
-    # 流入 TOP20：po=1 按主力净流入降序
-    inflow = _request_top(fs, po="1")
-    # 流出 TOP20：po=0 按主力净流入升序（即净流出最大）
-    outflow = _request_top(fs, po="0")
+    # 流入 TOP20：po=1 降序（值大的在前）
+    inflow = _request_top(fs, period, po="1")
+    # 流出 TOP20：po=0 升序（值小的/最负的在前）
+    outflow = _request_top(fs, period, po="0")
     return {"inflow": inflow, "outflow": outflow}
 
 
-def _request_top(fs: str, po: str) -> list:
+def _request_top(fs: str, period: str, po: str) -> list:
     """请求 API 返回 TOP20 列表"""
+    cfg = _PERIOD_CONFIG.get(period, _PERIOD_CONFIG["today"])
     params = {
         "pn": "1", "pz": str(_PZ), "po": po, "np": "1",
         "fltt": "2", "invt": "2",
-        "fid": "f62",
+        "fid": cfg["fid"],
         "fs": fs,
         "fields": _FIELDS,
         "ut": _EM_UT,
@@ -54,11 +62,12 @@ def _request_top(fs: str, po: str) -> list:
         return []
 
     result = []
+    main_field = cfg["field"]
     for item in data["data"]["diff"]:
         name = item.get("f14", "")
         if not name:
             continue
-        main_net = item.get("f62")
+        main_net = item.get(main_field)
         if main_net is None:
             continue
 
@@ -88,10 +97,10 @@ def _request_top(fs: str, po: str) -> list:
     return result[:_PZ]
 
 
-def get_sector_fund() -> dict:
+def get_sector_fund(period: str = "today") -> dict:
     """获取行业+概念板块资金流入/流出排行"""
-    industry = _fetch_sector_data(_SECTOR_TYPES["industry"])
-    concept = _fetch_sector_data(_SECTOR_TYPES["concept"])
+    industry = _fetch_sector_data(_SECTOR_TYPES["industry"], period)
+    concept = _fetch_sector_data(_SECTOR_TYPES["concept"], period)
 
     return {
         "success": True,
