@@ -115,7 +115,7 @@ function renderStockPoolTable(list, total) {
             mainCls = mainNet.startsWith('+') ? 'up' : (mainNet.startsWith('-') ? 'down' : '');
         }
 
-        html += '<tr onclick="openStockDetail(\'' + item.code + '\',\'' + item.market + '\')" style="cursor:pointer">';
+        html += '<tr onclick="openStockDetail(\'' + item.code + '\',\'' + item.market + '\',\'' + (item.name || '').replace(/'/g, "\\'") + '\')" style="cursor:pointer">';
         html += '<td>' + (idx + 1) + '</td>';
         html += '<td class="col-name">' + (item.name || '-') + '</td>';
         html += '<td class="' + cls + '">' + pct + '</td>';
@@ -130,10 +130,16 @@ function renderStockPoolTable(list, total) {
     wrap.innerHTML = html;
 }
 
-function openStockDetail(code, market) {
-    // 跳转到个股详情页（复用现有搜索逻辑）
-    if (typeof showStockDetail === 'function') {
-        showStockDetail(code, market);
+function openStockDetail(code, market, name) {
+    if (typeof KlinePopup !== 'undefined' && KlinePopup.open) {
+        KlinePopup.open(code, market, name);
+    }
+}
+
+function openLeadStockKline(code, name) {
+    if (typeof KlinePopup !== 'undefined' && KlinePopup.open) {
+        var market = code.startsWith('6') ? '1' : '0';
+        KlinePopup.open(code, market, name);
     }
 }
 
@@ -145,6 +151,9 @@ function renderSectorTable(containerId, list, isInflow) {
         container.innerHTML = '<div class="loading">暂无数据</div>';
         return;
     }
+
+    // 资金流向颜色：流入用红色(up)，流出用绿色(down)
+    var flowCls = isInflow ? 'up' : 'down';
 
     var html = '<table class="sector-fund-table">';
     html += '<thead><tr>';
@@ -160,17 +169,14 @@ function renderSectorTable(containerId, list, isInflow) {
     html += '<tbody>';
 
     list.forEach(function(item, idx) {
+        // 涨跌幅仍按实际正负判断颜色
         var pct = item.change_pct || '-';
         var cls = '';
         if (typeof pct === 'string') {
             cls = pct.startsWith('+') ? 'up' : (pct.startsWith('-') ? 'down' : '');
         }
 
-        var mainCls = '';
         var mainNet = item.main_net || '-';
-        if (typeof mainNet === 'string') {
-            mainCls = mainNet.startsWith('+') ? 'up' : (mainNet.startsWith('-') ? 'down' : '');
-        }
 
         var sectorCode = item.sector_code || '';
         var sectorName = item.name || '';
@@ -181,13 +187,19 @@ function renderSectorTable(containerId, list, isInflow) {
         }
         html += '>';
         html += '<td>' + (idx + 1) + '</td>';
-        html += '<td class="col-name">' + sectorName + '</td>';
+        html += '<td class="col-name ' + flowCls + '">' + sectorName + '</td>';
         html += '<td class="' + cls + '">' + pct + '</td>';
-        html += '<td class="' + mainCls + '">' + mainNet + '</td>';
-        html += '<td class="' + mainCls + '">' + (item.main_pct || '-') + '</td>';
-        html += '<td class="' + (item.super_net && item.super_net.startsWith('+') ? 'up' : (item.super_net && item.super_net.startsWith('-') ? 'down' : '')) + '">' + (item.super_net || '-') + '</td>';
-        html += '<td class="' + (item.big_net && item.big_net.startsWith('+') ? 'up' : (item.big_net && item.big_net.startsWith('-') ? 'down' : '')) + '">' + (item.big_net || '-') + '</td>';
-        html += '<td class="col-lead">' + (item.lead_stock || '-') + '</td>';
+        html += '<td class="' + flowCls + '">' + mainNet + '</td>';
+        html += '<td class="' + flowCls + '">' + (item.main_pct || '-') + '</td>';
+        html += '<td class="' + flowCls + '">' + (item.super_net || '-') + '</td>';
+        html += '<td class="' + flowCls + '">' + (item.big_net || '-') + '</td>';
+        var leadCode = item.lead_code || '';
+        var leadName = item.lead_stock || '';
+        if (leadCode && leadName) {
+            html += '<td class="col-lead" onclick="event.stopPropagation();openLeadStockKline(\'' + leadCode + '\',\'' + leadName.replace(/'/g, "\\'") + '\')" style="cursor:pointer;" title="点击查看K线">' + leadName + '</td>';
+        } else {
+            html += '<td class="col-lead">' + (leadName || '-') + '</td>';
+        }
         html += '</tr>';
     });
 
