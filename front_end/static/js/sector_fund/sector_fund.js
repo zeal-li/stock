@@ -1,58 +1,53 @@
 /** 板块资金流向 — 行业/概念板块主力流入/流出排行 + 板块成分股 */
-var _sectorFundData = null;
+
 var _sectorFundType = 'concept';
 var _sectorFundPeriod = 'today';
 var _currentSectorCode = null;
 var _currentSectorName = null;
 
-function loadSectorFund() {
-    fetch('/api/sector-fund?period=' + _sectorFundPeriod)
+function loadSectorFund(type, period) {
+    _sectorFundType = type || _sectorFundType;
+    _sectorFundPeriod = period || _sectorFundPeriod;
+
+    // 请求时显示 loading
+    document.getElementById('sectorInflowTable').innerHTML = '<div class="loading">加载中...</div>';
+    document.getElementById('sectorOutflowTable').innerHTML = '<div class="loading">加载中...</div>';
+
+    var url = '/api/sector-fund?type=' + _sectorFundType + '&period=' + _sectorFundPeriod;
+    fetch(url)
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res.success) {
-                if (!_sectorFundData) {
-                    renderSectorTable('sectorInflowTable', []);
-                    renderSectorTable('sectorOutflowTable', []);
-                }
+                renderSectorTable('sectorInflowTable', []);
+                renderSectorTable('sectorOutflowTable', []);
                 return;
             }
-            _sectorFundData = res;
-            renderCurrentSectorTab();
+            renderSectorTable('sectorInflowTable', res.inflow || [], true);
+            renderSectorTable('sectorOutflowTable', res.outflow || [], false);
         })
         .catch(function(e) {
             console.log('板块资金加载失败:', e);
-            if (!_sectorFundData) {
-                renderSectorTable('sectorInflowTable', []);
-                renderSectorTable('sectorOutflowTable', []);
-            }
+            renderSectorTable('sectorInflowTable', []);
+            renderSectorTable('sectorOutflowTable', []);
         });
 }
 
 function switchSectorTab(type) {
     _sectorFundType = type;
-    // 切换时关闭股票池面板
     closeStockPool();
-    document.querySelectorAll('.sector-tab').forEach(function(t) {
+    document.querySelectorAll('.sector-tab[data-type]').forEach(function(t) {
         t.classList.toggle('active', t.getAttribute('data-type') === type);
     });
-    renderCurrentSectorTab();
+    loadSectorFund(type, _sectorFundPeriod);
 }
 
 function switchSectorPeriod(period) {
     _sectorFundPeriod = period;
     closeStockPool();
-    document.querySelectorAll('.sector-period').forEach(function(t) {
+    document.querySelectorAll('.sector-tab[data-period]').forEach(function(t) {
         t.classList.toggle('active', t.getAttribute('data-period') === period);
     });
-    _sectorFundData = null;
-    loadSectorFund();
-}
-
-function renderCurrentSectorTab() {
-    if (!_sectorFundData) return;
-    var data = _sectorFundData[_sectorFundType] || {};
-    renderSectorTable('sectorInflowTable', data.inflow || [], true);
-    renderSectorTable('sectorOutflowTable', data.outflow || [], false);
+    loadSectorFund(_sectorFundType, period);
 }
 
 function showStockPool(sectorCode, sectorName) {
@@ -163,7 +158,6 @@ function renderSectorTable(containerId, list, isInflow) {
         return;
     }
 
-    // 资金流向颜色：流入用红色(up)，流出用绿色(down)
     var flowCls = isInflow ? 'up' : 'down';
 
     var html = '<table class="sector-fund-table">';
@@ -171,7 +165,7 @@ function renderSectorTable(containerId, list, isInflow) {
     html += '<th>#</th>';
     html += '<th>板块</th>';
     html += '<th>涨跌幅</th>';
-    html += '<th>主力净流入</th>';
+    html += '<th>净流入</th>';
     html += '<th>超大单</th>';
     html += '<th>大单</th>';
     html += '<th>中单</th>';
@@ -181,14 +175,12 @@ function renderSectorTable(containerId, list, isInflow) {
     html += '<tbody>';
 
     list.forEach(function(item, idx) {
-        // 涨跌幅仍按实际正负判断颜色
         var pct = item.change_pct || '-';
         var cls = '';
         if (typeof pct === 'string') {
             cls = pct.startsWith('+') ? 'up' : (pct.startsWith('-') ? 'down' : '');
         }
 
-        // 金额按自身正负着色
         function amountCls(val) {
             if (typeof val === 'string') {
                 return val.startsWith('+') ? 'up' : (val.startsWith('-') ? 'down' : '');

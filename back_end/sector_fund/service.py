@@ -1,26 +1,28 @@
 """板块资金流向 — 东方财富行业/概念板块主力资金流入/流出排行"""
 
+import time
 import requests
 from common import REQUEST_PROXIES
 from money_flow.storage import _EM_HEADERS, _EM_UT
+from sector_fund.storage import cache_get, cache_set
 
 _API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
 _FIELDS = "f2,f3,f4,f12,f14,f62,f66,f72,f78,f84,f164,f174,f204,f205"
 _STOCK_FIELDS = "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f62,f184"
-_PZ = 20  # 每次取 TOP20
+_PZ = 20
+_CACHE_TTL = 60
 
-# 板块类型 → fs 参数
 _SECTOR_TYPES = {
-    "industry": "m:90+t:2+f:!50",   # 行业板块
-    "concept":  "m:90+t:3+f:!50",   # 概念板块
+    "industry": "m:90+t:2+f:!50",
+    "concept":  "m:90+t:3+f:!50",
 }
 
-# 时间段 → fid 排序字段 & main_net 提取字段
 _PERIOD_CONFIG = {
     "today": {"fid": "f62", "field": "f62"},
     "5d":    {"fid": "f164", "field": "f164"},
     "10d":   {"fid": "f174", "field": "f174"},
 }
+
 
 def _format_amount(val) -> str:
     """金额格式化：元 → 亿元/万元"""
@@ -36,17 +38,7 @@ def _format_amount(val) -> str:
         return f"{sign}{abs_val:.0f}元"
 
 
-def _fetch_sector_data(fs: str, period: str) -> dict:
-    """请求东方财富板块资金数据，两次请求分别取流入/流出 TOP20"""
-    # 流入 TOP20：po=1 降序（值大的在前）
-    inflow = _request_top(fs, period, po="1")
-    # 流出 TOP20：po=0 升序（值小的/最负的在前）
-    outflow = _request_top(fs, period, po="0")
-    return {"inflow": inflow, "outflow": outflow}
-
-
 def _request_top(fs: str, period: str, po: str) -> list:
-    """请求 API 返回 TOP20 列表"""
     cfg = _PERIOD_CONFIG.get(period, _PERIOD_CONFIG["today"])
     params = {
         "pn": "1", "pz": str(_PZ), "po": po, "np": "1",
@@ -80,7 +72,7 @@ def _request_top(fs: str, period: str, po: str) -> list:
         lead_code = item.get("f205", "")
         sector_code = item.get("f12", "")
 
-        row = {
+        result.append({
             "name": name,
             "change_pct": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
             "main_net": _format_amount(main_net),
@@ -91,21 +83,56 @@ def _request_top(fs: str, period: str, po: str) -> list:
             "lead_stock": lead_stock,
             "lead_code": lead_code,
             "sector_code": sector_code,
-        }
-        result.append(row)
+        })
 
     return result[:_PZ]
 
 
-def get_sector_fund(period: str = "today") -> dict:
-    """获取行业+概念板块资金流入/流出排行"""
-    industry = _fetch_sector_data(_SECTOR_TYPES["industry"], period)
-    concept = _fetch_sector_data(_SECTOR_TYPES["concept"], period)
+def _make_key(sector_type: str, period: str, top: str) -> str:
+    return f"{sector_type}_{period}_{top}"
 
+
+def _fetch_and_cache(fs: str, sector_type: str, period: str) -> dict:
+    """请求东方财富 API，存储 inflow+outflow 到 DB，返回两个列表"""
+    inflow = _request_top(fs, period, po="1")
+    outflow = _request_top(fs, period, po="0")
+
+    cache_set(_make_key(sector_type, period, "inflow"), inflow)
+    cache_set(_make_key(sector_type, period, "outflow"), outflow)
+
+    return {"inflow": inflow, "outflow": outflow}
+
+
+def get_sector_fund(sector_type: str = "concept", period: str = "today") -> dict:
+    """获取指定板块类型+时间段的资金流向排行（带 10s 缓存）"""
+    if sector_type not in _SECTOR_TYPES:
+        return {"success": False, "error": f"未知板块类型: {sector_type}"}
+    if period not in _PERIOD_CONFIG:
+        return {"success": False, "error": f"未知时间段: {period}"}
+
+    inflow_key = _make_key(sector_type, period, "inflow")
+    outflow_key = _make_key(sector_type, period, "outflow")
+
+    # 两个 key 都在缓存中 → 直接返回
+    inflow_cached = cache_get(inflow_key)
+    outflow_cached = cache_get(outflow_key)
+    if inflow_cached and outflow_cached:
+        t_inflow = time.time() - inflow_cached[1]
+        t_outflow = time.time() - outflow_cached[1]
+        if t_inflow < _CACHE_TTL and t_outflow < _CACHE_TTL:
+            return {
+                "success": True,
+                "inflow": inflow_cached[0],
+                "outflow": outflow_cached[0],
+            }
+
+    # 缓存过期或不存在 → 请求 API 并缓存
+    fs = _SECTOR_TYPES[sector_type]
+    data = _fetch_and_cache(fs, sector_type, period)
     return {
         "success": True,
-        "industry": industry,
-        "concept": concept,
+        "inflow": data["inflow"],
+        "outflow": data["outflow"],
     }
 
 
@@ -117,7 +144,7 @@ def get_sector_stocks(sector_code: str) -> dict:
     params = {
         "pn": "1", "pz": "100", "po": "1", "np": "1",
         "fltt": "2", "invt": "2",
-        "fid": "f3",  # 按涨跌幅排序
+        "fid": "f3",
         "fs": f"b:{sector_code}",
         "fields": _STOCK_FIELDS,
         "ut": _EM_UT,
