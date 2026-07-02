@@ -11,10 +11,10 @@ from money_flow.fund_flow import get_market_fund_flow
 from money_flow.fear_index import get_fear_index
 from money_flow.risk_index import get_risk_index
 from money_flow.margin import get_margin_trading
-from money_flow.longhu_bang import get_longhu_bang, cleanup_old_data
+from longhu_bang.service import get_longhu_bang, cleanup_old_data
 from global_market.commodities import get_global_commodities
 from global_market.forex import get_forex_rates
-from money_flow.sector_fund import get_sector_fund, get_sector_stocks
+from sector_fund.service import get_sector_fund, get_sector_stocks
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
