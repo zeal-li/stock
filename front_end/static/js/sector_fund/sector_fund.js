@@ -167,8 +167,6 @@ function renderSectorTable(containerId, list, isInflow) {
         return;
     }
 
-    var flowCls = isInflow ? 'up' : 'down';
-
     var html = '<table class="sector-fund-table">';
     html += '<thead><tr>';
     html += '<th>#</th>';
@@ -212,7 +210,7 @@ function renderSectorTable(containerId, list, isInflow) {
         }
         html += '>';
         html += '<td>' + (idx + 1) + '</td>';
-        html += '<td class="col-name ' + flowCls + '">' + sectorName + '</td>';
+        html += '<td class="col-name ' + cls + '">' + sectorName + '</td>';
         html += '<td class="' + cls + '">' + pct + '</td>';
         html += '<td class="' + amountCls(mainNet) + '">' + mainNet + '</td>';
         html += '<td class="' + amountCls(superNet) + '">' + superNet + '</td>';
