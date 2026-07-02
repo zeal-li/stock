@@ -4,8 +4,11 @@ var _lastMinuteRefresh = 0;  // 上次分时/资金流刷新的时间戳（ms）
 var _lastMarginDate = '';     // 上次融资融券刷新的日期
 
 async function refreshRealtimeData() {
-    // 全球商品24小时交易，不受A股交易时间限制
-    if (currentNavPage === 'global-market') loadGlobalCommodities();
+    // 全球商品/汇率24小时交易，不受A股交易时间限制
+    if (currentNavPage === 'global-market') {
+        loadGlobalCommodities();
+        loadGlobalForex();
+    }
 
     if (!isInTradingHours()) return;
 

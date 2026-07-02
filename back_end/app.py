@@ -13,6 +13,7 @@ from money_flow.risk_index import get_risk_index
 from money_flow.margin import get_margin_trading
 from money_flow.longhu_bang import get_longhu_bang, cleanup_old_data
 from global_market.commodities import get_global_commodities
+from global_market.forex import get_forex_rates
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove
@@ -90,6 +91,12 @@ def longhu_bang():
 def global_commodities():
     """全球大宗商品实时行情"""
     return jsonify(get_global_commodities())
+
+
+@app.route('/api/global-forex')
+def global_forex():
+    """全球外汇汇率实时行情"""
+    return jsonify(get_forex_rates())
 
 
 # ==================== 搜索 ====================
