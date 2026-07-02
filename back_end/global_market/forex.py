@@ -9,13 +9,28 @@ _SINA_HEADERS = {
 }
 
 FOREX_LIST = [
-    # 离岸/在岸人民币（6个，与中国市场关联密切）
+    # 第一排：离岸/在岸人民币（6个 + 6个空位 = 12格）
     {"code": "fx_susdcnh",  "name": "美元/离岸人民币"},
     {"code": "fx_seurcnh",  "name": "欧元/离岸人民币"},
     {"code": "fx_sgbpcnh",  "name": "英镑/离岸人民币"},
     {"code": "fx_sjpycnh",  "name": "日元/离岸人民币"},
     {"code": "fx_scnhhkd",  "name": "离岸人民币/港币"},
     {"code": "fx_susdcny",  "name": "美元/在岸人民币"},
+    {"code": None,           "name": "",            "source": "gap"},
+    {"code": None,           "name": "",            "source": "gap"},
+    {"code": None,           "name": "",            "source": "gap"},
+    {"code": None,           "name": "",            "source": "gap"},
+    {"code": None,           "name": "",            "source": "gap"},
+    {"code": None,           "name": "",            "source": "gap"},
+    # 第二排：主流货币对（6个 + 6个空位 = 12格）
+    {"code": "fx_seurusd",  "name": "欧元/美元"},
+    {"code": "fx_susdjpy",  "name": "美元/日元"},
+    {"code": "fx_sgbpusd",  "name": "英镑/美元"},
+    {"code": "fx_susdchf",  "name": "美元/瑞郎"},
+    {"code": "fx_saudusd",  "name": "澳元/美元"},
+    {"code": "fx_susdcad",  "name": "美元/加元"},
+    {"code": None,           "name": "",            "source": "gap"},
+    {"code": None,           "name": "",            "source": "gap"},
     {"code": None,           "name": "",            "source": "gap"},
     {"code": None,           "name": "",            "source": "gap"},
     {"code": None,           "name": "",            "source": "gap"},
