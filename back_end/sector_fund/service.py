@@ -24,6 +24,13 @@ _PERIOD_CONFIG = {
 }
 
 
+def _safe_float(val):
+    """安全转换为 float，处理 '-'（停牌/无数据）"""
+    if val is None or val == "-":
+        return None
+    return float(val)
+
+
 def _format_amount(val) -> str:
     """金额格式化：元 → 亿元/万元"""
     if val is None or val == "-":
@@ -163,26 +170,26 @@ def get_sector_stocks(sector_code: str) -> dict:
         if not name or not code:
             continue
 
-        change_pct = float(item.get("f3", 0))
-        price = item.get("f2", 0)
-        change_amt = item.get("f4", 0)
-        volume = item.get("f5", 0)
-        amount = item.get("f6", 0)
-        amplitude = item.get("f7", 0)
-        turnover = item.get("f8", 0)
+        change_pct = _safe_float(item.get("f3", 0))
+        price = _safe_float(item.get("f2", 0))
+        change_amt = _safe_float(item.get("f4", 0))
+        volume = _safe_float(item.get("f5", 0))
+        amount = _safe_float(item.get("f6", 0))
+        amplitude = _safe_float(item.get("f7", 0))
+        turnover = _safe_float(item.get("f8", 0))
         main_net = item.get("f62")
 
         stocks.append({
             "name": name,
             "code": code,
             "market": str(market),
-            "change_pct": f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%",
-            "price": round(float(price), 2) if price else "-",
-            "change_amt": round(float(change_amt), 2) if change_amt else "-",
-            "volume": volume,
-            "amount": amount,
-            "amplitude": f"{float(amplitude):.2f}%" if amplitude else "-",
-            "turnover": f"{float(turnover):.2f}%" if turnover else "-",
+            "change_pct": f"{'+' if (change_pct or 0) >= 0 else ''}{(change_pct if change_pct is not None else 0):.2f}%" if change_pct is not None else "-",
+            "price": round(price, 2) if price is not None else "-",
+            "change_amt": round(change_amt, 2) if change_amt is not None else "-",
+            "volume": volume if volume is not None else "-",
+            "amount": amount if amount is not None else "-",
+            "amplitude": f"{amplitude:.2f}%" if amplitude is not None else "-",
+            "turnover": f"{turnover:.2f}%" if turnover is not None else "-",
             "main_net": _format_amount(main_net),
         })
 
