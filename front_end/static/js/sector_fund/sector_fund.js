@@ -9,9 +9,11 @@ function loadSectorFund(type, period) {
     _sectorFundType = type || _sectorFundType;
     _sectorFundPeriod = period || _sectorFundPeriod;
 
-    // 请求时显示 loading
-    document.getElementById('sectorInflowTable').innerHTML = '<div class="loading">加载中...</div>';
-    document.getElementById('sectorOutflowTable').innerHTML = '<div class="loading">加载中...</div>';
+    // 仅在容器为空时显示 loading，刷新时保留已有数据避免闪烁
+    var inflowEl = document.getElementById('sectorInflowTable');
+    var outflowEl = document.getElementById('sectorOutflowTable');
+    if (!inflowEl.querySelector('table')) inflowEl.innerHTML = '<div class="loading">加载中...</div>';
+    if (!outflowEl.querySelector('table')) outflowEl.innerHTML = '<div class="loading">加载中...</div>';
 
     var url = '/api/sector-fund?type=' + _sectorFundType + '&period=' + _sectorFundPeriod;
     fetch(url)
