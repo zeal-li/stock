@@ -1,6 +1,6 @@
 # 鑫多多
 
-A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股（SQLite 持久化）、K 线弹窗、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告、异动中心。
+A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股（SQLite 持久化）、K 线弹窗、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告、异动中心、龙虎榜、全球行情（指数/大宗商品/外汇）、板块资金流向、ML 训练（XGBoost）。
 
 ## 目录结构
 
@@ -10,6 +10,7 @@ stock/
 ├── README.md
 ├── note.md
 ├── note2.md
+├── strategie.md
 ├── build_exe.py                       # PyInstaller 打包入口
 ├── gitpush.bat
 ├── 鑫多多.spec                         # PyInstaller spec 文件
@@ -17,7 +18,7 @@ stock/
 ├── back_end/                          # 🔧 后端（Flask）
 │   ├── app.py                         # 主入口：路由 + 启动 + 后台定时器
 │   ├── requirements.txt
-│   ├── start.bat / stop.bat / restart.bat
+│   ├── start.bat / stop.bat / restart.bat / train_ml.bat
 │   │
 │   ├── common/                        # 公共模块
 │   │   ├── __init__.py
@@ -27,7 +28,9 @@ stock/
 │   ├── data/                          # 运行时数据（.gitignore）
 │   │   ├── stock_lib.db               # 市场 + 股票列表 + K线 + 股票元信息（合并单库）
 │   │   ├── money_flow.db              # 资金流、融资融券历史数据
-│   │   └── watchlist.db               # 自选股持久化
+│   │   ├── watchlist.db               # 自选股持久化
+│   │   ├── longhu_bang.db             # 龙虎榜每日明细（SQLite 缓存，90 天自动清理）
+│   │   └── sector_fund.db             # 板块资金流向缓存（10s TTL）
 │   │
 │   ├── market_db/                     # 全市场股票数据库
 │   │   ├── __init__.py
@@ -44,21 +47,44 @@ stock/
 │   │   ├── turnover.py                # 换手率
 │   │   └── storage.py                 # 数据库持久化
 │   │
+│   ├── longhu_bang/                   # 龙虎榜模块
+│   │   ├── __init__.py
+│   │   └── service.py                 # 龙虎榜数据爬取（同花顺）+ SQLite 缓存 + 席位解析
+│   │
+│   ├── global_market/                 # 全球行情模块
+│   │   ├── __init__.py
+│   │   ├── indices.py                 # 全球指数实时行情（A股8大指数 + 海外7大指数，新浪财经）
+│   │   ├── commodities.py             # 大宗商品行情（贵金属/有色金属/能化/黑色系/农产品，新浪财经）
+│   │   └── forex.py                   # 外汇汇率行情（离岸/在岸人民币 + 主流货币对，新浪财经）
+│   │
+│   ├── sector_fund/                   # 板块资金流向模块
+│   │   ├── __init__.py
+│   │   ├── service.py                 # 行业/概念板块主力流入流出排行 + 成分股（东方财富）
+│   │   └── storage.py                 # SQLite 缓存存储（10s TTL）
+│   │
 │   ├── stock_pick/                    # 选股模块
 │   │   ├── __init__.py
 │   │   └── service.py
 │   │
-  │   ├── technical_screen/              # 技术选股模块
-  │   │   ├── __init__.py
-  │   │   ├── service.py                 # 策略扫描引擎（三上悠亚），支持 pipeline 串联，扫描后自动附加预测评分
-  │   │   └── strategies/                # 策略实现
-  │   │       ├── __init__.py
-  │   │       ├── san_shang_you_ya.py    # 三上悠亚：三周期布林中上轨共振
-  │   │       └── prediction.py          # 明日涨跌预测：多因子评分模型（不独立显示，附在筛选结果后）
+│   ├── technical_screen/              # 技术选股模块
+│   │   ├── __init__.py
+│   │   ├── service.py                 # 策略扫描引擎（三上悠亚），支持 pipeline 串联，扫描后自动附加预测评分
+│   │   └── strategies/                # 策略实现
+│   │       ├── __init__.py
+│   │       ├── san_shang_you_ya.py    # 三上悠亚：三周期布林中上轨共振
+│   │       └── prediction.py          # 明日涨跌预测：多因子评分模型（不独立显示，附在筛选结果后）
 │   │
 │   ├── abnormal_center/               # 异动中心模块
 │   │   ├── __init__.py
 │   │   └── service.py                 # 异动预测/监控 API 代理 + 股票异动分析
+│   │
+│   ├── ml_train/                      # ML 训练模块（XGBoost）
+│   │   ├── __init__.py
+│   │   ├── features.py                # 特征工程：45 维技术指标（MA偏离/均线排列/量价/布林/RSI/MACD/动量/波动率/ATR/KDJ/OBV/CCI/WR/MFI/大盘对比等）
+│   │   ├── train.py                   # XGBoost 训练脚本：日K线 → 特征+标签 → 训练 → 保存最优模型
+│   │   ├── model.pkl                  # 当前最优模型（joblib 序列化）
+│   │   ├── feature_names.txt          # 特征名列表
+│   │   └── training_history.csv       # 每次训练记录（AUC/样本数/是否最优）
 │   │
 │   └── watchlist/                     # 自选股模块
 │       ├── __init__.py
@@ -79,6 +105,14 @@ stock/
 │           ├── money_flow/            # 资金流向前端
 │           │   ├── charts.js          # 资金流图表渲染（ECharts）
 │           │   └── refresh.js         # 数据刷新逻辑
+│           ├── longhu/               # 龙虎榜前端
+│           │   └── service.js         # 交易日历 + 日期选择 + 分类标签（全部/机构/游资/机构+游资）+ 席位明细展开 + 表格渲染
+│           ├── global_market/         # 全球行情前端
+│           │   ├── indices.js         # 全球指数渲染（A股8指数 + 海外7指数）
+│           │   ├── commodities.js     # 大宗商品网格渲染（7行 × 12列）+ 全球指数联动
+│           │   └── forex.js           # 外汇汇率网格渲染（2排 × 12列）
+│           ├── sector_fund/           # 板块资金前端
+│           │   └── sector_fund.js     # 行业/概念切换 + 今日/5日/10日切换 + 流入流出双表 + 成分股弹窗
 │           ├── technical_screen/      # 技术选股前端
 │           │   └── page.js            # 市场选择 + 选股按钮 + 结果渲染
 │           ├── unlock-list/           # 解禁列表前端
@@ -86,7 +120,7 @@ stock/
 │           ├── announce/               # 公司公告前端
 │           │   └── service.js         # 公告获取 + 表格渲染 + 股票筛选 + 颜色标记
 │           ├── earnings/              # 业绩报告前端
-│           │   └── service.js         # 业绩预告/快报/报表获取 + 渲染 + 股票筛选
+│           │   └─ service.js         # 业绩预告/快报/报表获取 + 渲染 + 股票筛选
 │           ├── abnormal/              # 异动中心前端
 │           │   └── service.js         # 异动预测/监控 + 异动分析器 + 搜索历史
 │           ├── stock_pick/            # 选股前端
@@ -112,6 +146,9 @@ stock/
 | 业绩报告 | 业绩预告 + 业绩快报 + 业绩报表（近两年），支持年报/半年报/一季报/三季报细分，支持股票筛选 | ✅ |
 | 公司公告 | 上市公司公告信息（最近 15 天），按重要性颜色标记，支持股票筛选 | ✅ |
 | 异动中心 | 异动预测（接近异常波动阈值的股票）+ 异动监控（已触发交易所监控的股票）+ 异动分析器（单股偏离度/回撤/均线偏离分析） | ✅ |
+| 龙虎榜 | 每日龙虎榜明细（同花顺数据源），日期选择器 + 分类标签（全部/机构榜/游资榜/机构+游资）+ 买卖席位明细展开 + 90天自动清理 | ✅ |
+| 全球行情 | 全球指数（A股8大 + 海外7大）+ 大宗商品（贵金属/有色/能化/黑色/农产品，7行×12列）+ 外汇汇率（离岸/在岸人民币 + 主流货币对，新浪财经） | ✅ |
+| 板块资金 | 行业/概念板块主力资金流入/流出排行（今日/5日/10日），板块成分股弹窗（按涨跌幅排序） | ✅ |
 
 ## SQLite 数据库表结构
 
@@ -196,6 +233,30 @@ CREATE TABLE market_data (
 | daily_closes | 30天日K收盘价 | 日期 |
 | fear_index | 恐慌指数 | 时间戳 |
 | risk_index | 风险指数 | 时间戳 |
+
+### data/longhu_bang.db — 龙虎榜数据缓存
+
+```sql
+CREATE TABLE longhu_bang (
+    trade_date TEXT PRIMARY KEY,  -- 交易日期（YYYY-MM-DD）
+    data       TEXT NOT NULL,     -- JSON 序列化的龙虎榜明细（含席位、上榜原因）
+    created_at TEXT DEFAULT (datetime('now'))
+);
+```
+
+> 启动时自动清理 90 天前的数据（`cleanup_old_data()`）。首次请求某日数据时从同花顺爬取并入库，后续直接读缓存。
+
+### data/sector_fund.db — 板块资金流向缓存
+
+```sql
+CREATE TABLE sector_fund (
+    key       TEXT PRIMARY KEY,   -- 格式: {sector_type}_{period}_{top}，如 concept_today_inflow
+    value     TEXT NOT NULL,      -- JSON 序列化的板块排行列表
+    updated_at REAL NOT NULL      -- 写入时间戳（用于 TTL 判断）
+);
+```
+
+> TTL = 60s，过期后重新请求东方财富 API 并更新缓存。
 
 ### 市场分段定义
 
@@ -340,7 +401,7 @@ _cleanup_delisted()
 
 ### 启动时加载
 
-应用启动时启动两个后台线程：
+应用启动时启动后台线程：
 
 ```
 app.run()
@@ -348,16 +409,18 @@ app.run()
   ├─ [立即] 行情轮询线程 _background_poller()
   │   ├─ 首次启动：若当日缓存不存在，一次性全量抓取 7 类数据 → money_flow.db
   │   │     ① major_indices     上证/深证指数实时行情（东方财富 push2delay）
-  │   │     ② market_breadth    沪深两市涨跌家数（东方财富 push2delay）
+  │   │     ② market_breadth    涨跌家数（东方财富 push2delay）
   │   │     ③ sh_minute         上证指数日内分时走势（东方财富 trends2）
   │   │     ④ fund_flow         主力资金净流入分时（东方财富 fflow/kline）
-  │   │     ⑤ turnover_minute   全市场成交额分时（同花顺 dq.10jqka.com.cn）
+  │   │     ⑤ turnover_minute   成交额分时（同花顺 dq.10jqka.com.cn）
   │   │     ⑥ margin_trading    近 60 天融资融券余额（上交所 + 深交所）
   │   │     ⑦ daily_closes      沪深指数近 30 天日K收盘价（腾讯 ifzq.gtimg.cn）
   │   │
   │   └─ 交易时段循环（周一至五 09:15-11:35, 12:55-15:05）：
   │       ├─ 每 5s：刷新 ①（大盘指数）
   │       └─ 每 60s：刷新 ②③④⑤⑥⑦（当日一次性数据仅首次刷新）
+  │
+  ├─ [立即] cleanup_old_data()  →  清理 longhu_bang.db 中 90 天前的龙虎榜数据
   │
   └─ [延迟 2s] 全市场同步线程 _startup_worker()（4 线程并发）
       │
@@ -400,6 +463,13 @@ app.run()
 | `GET /api/abnormal/monitor` | 异动监控（已被交易所重点监控的股票列表，含统计） | 悟道数据（stock.quicktiny.cn） |
 | `POST /api/abnormal/analyze` | 异动分析器（单只股票偏离度/回撤/均线偏离/涨跌停价测算） | 同花顺 K 线 API + 本地计算 |
 | `POST /api/stock-predictions` | 批量明日涨跌预测评分（基于K线多因子模型：短期动量+量价关系+位置高低+K线形态） | stock_detail_list.db + 本地计算 |
+| `GET /api/longhu-bang?date=` | 龙虎榜每日明细（含买卖席位、上榜原因、机构/游资标签） | 同花顺 lhbggxq + SQLite 缓存（90 天自动清理） |
+| `GET /api/global-commodities` | 全球大宗商品行情（贵金属/有色/能化/黑色/农产品，7行×12列）+ 全球指数 | 新浪财经 hq.sinajs.cn |
+| `GET /api/global-forex` | 外汇汇率行情（离岸/在岸人民币 + 主流货币对） | 新浪财经 hq.sinajs.cn |
+| `GET /api/sector-fund?type=&period=` | 行业/概念板块主力资金流入/流出排行（今日/5日/10日） | 东方财富 push2delay + SQLite 缓存（60s TTL） |
+| `GET /api/sector-stocks?code=` | 板块成分股列表（按涨跌幅排序） | 东方财富 push2delay |
+| `GET /api/is-trading-day` | 判断今天是否为交易日（含节假日） | chinese_calendar 库 |
+| `GET /api/trading-days?count=` | 获取最近 N 个交易日列表 | chinese_calendar 库 |
 
 ### 聚合计算（基于缓存）
 
@@ -521,8 +591,34 @@ app.run()
 | 导航切换 | `loadAbnormalCenter()` | 按当前 Tab 调用对应 API | 三个 Tab 懒加载：切换 Tab 时才请求数据 |
 | 切换 Tab | `switchAbnormalTab(tab)` | 按需调用 | 预测/监控 Tab 每次切换重新拉取最新数据 |
 | 分析器搜索 | 输入框 oninput（防抖） | `search-stock` | 实时搜索股票名称/代码 |
-| 分析器执行 | 点击"分析"按钮 | `POST abnormal/analyze` | 调腾讯 K 线 → 计算偏离度/回撤/均线等指标 → 渲染分析卡片 |
+| 分析器执行 | 点击"分析"按钮 | `POST abnormal/analyze` | 调同花顺 K 线 → 计算偏离度/回撤/均线等指标 → 渲染分析卡片 |
 | 分析器历史 | 每次分析自动保存 | localStorage | 上限 10 条，重复去重，点击历史标签快捷重新分析 |
+
+#### 龙虎榜
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 导航切换 / 初始化 | `initLHB()` → `fetchTradingDays()` | `GET /api/trading-days?count=30` | 获取最近 30 个交易日列表，默认选中最新交易日 |
+| 加载龙虎榜数据 | `loadLonghuBang(date)` | `GET /api/longhu-bang?date={date}` | 无缓存，每次切换日期都请求后端；后端 SQLite 有缓存则直接返回 |
+| 切换日期 | 点击日期条按钮 | `selectLHBDate(date)` → `loadLonghuBang(date)` | 更新日期条选中状态，重新请求数据 |
+| 切换分类 | 点击标签（全部/机构榜/游资榜/机构+游资） | `selectLHBTab(tab)` | 前端从本地数据筛选渲染，不请求后端 |
+| 展开席位明细 | 点击股票行 | `toggleLHBDetail(idx)` | 前端展开/收起买卖席位表格 |
+| 首次无数据 | 自动回溯 | 依次请求前 10 天的 `/api/longhu-bang` | 直到找到有数据的日期 |
+
+#### 全球行情
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 导航切换 | `loadGlobalCommodities()` + `loadGlobalForex()` | `GET /api/global-commodities` + `GET /api/global-forex` | 并行请求，commodities 接口同时返回全球指数数据 |
+
+#### 板块资金
+
+| 时机 | 触发 | API | 说明 |
+|------|------|-----|------|
+| 导航切换 | `loadSectorFund(type, period)` | `GET /api/sector-fund?type=&period=` | 默认 concept + today |
+| 切换板块类型 | 点击行业/概念标签 | `switchSectorTab(type)` | 重新请求 |
+| 切换时间段 | 点击今日/5日/10日标签 | `switchSectorPeriod(period)` | 重新请求 |
+| 查看成分股 | 点击板块行 | `GET /api/sector-stocks?code=` | 弹窗显示成分股列表（按涨跌幅排序） |
 
 #### 前端定时器汇总
 
@@ -570,6 +666,8 @@ app.run()
 | 业绩预告 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_PUBLIC_OP_NEWPREDICT） |
 | 业绩快报 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_FCI_PERFORMANCEE） |
 | 业绩报表 | `datacenter-web.eastmoney.com/api/data/v1/get`（reportName: RPT_LICO_FN_CPD） |
+| 行业/概念板块资金流向 | `push2delay.eastmoney.com/api/qt/clist/get`（fs=m:90+t:2/t:3） |
+| 板块成分股 | `push2delay.eastmoney.com/api/qt/clist/get`（fs=b:{sector_code}） |
 
 ### 腾讯证券
 
@@ -583,12 +681,16 @@ app.run()
 |------|------|
 | A 股 K 线（日/周/月，前复权，含成交额/换手率） | `d.10jqka.com.cn/v4/line/{prefix}_{code}/{period_code}/{year}.js` |
 | 全市场成交额分时 | `dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data` |
+| 龙虎榜每日明细 + 席位分类 | `data.10jqka.com.cn/ifmarket/lhbggxq/report/{date}/` |
 
 ### 新浪财经
 
 | 数据 | 接口 |
 |------|------|
 | A 股多日分时走势（5 分钟K线） | `money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData` |
+| 全球指数行情（A股 + 海外） | `hq.sinajs.cn/list=`（s_sh/s_sz/int_/znb_ 前缀） |
+| 大宗商品行情（国际期货 + 国内期货连续合约） | `hq.sinajs.cn/list=`（hf_/nf_ 前缀） |
+| 外汇汇率行情 | `hq.sinajs.cn/list=`（fx_s 前缀） |
 
 ### Yahoo Finance
 
@@ -619,6 +721,63 @@ app.run()
 | 融资融券余额（沪市） | `query.sse.com.cn/marketdata/tradedata/queryMargin.do` |
 | 融资融券余额（深市） | `www.szse.cn/api/report/ShowReport/data` |
 
+### chinese_calendar（Python 库）
+
+| 数据 | 接口 |
+|------|------|
+| 交易日判断（含中国法定节假日） | `chinese_calendar.is_workday()` |
+
+## ML 训练
+
+### 训练流程
+
+```
+cd back_end
+..\venv\Scripts\python -m ml_train.train
+```
+
+或双击 `back_end\train_ml.bat`。
+
+### 特征工程（45 维）
+
+从日 K 线列表提取技术指标，供训练和实时预测共用：
+
+| 类别 | 维度 | 特征 |
+|------|------|------|
+| 价格与均线偏离度 | 6 | MA5/10/20/30/60/120 偏离度 |
+| 均线多头排列 | 3 | MA5>MA10 / MA10>MA20 / MA20>MA60 |
+| 成交量特征 | 3 | 量比(5日/20日) + 量趋势 |
+| 布林带 | 2 | BB 位置 + BB 宽度 |
+| RSI | 2 | RSI6 + RSI14 |
+| MACD | 3 | DIF + DEA + 柱状 |
+| 价格动量 | 4 | 1/5/10/20 日收益率 |
+| 波动率 | 2 | 10日/20日年化波动率 |
+| ATR | 1 | ATR/收盘价 |
+| 连续涨跌 | 2 | 连续上涨天数 + 连续下跌天数 |
+| 日内位置 | 1 | 当日高低价位置 |
+| 跳空缺口 | 1 | 开盘跳空幅度 |
+| 最大回撤 | 2 | 20日/60日最大回撤 |
+| 高低点相对位置 | 4 | 20日/60日位置 + 创新高标记 |
+| KDJ | 3 | K + D + J |
+| OBV | 1 | OBV 10日变化率 |
+| CCI | 2 | CCI14 + CCI20 |
+| WR | 1 | WR14 |
+| 量价关系 | 7 | 相关性 + 涨跌量比 + 分位数 + 缩量 + MFI |
+| 成交额 | 3 | log成交额 + 5日/20日比 |
+| 大盘对比 | 8 | 相对收益率(1/5/10/20日) + 相关性 + Beta + 相对位置 |
+
+### 训练参数
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| FORWARD_DAYS | 3 | 标签：未来 N 个交易日涨幅 |
+| RISE_THRESHOLD | 5% | 涨幅超过 5% 标记为正样本 |
+| TEST_MONTHS | 6 | 最近 6 个月数据作为测试集 |
+| MIN_KLINES | 180 | 最少需要 180 根日K线 |
+| 模型 | XGBoost | n_estimators=200, max_depth=5, learning_rate=0.05 |
+| 特征窗口 | 120 根 | 每只股票最近 120 根K线 |
+| 自动保留最优 | 按测试 AUC | 新模型超过旧最优才替换，旧模型归档 |
+
 ## 快速开始
 
 ```powershell
@@ -632,10 +791,37 @@ python app.py
 
 或双击 `back_end\start.bat`。
 
+## ML 训练
+
+```powershell
+# 用 venv python 训练
+cd back_end
+..\venv\Scripts\python -m ml_train.train
+```
+
+或双击 `back_end\train_ml.bat`。
+
 ## 打包
 
 ```powershell
 # 用 venv python 运行
 venv\Scripts\python.exe build_exe.py
 # exe 输出到 dist\鑫多多.exe
+```
+
+## 依赖
+
+```
+Flask==2.3.3
+requests==2.31.0
+beautifulsoup4==4.12.2
+lxml>=4.9.3
+flask-cors==4.0.0
+adata                    # 限售股解禁数据
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0      # ML 训练（precision/recall 评估）
+xgboost>=2.0.0           # ML 训练模型
+joblib>=1.3.0            # 模型序列化
+chinese_calendar         # 交易日判断（含法定节假日）
 ```
