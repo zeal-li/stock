@@ -28,7 +28,7 @@ stock/
 │   ├── data/                          # 运行时数据（.gitignore）
 │   │   ├── stock_lib.db               # 市场 + 股票列表 + K线 + 股票元信息（合并单库）
 │   │   ├── money_flow.db              # 资金流、融资融券历史数据
-│   │   ├── watchlist.db               # 自选股持久化
+│   │   ├── watchlist.db               # 自选股 + 场内ETF持久化
 │   │   ├── longhu_bang.db             # 龙虎榜每日明细（SQLite 缓存，90 天自动清理）
 │   │   └── sector_fund.db             # 板块资金流向缓存（10s TTL）
 │   │
@@ -86,9 +86,9 @@ stock/
 │   │   ├── feature_names.txt          # 特征名列表
 │   │   └── training_history.csv       # 每次训练记录（AUC/样本数/是否最优）
 │   │
-│   └── watchlist/                     # 自选股模块
+│   └── watchlist/                     # 自选股 / 场内ETF模块
 │       ├── __init__.py
-│       └── service.py                 # 自选股 SQLite CRUD
+│       └── service.py                 # 自选股 + 场内ETF SQLite CRUD
 │
 ├── front_end/                         # 🎨 前端（原生 HTML/CSS/JS）
 │   ├── templates/
@@ -126,7 +126,7 @@ stock/
 │           ├── stock_pick/            # 选股前端
 │           │   └── service.js         # 搜索 + 缓存 + 渲染
 │           └── watchlist/             # 自选股前端
-│               └── service.js         # 自选列表 + 刷新 + 加选天数
+│               └── service.js         # 自选列表 + 场内ETF列表 + 刷新 + 加选天数
 │
 ├── build/                             # PyInstaller 构建中间产物
 ├── dist/                              # PyInstaller 分发输出
@@ -138,7 +138,7 @@ stock/
 | 页面 | 功能 | 状态 |
 |------|------|:--:|
 | 资金流向 | 上证/深证指数分时、市场成交额、主力资金净流入、融资融券、**恐慌指数**、**风险指数** | ✅ |
-| 自选股 | 自选列表、加/删自选（含价格）、批量行情（PE/PB/市值）、商誉率、量比/委比 | ✅ |
+| 自选股 | 自选列表、加/删自选（含价格）、批量行情（PE/PB/市值）、商誉率、量比/委比；**场内ETF**列表（少PE/PB和商誉/质押列） | ✅ |
 | 选股 | 多市场股票搜索（A股/港股/美股）、实时行情查询 | ✅ |
 | 技术选股 | 按市场分段异步加载 K 线、**三上悠亚**布林带三周期共振扫描 + **明日涨跌预测**评分 | ✅ |
 | K 线弹窗 | LightweightCharts 蜡烛图、日K/周K/月K、分时图、五日分时、MA/布林线（A股/港股/美股通用） | ✅ |
@@ -200,11 +200,19 @@ CREATE TABLE stock_info (
 
 > `daily_ts` / `weekly_ts` / `monthly_ts`：三个周期独立记录最后更新时间戳。增量更新时各周期独立判断是否需要拉取——日K落后了就只拉日K，周K月K没落后就跳过。该字段与 K 线数据在 `stock_info_sync_atomic()` 中同一事务原子写入。
 
-### data/watchlist.db — 自选股
+### data/watchlist.db — 自选股 + 场内ETF
 
 ```sql
 CREATE TABLE watchlist (
     code TEXT,                   -- 股票代码
+    market TEXT,                 -- 市场
+    created_at TEXT,             -- 加入时间
+    added_price TEXT,            -- 加入价格
+    PRIMARY KEY (code, market)
+);
+
+CREATE TABLE etf (
+    code TEXT,                   -- ETF代码
     market TEXT,                 -- 市场
     created_at TEXT,             -- 加入时间
     added_price TEXT,            -- 加入价格
@@ -512,6 +520,7 @@ app.run()
   ├─ loadAllData()              资金流向页初始加载（7 个 API 并行请求）
   ├─ loadPickedStocks()         选股页列表恢复（从 localStorage stockCache）
   ├─ loadWatchlistStocks()      自选股页列表恢复（GET /api/watchlist 获取权威列表 → 缓存补充商誉/质押 → 缓存中多余的股票自动清理）
+  ├─ loadEtfStocks()            场内ETF列表恢复（GET /api/etf → stock-quotes 刷新行情）
   └─ setInterval(refreshRealtimeData, 10000)  全局 10 秒定时器（永不停止）
        └─ 内部判断：isInTradingHours() + currentNavPage 决定刷新哪些数据
 ```
@@ -536,12 +545,27 @@ app.run()
 
 #### 自选股页（后端 SQLite 持久化 + 前端缓存补充）
 
+自选股页面标题栏含三个 Tab：自选股 / 场内ETF / 持仓股
+
+**自选股 Tab：**
+
 | 时机 | 触发 | API | 频率 |
 |------|------|-----|------|
 | 初始加载 | `loadWatchlistStocks()` | `GET /api/watchlist`（权威列表）→ localStorage 补充商誉/质押 → `stock-quotes` + `goodwill` | 一次性 |
 | 交易时段自动刷新 | `refreshRealtimeData()` | `stock-quotes`（仅更新价格列，不重建表格） | 每 10s |
 | 添加股票 | 点击搜索结果 | `stock-quotes`（获取加入价格）→ `POST /api/watchlist`（持久化）→ `goodwill` | 事件触发 |
 | 删除股票 | 点击 × 按钮 | `DELETE /api/watchlist/{code}`（异步删除） | 事件触发 |
+
+**场内ETF Tab：**
+
+| 时机 | 触发 | API | 频率 |
+|------|------|-----|------|
+| 初始加载 | `loadEtfStocks()` | `GET /api/etf` → `stock-quotes` | 一次性 |
+| 交易时段自动刷新 | `refreshRealtimeData()` | `stock-quotes`（仅更新价格列） | 每 10s |
+| 添加ETF | 点击搜索结果 | `stock-quotes`（获取加入价格）→ `POST /api/etf`（持久化） | 事件触发 |
+| 删除ETF | 点击 × 按钮 | `DELETE /api/etf/{code}`（异步删除） | 事件触发 |
+
+> 场内ETF 表头比自选股少两列：无 PE(TTM)/PB、无 商誉率/质押率。
 
 #### K 线弹窗
 

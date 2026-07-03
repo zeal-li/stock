@@ -172,6 +172,10 @@
             <div id="page-watchlist" style="display:none;">
                 <div class="page-header" style="justify-content:flex-start;">
                     <h1 class="page-title" style="margin-right:12px;">⭐ 自选股</h1>
+                    <div class="watchlist-search-box" style="margin-right:12px;">
+                        <input type="text" id="wlSearchInput" placeholder="输入代码或名称添加股票" oninput="wlDebounceSearch()" onkeydown="wlSearchKey(event)" onfocus="wlShowResults()" autocomplete="off">
+                        <div id="wlSearchResults" class="watchlist-search-dropdown" style="display:none;"></div>
+                    </div>
                     <div class="sector-tabs">
                         <span class="sector-tab active" data-tab="watchlist" onclick="switchWatchlistTab('watchlist')">自选股</span>
                         <span class="sector-tab" data-tab="etf" onclick="switchWatchlistTab('etf')">场内ETF</span>
@@ -185,7 +189,7 @@
                 </div>
                 <div id="watchlist-tab-etf" class="watchlist-tab-content">
                     <div class="index-card" style="padding:30px;">
-                        <div id="etfContent" style="margin-top:8px;">场内ETF内容待开发</div>
+                        <div id="etfContent" style="margin-top:8px;"></div>
                     </div>
                 </div>
                 <div id="watchlist-tab-holdings" class="watchlist-tab-content">
@@ -422,6 +426,7 @@
         loadAllData();
         loadPickedStocks();
         loadWatchlistStocks();
+        loadEtfStocks();
         setInterval(refreshRealtimeData, 10000);
     </script>
 </body>

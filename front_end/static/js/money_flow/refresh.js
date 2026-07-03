@@ -202,7 +202,7 @@ async function refreshRealtimeData() {
     // ---- 选股页：刷新行情（仅选股页 + 交易时段） ----
     if (currentNavPage === 'stock-pick') refreshPickedQuotes();
     // ---- 自选股页：刷新行情 ----
-    if (currentNavPage === 'watchlist') refreshWatchlistQuotes();
+    if (currentNavPage === 'watchlist') { refreshWatchlistQuotes(); refreshEtfQuotes(); }
 }
 
 // 工具：按 id 更新文本，值为 null 时显示 '--'

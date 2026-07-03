@@ -9,6 +9,105 @@ function switchWatchlistTab(tab) {
     document.getElementById('watchlist-tab-' + tab).classList.add('active');
 }
 
+// ---- 搜索添加 ----
+var _wlSearchTimer = null;
+
+function wlDebounceSearch() {
+    clearTimeout(_wlSearchTimer);
+    _wlSearchTimer = setTimeout(wlSearchStock, 300);
+}
+
+function wlSearchKey(e) {
+    var items = document.querySelectorAll('#wlSearchResults .watchlist-search-item');
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _wlSearchHighlight(items, 1);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _wlSearchHighlight(items, -1);
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        var sel = document.querySelector('#wlSearchResults .watchlist-search-item.wl-selected');
+        if (sel) sel.click();
+    } else if (e.key === 'Escape') {
+        wlHideResults();
+    }
+}
+
+var _wlSelectedIdx = -1;
+function _wlSearchHighlight(items, dir) {
+    _wlSelectedIdx = Math.max(0, Math.min(_wlSelectedIdx + dir, items.length - 1));
+    items.forEach(function(it, i) {
+        it.classList.toggle('wl-selected', i === _wlSelectedIdx);
+        it.style.background = i === _wlSelectedIdx ? '#0f3460' : '#1a1a2e';
+    });
+}
+
+function wlShowResults() {
+    var val = document.getElementById('wlSearchInput').value.trim();
+    if (val.length >= 2) {
+        var dd = document.getElementById('wlSearchResults');
+        if (dd.innerHTML) dd.style.display = 'block';
+    }
+}
+
+function wlHideResults() {
+    document.getElementById('wlSearchResults').style.display = 'none';
+    _wlSelectedIdx = -1;
+}
+
+async function wlSearchStock() {
+    var keyword = document.getElementById('wlSearchInput').value.trim();
+    var dd = document.getElementById('wlSearchResults');
+    if (!keyword || keyword.length < 2) { dd.innerHTML = ''; dd.style.display = 'none'; _wlSelectedIdx = -1; return; }
+    dd.innerHTML = '<div style="text-align:center;color:#888;padding:8px;">搜索中...</div>';
+    dd.style.display = 'block';
+    try {
+        var res = await fetch('/api/search-stock?q=' + encodeURIComponent(keyword));
+        var data = await res.json();
+        if (data.success && data.data.length > 0) {
+            _wlSelectedIdx = -1;
+            var html = '';
+            data.data.forEach(function(s) {
+                var type = getStockType(s.code, s.market);
+                html += '<div class="watchlist-search-item" onclick="wlAddStock(\'' + s.code + '\',\'' + (s.name || '').replace(/'/g, '\\\'') + '\',\'' + s.market + '\')">' +
+                    '<span class="wl-name">' + s.name + '</span>' +
+                    '<span class="wl-code">' + s.code + '</span>' +
+                    '<span class="wl-type">' + type + '</span></div>';
+            });
+            dd.innerHTML = html;
+        } else {
+            dd.innerHTML = '<div style="text-align:center;color:#666;padding:8px;">未找到相关股票</div>';
+        }
+    } catch(e) {
+        dd.innerHTML = '<div style="text-align:center;color:#e94560;padding:8px;">搜索失败</div>';
+    }
+}
+
+function wlAddStock(code, name, market) {
+    // 判断当前激活的 tab，加入对应分组
+    var activeTab = document.querySelector('#page-watchlist .sector-tab.active');
+    var tab = activeTab ? activeTab.getAttribute('data-tab') : 'watchlist';
+    if (tab === 'watchlist') {
+        if (!watchlistStocks.find(function(s) { return s.code === code; })) {
+            watchlistPickStock(code, market);
+        }
+    } else if (tab === 'etf') {
+        if (!etfStocks.find(function(s) { return s.code === code; })) {
+            etfPickStock(code, market);
+        }
+    }
+    // 清空搜索框
+    document.getElementById('wlSearchInput').value = '';
+    wlHideResults();
+}
+
+// 点击外部关闭下拉
+document.addEventListener('click', function(e) {
+    var box = document.querySelector('.watchlist-search-box');
+    if (box && !box.contains(e.target)) wlHideResults();
+});
+
 function _joinChgText(s) {
     if (!s.addedPrice || s.price === '-') return '-';
     var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);
@@ -254,5 +353,179 @@ function watchlistUpdateGoodwill() {
     watchlistStocks.forEach(function(s) {
         var row = document.querySelector('tr[data-wcode="' + s.code + '"]');
         _setCell(row, 'cell-gw', s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-', '#ddd');
+    });
+}
+
+
+// ==================== 场内ETF ====================
+
+var etfStocks = [];
+
+function _etfChgText(s) {
+    if (!s.addedPrice || s.price === '-') return '-';
+    var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);
+    if (isNaN(ap) || isNaN(cp) || ap === 0) return '-';
+    var pct = (cp - ap) / ap * 100;
+    var color = pct > 0 ? '#e94560' : (pct < 0 ? '#4ade80' : '#ddd');
+    var sign = pct > 0 ? '+' : '';
+    return '<span style="color:' + color + ';">' + s.addedPrice + ' / ' + sign + pct.toFixed(2) + '%</span>';
+}
+
+function _etfJoinDays(dateStr) {
+    if (!dateStr) return '-';
+    var d = new Date(), jd = new Date(dateStr);
+    return Math.max(0, Math.floor((d - jd) / 86400000)) + '天';
+}
+
+function loadEtfStocks() {
+    fetch('/api/etf')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) throw new Error('API failed');
+            etfStocks = (data.data || []).map(function(s) {
+                var ad = s.created_at ? s.created_at.slice(0, 10) : '';
+                return createStock(s.code, s.code, s.market, null, { addedDate: ad, addedPrice: s.added_price || '' });
+            });
+            etfRender();
+            if (etfStocks.length > 0) refreshEtfQuotes();
+        })
+        .catch(function() { etfStocks = []; etfRender(); });
+}
+
+var _etfPicking = false;
+async function etfPickStock(code, market) {
+    if (_etfPicking) return;
+    if (etfStocks.find(function(s) { return s.code === code; })) return;
+    _etfPicking = true;
+    var addPrice = '';
+    try {
+        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(market + '.' + code));
+        var d = await res.json();
+        if (d.success) {
+            var q = d.data[market + '.' + code];
+            if (q && q.price && q.price !== '-') addPrice = q.price;
+        }
+    } catch(e) {}
+    var body = 'code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market);
+    if (addPrice) body += '&added_price=' + encodeURIComponent(addPrice);
+    fetch('/api/etf', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
+        .catch(function() {});
+    var info = { addedDate: watchlistGetToday(), addedPrice: addPrice };
+    etfStocks.push(createStock(code, code, market, null, info));
+    etfRender();
+    refreshEtfQuotes();
+    _etfPicking = false;
+}
+
+function etfEditAddedPrice(code, market) {
+    var s = etfStocks.find(function(x) { return x.code === code; });
+    if (!s) return;
+    var jcTd = document.querySelector('tr[data-ecode="' + code + '"] .cell-jc');
+    if (!jcTd || jcTd.querySelector('input')) return;
+    var oldPrice = s.addedPrice || '';
+    var confirmed = false;
+    function doConfirm() {
+        if (confirmed) return;
+        confirmed = true;
+        var newPrice = input.value.trim();
+        s.addedPrice = newPrice;
+        fetch('/api/etf/' + encodeURIComponent(code), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'market=' + encodeURIComponent(market) + '&added_price=' + encodeURIComponent(newPrice)
+        }).catch(function() {});
+        jcTd.innerHTML = _etfChgText(s);
+    }
+    function doCancel() {
+        if (confirmed) return;
+        confirmed = true;
+        jcTd.innerHTML = _etfChgText(s);
+    }
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = oldPrice;
+    input.style.cssText = 'width:70px;background:#1a1a2e;color:#e94560;border:1px solid #e94560;padding:2px 4px;font-size:13px;text-align:center;';
+    input.addEventListener('click', function(e) { e.stopPropagation(); });
+    input.addEventListener('keydown', function(e) {
+        e.stopPropagation();
+        if (e.key === 'Enter') { doConfirm(); }
+        else if (e.key === 'Escape') { doCancel(); }
+    });
+    input.addEventListener('blur', function() { doConfirm(); });
+    jcTd.innerHTML = '';
+    jcTd.appendChild(input);
+    input.focus();
+    input.select();
+}
+
+function etfRemoveStock(code, market) {
+    fetch('/api/etf/' + encodeURIComponent(code) + '?market=' + encodeURIComponent(market), { method: 'DELETE' })
+        .catch(function() {});
+    etfStocks = etfStocks.filter(function(s) { return s.code !== code; });
+    etfRender();
+}
+
+async function refreshEtfQuotes() {
+    if (etfStocks.length === 0) return;
+    var secids = etfStocks.map(function(s) { return s.market + '.' + s.code; }).join(',');
+    try {
+        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(secids));
+        var data = await res.json();
+        if (data.success) {
+            etfStocks.forEach(function(s) {
+                var q = data.data[s.market + '.' + s.code];
+                if (q) {
+                    if (q.name) s.name = q.name;
+                    s.price = q.price || '-'; s.pct = q.pct || '-'; s.change = q.change || '-';
+                    s.amplitude = q.amplitude || '-'; s.turnover = q.turnover || '-';
+                    s.volume = q.volume || '-'; s.amount = q.amount || '-';
+                    s.total_cap = q.total_cap || '-'; s.float_cap = q.float_cap || '-';
+                }
+            });
+            etfUpdatePrices();
+        }
+    } catch(e) { console.log('场内ETF报价刷新失败:', e); }
+}
+
+function etfRender() {
+    var div = document.getElementById('etfContent');
+    if (etfStocks.length === 0) { div.innerHTML = ''; return; }
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>加选天数</th><th>加选价/涨幅</th><th></th></tr></thead><tbody>';
+    etfStocks.forEach(function(s) {
+        var type = getStockType(s.code, s.market);
+        var color = _chgColor(s.change);
+        var chgText = _chgText(s.change, s.pct);
+        html += '<tr data-ecode="' + s.code + '">' +
+            '<td><span style="color:#888;">' + s.code + '</span></td>' +
+            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + s.market + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
+            '<td><span style="color:#555;">' + type + '</span></td>' +
+            '<td class="cell-price"><span style="color:' + color + ';font-weight:bold;">' + s.price + '</span></td>' +
+            '<td class="cell-chg"><span style="color:' + color + ';">' + chgText + '</span></td>' +
+            '<td class="cell-vol"><span style="color:#ddd;">' + _pairText(s.volume, s.amount) + '</span></td>' +
+            '<td class="cell-cap"><span style="color:#ddd;">' + _pairText(s.total_cap, s.float_cap) + '</span></td>' +
+            '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
+            '<td class="cell-jd"><span style="color:#ddd;">' + _etfJoinDays(s.addedDate) + '</span></td>' +
+            '<td class="cell-jc" style="cursor:pointer;" onclick="etfEditAddedPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击修改加选价格">' + _etfChgText(s) + '</td>' +
+            '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="etfRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    div.innerHTML = html;
+}
+
+function etfUpdatePrices() {
+    etfStocks.forEach(function(s) {
+        var row = document.querySelector('tr[data-ecode="' + s.code + '"]');
+        if (!row) return;
+        var nameEl = row.cells[1] && row.cells[1].querySelector('span');
+        if (nameEl && s.name !== '-' && nameEl.textContent !== s.name) { nameEl.textContent = s.name; nameEl.setAttribute('onclick', "KlinePopup.open('" + s.code + "','" + s.market + "','" + s.name + "')"); }
+        var color = _chgColor(s.change);
+        _setCell(row, 'cell-price', s.price, color);
+        _setCell(row, 'cell-chg', _chgText(s.change, s.pct), color);
+        _setCell(row, 'cell-vol', _pairText(s.volume, s.amount), '#ddd');
+        _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
+        _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
+        var jdTd = row.querySelector('.cell-jd'); if (jdTd) { var jdSp = jdTd.querySelector('span'); if (jdSp) jdSp.textContent = _etfJoinDays(s.addedDate); }
+        var jcTd = row.querySelector('.cell-jc'); if (jcTd) jcTd.innerHTML = _etfChgText(s);
     });
 }
