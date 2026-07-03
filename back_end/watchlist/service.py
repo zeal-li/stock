@@ -12,8 +12,13 @@ else:
 def _ensure_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
-    conn.execute('CREATE TABLE IF NOT EXISTS watchlist (code TEXT, market TEXT, created_at TEXT, added_price TEXT, PRIMARY KEY (code, market))')
-    conn.execute('CREATE TABLE IF NOT EXISTS etf (code TEXT, market TEXT, created_at TEXT, added_price TEXT, PRIMARY KEY (code, market))')
+    conn.execute('CREATE TABLE IF NOT EXISTS watchlist (code TEXT, market TEXT, created_at TEXT, added_price TEXT, sort_order INTEGER DEFAULT 0, PRIMARY KEY (code, market))')
+    conn.execute('CREATE TABLE IF NOT EXISTS etf (code TEXT, market TEXT, created_at TEXT, added_price TEXT, sort_order INTEGER DEFAULT 0, PRIMARY KEY (code, market))')
+    # 迁移旧表：添加 sort_order 列（若不存在）
+    for tbl in ('watchlist', 'etf'):
+        cols = [r[1] for r in conn.execute('PRAGMA table_info(' + tbl + ')').fetchall()]
+        if 'sort_order' not in cols:
+            conn.execute('ALTER TABLE ' + tbl + ' ADD COLUMN sort_order INTEGER DEFAULT 0')
     conn.commit()
     return conn
 
@@ -21,9 +26,9 @@ def _ensure_db():
 # ==================== 自选股 ====================
 
 def get_all():
-    """获取所有自选股 [(code, market, created_at, added_price), ...]"""
+    """获取所有自选股 [(code, market, created_at, added_price), ...] 按 sort_order 排序"""
     conn = _ensure_db()
-    rows = conn.execute('SELECT code, market, created_at, added_price FROM watchlist ORDER BY created_at DESC').fetchall()
+    rows = conn.execute('SELECT code, market, created_at, added_price FROM watchlist ORDER BY sort_order ASC, created_at DESC').fetchall()
     conn.close()
     return rows
 
@@ -54,12 +59,21 @@ def update_price(code, market, added_price):
     conn.close()
 
 
+def reorder(items):
+    """批量更新自选股排序，items = [(code, market, sort_order), ...]"""
+    conn = _ensure_db()
+    for code, market, sort_order in items:
+        conn.execute('UPDATE watchlist SET sort_order = ? WHERE code = ? AND market = ?', (sort_order, code, market))
+    conn.commit()
+    conn.close()
+
+
 # ==================== 场内ETF ====================
 
 def etf_get_all():
-    """获取所有场内ETF [(code, market, created_at, added_price), ...]"""
+    """获取所有场内ETF [(code, market, created_at, added_price), ...] 按 sort_order 排序"""
     conn = _ensure_db()
-    rows = conn.execute('SELECT code, market, created_at, added_price FROM etf ORDER BY created_at DESC').fetchall()
+    rows = conn.execute('SELECT code, market, created_at, added_price FROM etf ORDER BY sort_order ASC, created_at DESC').fetchall()
     conn.close()
     return rows
 
@@ -86,5 +100,14 @@ def etf_update_price(code, market, added_price):
     """更新场内ETF加选价格"""
     conn = _ensure_db()
     conn.execute('UPDATE etf SET added_price = ? WHERE code = ? AND market = ?', (str(added_price), code, market))
+    conn.commit()
+    conn.close()
+
+
+def etf_reorder(items):
+    """批量更新场内ETF排序，items = [(code, market, sort_order), ...]"""
+    conn = _ensure_db()
+    for code, market, sort_order in items:
+        conn.execute('UPDATE etf SET sort_order = ? WHERE code = ? AND market = ?', (sort_order, code, market))
     conn.commit()
     conn.close()

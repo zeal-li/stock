@@ -511,6 +511,9 @@ function etfRender() {
     });
     html += '</tbody></table></div>';
     div.innerHTML = html;
+    // 绑定拖拽
+    var tbody = div.querySelector('.data-table tbody');
+    if (tbody) _dragInit(tbody, etfStocks, 'ecode', '/api/etf/reorder');
 }
 
 function etfUpdatePrices() {
@@ -528,4 +531,238 @@ function etfUpdatePrices() {
         var jdTd = row.querySelector('.cell-jd'); if (jdTd) { var jdSp = jdTd.querySelector('span'); if (jdSp) jdSp.textContent = _etfJoinDays(s.addedDate); }
         var jcTd = row.querySelector('.cell-jc'); if (jcTd) jcTd.innerHTML = _etfChgText(s);
     });
+}
+
+
+// ==================== 长按拖拽排序 ====================
+
+var _dragState = {
+    timer: null,
+    isDragging: false,
+    dragRow: null,
+    startY: 0,
+    placeholder: null,
+    stocksArr: null,
+    dataAttr: '',
+    apiUrl: '',
+};
+
+function _dragInit(tbody, stocksArr, dataAttr, apiUrl) {
+    var rows = tbody.querySelectorAll('tr');
+    rows.forEach(function(row) {
+        row.removeEventListener('mousedown', _dragOnDown);
+        row.removeEventListener('touchstart', _dragOnDown);
+    });
+    rows.forEach(function(row) {
+        row.addEventListener('mousedown', _dragOnDown);
+        row.addEventListener('touchstart', _dragOnDown, { passive: false });
+    });
+    _dragState.stocksArr = stocksArr;
+    _dragState.dataAttr = dataAttr;
+    _dragState.apiUrl = apiUrl;
+}
+
+function _dragOnDown(e) {
+    // 排除可点击元素（删除按钮、加选价格、名称链接）
+    if (e.target.closest('span[onclick]') || e.target.tagName === 'INPUT') return;
+    clearTimeout(_dragState.timer);
+    _dragState.isDragging = false;
+    _dragState.dragRow = null;
+    _dragState.placeholder = null;
+
+    var y = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+    _dragState.startY = y;
+    var row = this;
+    _dragState.pendingRow = row;
+    _dragState.pendingY = y;
+
+    // 长按500ms触发拖拽
+    _dragState.timer = setTimeout(function() {
+        _dragState.isDragging = true;
+        _dragState.dragRow = row;
+        row.classList.add('dragging');
+        var ph = document.createElement('tr');
+        ph.classList.add('drag-placeholder');
+        ph.innerHTML = '<td colspan="' + row.cells.length + '" style="height:' + row.offsetHeight + 'px;"></td>';
+        row.parentNode.insertBefore(ph, row.nextSibling);
+        _dragState.placeholder = ph;
+        // 切换监听：从pending切换到drag模式
+        if (e.type === 'touchstart') {
+            document.removeEventListener('touchmove', _dragOnTouchPending);
+            document.removeEventListener('touchend', _dragOnTouchPendingEnd);
+            document.addEventListener('touchmove', _dragOnMove, { passive: false });
+            document.addEventListener('touchend', _dragOnUp);
+        } else {
+            document.removeEventListener('mousemove', _dragOnMousePending);
+            document.removeEventListener('mouseup', _dragOnMousePendingEnd);
+            document.addEventListener('mousemove', _dragOnMove);
+            document.addEventListener('mouseup', _dragOnUp);
+        }
+    }, 500);
+
+    if (e.type === 'touchstart') {
+        document.addEventListener('touchmove', _dragOnTouchPending, { passive: false });
+        document.addEventListener('touchend', _dragOnTouchPendingEnd);
+    } else {
+        document.addEventListener('mousemove', _dragOnMousePending);
+        document.addEventListener('mouseup', _dragOnMousePendingEnd);
+    }
+}
+
+// 等待长按触发期间，监听移动（超过阈值则取消长按）
+function _dragOnMousePending(e) {
+    if (_dragState.isDragging) return; // 已由timer切换监听，忽略
+    if (Math.abs(e.clientY - _dragState.pendingY) > 5) {
+        clearTimeout(_dragState.timer);
+        document.removeEventListener('mousemove', _dragOnMousePending);
+        document.removeEventListener('mouseup', _dragOnMousePendingEnd);
+    }
+}
+
+function _dragOnMousePendingEnd(e) {
+    clearTimeout(_dragState.timer);
+    document.removeEventListener('mousemove', _dragOnMousePending);
+    document.removeEventListener('mouseup', _dragOnMousePendingEnd);
+}
+
+function _dragOnTouchPending(e) {
+    if (_dragState.isDragging) return; // 已由timer切换监听，忽略
+    e.preventDefault(); // 阻止滚动，等长按判定
+    var touch = e.touches[0];
+    if (Math.abs(touch.clientY - _dragState.pendingY) > 10) {
+        clearTimeout(_dragState.timer);
+        document.removeEventListener('touchmove', _dragOnTouchPending);
+        document.removeEventListener('touchend', _dragOnTouchPendingEnd);
+    }
+}
+
+function _dragOnTouchPendingEnd(e) {
+    clearTimeout(_dragState.timer);
+    document.removeEventListener('touchmove', _dragOnTouchPending);
+    document.removeEventListener('touchend', _dragOnTouchPendingEnd);
+}
+
+function _dragOnMove(e) {
+    if (!_dragState.isDragging) return;
+    var y = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+    if (e.type === 'touchmove') e.preventDefault();
+
+    var row = _dragState.dragRow;
+    var tbody = row.parentNode;
+    var dy = y - _dragState.startY;
+    row.style.transform = 'translateY(' + dy + 'px)';
+    row.style.position = 'relative';
+    row.style.zIndex = '100';
+
+    var rows = tbody.querySelectorAll('tr:not(.dragging):not(.drag-placeholder)');
+    rows.forEach(function(r) { r.classList.remove('drag-over-top', 'drag-over-bottom'); });
+
+    var dragRect = row.getBoundingClientRect();
+    var dragCenterY = dragRect.top + dragRect.height / 2;
+
+    for (var i = 0; i < rows.length; i++) {
+        var rRect = rows[i].getBoundingClientRect();
+        var rCenterY = rRect.top + rRect.height / 2;
+        if (dragCenterY < rCenterY) {
+            rows[i].classList.add('drag-over-top');
+            tbody.insertBefore(_dragState.placeholder, rows[i]);
+            break;
+        }
+        if (i === rows.length - 1) {
+            rows[i].classList.add('drag-over-bottom');
+            tbody.insertBefore(_dragState.placeholder, rows[i].nextSibling);
+        }
+    }
+}
+
+function _dragOnUp(e) {
+    var eventType = e.type === 'touchend' ? 'touchmove' : 'mousemove';
+    var endType = e.type === 'touchend' ? 'touchend' : 'mouseup';
+    document.removeEventListener(eventType, _dragOnMove);
+    document.removeEventListener(endType, _dragOnUp);
+    if (!_dragState.isDragging) return;
+
+    _dragState.isDragging = false;
+    var row = _dragState.dragRow;
+    row.classList.remove('dragging');
+    row.style.transform = '';
+    row.style.position = '';
+    row.style.zIndex = '';
+
+    row.parentNode.querySelectorAll('tr').forEach(function(r) {
+        r.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+
+    if (_dragState.placeholder) {
+        row.parentNode.insertBefore(row, _dragState.placeholder);
+        row.parentNode.removeChild(_dragState.placeholder);
+        _dragState.placeholder = null;
+    }
+    _dragState.dragRow = null;
+    _dragSaveOrder();
+}
+
+function _dragSaveOrder() {
+    // 根据当前激活的tab确定tbody
+    var containerId = _dragState.dataAttr === 'wcode' ? 'watchlistStocks' : 'etfContent';
+    var tbody = document.querySelector('#' + containerId + ' .data-table tbody');
+    if (!tbody || !_dragState.stocksArr) return;
+
+    var rows = tbody.querySelectorAll('tr');
+    var newOrder = [];
+    rows.forEach(function(row) {
+        var code = row.getAttribute('data-' + _dragState.dataAttr);
+        if (!code) return;
+        var s = _dragState.stocksArr.find(function(st) { return st.code === code; });
+        if (s) newOrder.push(s);
+    });
+
+    // 更新数组
+    for (var i = 0; i < newOrder.length; i++) {
+        _dragState.stocksArr[i] = newOrder[i];
+    }
+
+    // 保存到后端
+    var items = newOrder.map(function(s, idx) {
+        return [s.code, s.market, idx];
+    });
+    fetch(_dragState.apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'items=' + encodeURIComponent(JSON.stringify(items))
+    }).catch(function() {});
+
+    if (_dragState.dataAttr === 'wcode') watchlistSaveCache();
+}
+
+// 在渲染后绑定拖拽
+function watchlistRender() {
+    var div = document.getElementById('watchlistStocks');
+    if (watchlistStocks.length === 0) { div.innerHTML = ''; return; }
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>PE(TTM)/PB</th><th>商誉率/质押率</th><th>加选天数</th><th>加选价/涨幅</th><th></th></tr></thead><tbody>';
+    watchlistStocks.forEach(function(s) {
+        var type = getStockType(s.code, s.market);
+        var color = _chgColor(s.change);
+        var chgText = _chgText(s.change, s.pct);
+        html += '<tr data-wcode="' + s.code + '">' +
+            '<td><span style="color:#888;">' + s.code + '</span></td>' +
+            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + s.market + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
+            '<td><span style="color:#555;">' + type + '</span></td>' +
+            '<td class="cell-price"><span style="color:' + color + ';font-weight:bold;">' + s.price + '</span></td>' +
+            '<td class="cell-chg"><span style="color:' + color + ';">' + chgText + '</span></td>' +
+            '<td class="cell-vol"><span style="color:#ddd;">' + _pairText(s.volume, s.amount) + '</span></td>' +
+            '<td class="cell-cap"><span style="color:#ddd;">' + _pairText(s.total_cap, s.float_cap) + '</span></td>' +
+            '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
+            '<td class="cell-pepb"><span style="color:#ddd;">' + s.pe + '/' + s.pb + '</span></td>' +
+            '<td class="cell-gw"><span style="color:#ddd;">' + (s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-') + '</span></td>' +
+            '<td class="cell-jd"><span style="color:#ddd;">' + _joinDays(s.addedDate) + '</span></td>' +
+            '<td class="cell-jc" style="cursor:pointer;" onclick="watchlistEditAddedPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击修改加选价格">' + _joinChgText(s) + '</td>' +
+            '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="watchlistRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    div.innerHTML = html;
+    // 绑定拖拽
+    var tbody = div.querySelector('.data-table tbody');
+    if (tbody) _dragInit(tbody, watchlistStocks, 'wcode', '/api/watchlist/reorder');
 }

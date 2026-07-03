@@ -17,8 +17,8 @@ from global_market.forex import get_forex_rates
 from sector_fund.service import get_sector_fund, get_sector_stocks
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
-from watchlist.service import get_all, add, remove as wl_remove, update_price
-from watchlist.service import etf_get_all, etf_add, etf_remove, etf_update_price
+from watchlist.service import get_all, add, remove as wl_remove, update_price, reorder
+from watchlist.service import etf_get_all, etf_add, etf_remove, etf_update_price, etf_reorder
 import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
@@ -166,6 +166,21 @@ def watchlist_update(code):
     return jsonify({'success': True})
 
 
+@app.route('/api/watchlist/reorder', methods=['POST'])
+def watchlist_reorder_route():
+    """批量更新自选股排序"""
+    import json as _json
+    items_raw = request.form.get('items', '').strip()
+    if not items_raw:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    try:
+        items = _json.loads(items_raw)
+        reorder(items)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 # ==================== 场内ETF ====================
 
 @app.route('/api/etf', methods=['GET'])
@@ -199,6 +214,21 @@ def etf_update_route(code):
         return jsonify({'success': False, 'error': '缺少 market 参数'})
     etf_update_price(code, market, added_price)
     return jsonify({'success': True})
+
+
+@app.route('/api/etf/reorder', methods=['POST'])
+def etf_reorder_route():
+    """批量更新场内ETF排序"""
+    import json as _json
+    items_raw = request.form.get('items', '').strip()
+    if not items_raw:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    try:
+        items = _json.loads(items_raw)
+        etf_reorder(items)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/stock-quotes')
 def stock_quotes():
