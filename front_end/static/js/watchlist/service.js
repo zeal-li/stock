@@ -2,6 +2,13 @@
 
 var watchlistStocks = [];
 
+function switchWatchlistTab(tab) {
+    document.querySelectorAll('#page-watchlist .sector-tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.watchlist-tab-content').forEach(function(c) { c.classList.remove('active'); });
+    document.querySelector('#page-watchlist .sector-tab[data-tab="' + tab + '"]').classList.add('active');
+    document.getElementById('watchlist-tab-' + tab).classList.add('active');
+}
+
 function _joinChgText(s) {
     if (!s.addedPrice || s.price === '-') return '-';
     var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);

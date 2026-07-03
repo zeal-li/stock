@@ -93,6 +93,15 @@ body {
     color: #fff;
 }
 
+/* 自选股页面 Tab 内容切换 */
+.watchlist-tab-content {
+    display: none;
+}
+
+.watchlist-tab-content.active {
+    display: block;
+}
+
 .refresh-btn {
     background: #e94560;
     color: white;

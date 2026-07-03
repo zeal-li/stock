@@ -170,11 +170,28 @@
 
             <!-- 自选股页面 -->
             <div id="page-watchlist" style="display:none;">
-                <div class="page-header">
-                    <h1 class="page-title">⭐ 自选股</h1>
+                <div class="page-header" style="justify-content:flex-start;">
+                    <h1 class="page-title" style="margin-right:12px;">⭐ 自选股</h1>
+                    <div class="sector-tabs">
+                        <span class="sector-tab active" data-tab="watchlist" onclick="switchWatchlistTab('watchlist')">自选股</span>
+                        <span class="sector-tab" data-tab="etf" onclick="switchWatchlistTab('etf')">场内ETF</span>
+                        <span class="sector-tab" data-tab="holdings" onclick="switchWatchlistTab('holdings')">持仓股</span>
+                    </div>
                 </div>
-                <div class="index-card" style="padding:30px;">
-                    <div id="watchlistStocks" style="margin-top:8px;"></div>
+                <div id="watchlist-tab-watchlist" class="watchlist-tab-content active">
+                    <div class="index-card" style="padding:30px;">
+                        <div id="watchlistStocks" style="margin-top:8px;"></div>
+                    </div>
+                </div>
+                <div id="watchlist-tab-etf" class="watchlist-tab-content">
+                    <div class="index-card" style="padding:30px;">
+                        <div id="etfContent" style="margin-top:8px;">场内ETF内容待开发</div>
+                    </div>
+                </div>
+                <div id="watchlist-tab-holdings" class="watchlist-tab-content">
+                    <div class="index-card" style="padding:30px;">
+                        <div id="holdingsContent" style="margin-top:8px;">持仓股内容待开发</div>
+                    </div>
                 </div>
             </div>
 
@@ -373,6 +390,8 @@
                 }
             });
         });
+
+        // 自选股页面 Tab 切换
 
     </script>
 
