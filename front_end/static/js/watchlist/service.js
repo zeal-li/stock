@@ -108,28 +108,36 @@ function watchlistEditAddedPrice(code, market) {
     var jcTd = document.querySelector('tr[data-wcode="' + code + '"] .cell-jc');
     if (!jcTd || jcTd.querySelector('input')) return;
     var oldPrice = s.addedPrice || '';
+    var confirmed = false;
+    function doConfirm() {
+        if (confirmed) return;
+        confirmed = true;
+        var newPrice = input.value.trim();
+        s.addedPrice = newPrice;
+        watchlistSaveCache();
+        fetch('/api/watchlist/' + encodeURIComponent(code), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'market=' + encodeURIComponent(market) + '&added_price=' + encodeURIComponent(newPrice)
+        }).catch(function() {});
+        jcTd.innerHTML = _joinChgText(s);
+    }
+    function doCancel() {
+        if (confirmed) return;
+        confirmed = true;
+        jcTd.innerHTML = _joinChgText(s);
+    }
     var input = document.createElement('input');
     input.type = 'text';
     input.value = oldPrice;
     input.style.cssText = 'width:70px;background:#1a1a2e;color:#e94560;border:1px solid #e94560;padding:2px 4px;font-size:13px;text-align:center;';
     input.addEventListener('click', function(e) { e.stopPropagation(); });
     input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') {
-            e.stopPropagation();
-            var newPrice = input.value.trim();
-            s.addedPrice = newPrice;
-            watchlistSaveCache();
-            fetch('/api/watchlist/' + encodeURIComponent(code), {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'market=' + encodeURIComponent(market) + '&added_price=' + encodeURIComponent(newPrice)
-            }).catch(function() {});
-            jcTd.innerHTML = _joinChgText(s);
-        } else if (e.key === 'Escape') {
-            e.stopPropagation();
-            jcTd.innerHTML = _joinChgText(s);
-        }
+        e.stopPropagation();
+        if (e.key === 'Enter') { doConfirm(); }
+        else if (e.key === 'Escape') { doCancel(); }
     });
+    input.addEventListener('blur', function() { doConfirm(); });
     jcTd.innerHTML = '';
     jcTd.appendChild(input);
     input.focus();
