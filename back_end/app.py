@@ -17,7 +17,7 @@ from global_market.forex import get_forex_rates
 from sector_fund.service import get_sector_fund, get_sector_stocks
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
-from watchlist.service import get_all, add, remove as wl_remove
+from watchlist.service import get_all, add, remove as wl_remove, update_price
 import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
@@ -153,6 +153,15 @@ def watchlist_remove(code):
     if not market:
         return jsonify({'success': False, 'error': '缺少 market 参数'})
     wl_remove(code, market)
+    return jsonify({'success': True})
+
+@app.route('/api/watchlist/<code>', methods=['PUT'])
+def watchlist_update(code):
+    market = request.form.get('market', '').strip()
+    added_price = request.form.get('added_price', '').strip()
+    if not market:
+        return jsonify({'success': False, 'error': '缺少 market 参数'})
+    update_price(code, market, added_price)
     return jsonify({'success': True})
 
 @app.route('/api/stock-quotes')

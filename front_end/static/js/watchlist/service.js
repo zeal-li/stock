@@ -2,6 +2,22 @@
 
 var watchlistStocks = [];
 
+function _joinChgText(s) {
+    if (!s.addedPrice || s.price === '-') return '-';
+    var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);
+    if (isNaN(ap) || isNaN(cp) || ap === 0) return '-';
+    var pct = (cp - ap) / ap * 100;
+    var color = pct > 0 ? '#e94560' : (pct < 0 ? '#4ade80' : '#ddd');
+    var sign = pct > 0 ? '+' : '';
+    return '<span style="color:' + color + ';">' + s.addedPrice + ' / ' + sign + pct.toFixed(2) + '%</span>';
+}
+
+function _joinDays(dateStr) {
+    if (!dateStr) return '-';
+    var d = new Date(), jd = new Date(dateStr);
+    return Math.max(0, Math.floor((d - jd) / 86400000)) + '天';
+}
+
 function watchlistGetToday() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
 
 function watchlistSaveCache() {
@@ -86,6 +102,40 @@ async function watchlistPickStock(code, market) {
     _watchlistPicking = false;
 }
 
+function watchlistEditAddedPrice(code, market) {
+    var s = watchlistStocks.find(function(x) { return x.code === code; });
+    if (!s) return;
+    var jcTd = document.querySelector('tr[data-wcode="' + code + '"] .cell-jc');
+    if (!jcTd || jcTd.querySelector('input')) return;
+    var oldPrice = s.addedPrice || '';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = oldPrice;
+    input.style.cssText = 'width:70px;background:#1a1a2e;color:#e94560;border:1px solid #e94560;padding:2px 4px;font-size:13px;text-align:center;';
+    input.addEventListener('click', function(e) { e.stopPropagation(); });
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.stopPropagation();
+            var newPrice = input.value.trim();
+            s.addedPrice = newPrice;
+            watchlistSaveCache();
+            fetch('/api/watchlist/' + encodeURIComponent(code), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'market=' + encodeURIComponent(market) + '&added_price=' + encodeURIComponent(newPrice)
+            }).catch(function() {});
+            jcTd.innerHTML = _joinChgText(s);
+        } else if (e.key === 'Escape') {
+            e.stopPropagation();
+            jcTd.innerHTML = _joinChgText(s);
+        }
+    });
+    jcTd.innerHTML = '';
+    jcTd.appendChild(input);
+    input.focus();
+    input.select();
+}
+
 function watchlistRemoveStock(code, market) {
     // 异步从数据库删除
     fetch('/api/watchlist/' + encodeURIComponent(code) + '?market=' + encodeURIComponent(market), { method: 'DELETE' })
@@ -159,7 +209,7 @@ function watchlistRender() {
             '<td class="cell-pepb"><span style="color:#ddd;">' + s.pe + '/' + s.pb + '</span></td>' +
             '<td class="cell-gw"><span style="color:#ddd;">' + (s.goodwill ? _fmtRate(s.goodwill.gw) + '/' + _fmtRate(s.goodwill.pld) : '-') + '</span></td>' +
             '<td class="cell-jd"><span style="color:#ddd;">' + _joinDays(s.addedDate) + '</span></td>' +
-            '<td class="cell-jc">' + _joinChgText(s) + '</td>' +
+            '<td class="cell-jc" style="cursor:pointer;" onclick="watchlistEditAddedPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击修改加选价格">' + _joinChgText(s) + '</td>' +
             '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="watchlistRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
         '</tr>';
     });

@@ -118,8 +118,6 @@ function saveCache() {
         code: s.code, market: s.market,
         gw: s.goodwill ? s.goodwill.gw : undefined,
         pld: s.goodwill ? s.goodwill.pld : undefined,
-        addedDate: s.addedDate || undefined,
-        addedPrice: s.addedPrice || undefined,
     }));
     localStorage.setItem('stockCache', JSON.stringify({ date: getToday(), stocks }));
 }
@@ -154,8 +152,7 @@ function loadPickedStocks() {
         if (raw && raw.stocks) {
             const expired = raw.date !== getToday();
             stocks = raw.stocks.map(s => createStock(s.code, s.code, s.market,
-                (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null,
-                { addedDate: s.addedDate || '', addedPrice: s.addedPrice || '' }
+                (!expired && s.gw !== undefined && s.pld !== undefined) ? {gw: s.gw, pld: s.pld} : null
             ));
         }
         // 兼容旧格式
@@ -279,22 +276,6 @@ function _chgText(chg, pct) {
 
 function _pairText(a, b) {
     return a !== '-' && b !== '-' ? a + '/' + b : a;
-}
-
-function _joinDays(dateStr) {
-    if (!dateStr) return '-';
-    var d = new Date(), jd = new Date(dateStr);
-    return Math.max(0, Math.floor((d - jd) / 86400000)) + '天';
-}
-
-function _joinChgText(s) {
-    if (!s.addedPrice || s.price === '-') return '-';
-    var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);
-    if (isNaN(ap) || isNaN(cp) || ap === 0) return '-';
-    var pct = (cp - ap) / ap * 100;
-    var color = pct >= 0 ? '#e94560' : '#4ade80';
-    var sign = pct >= 0 ? '+' : '';
-    return '<span style="color:' + color + ';">' + s.addedPrice + ' / ' + sign + pct.toFixed(2) + '%</span>';
 }
 
 function renderPicked() {

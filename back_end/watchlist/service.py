@@ -41,3 +41,11 @@ def remove(code, market):
     conn.execute('DELETE FROM watchlist WHERE code = ? AND market = ?', (code, market))
     conn.commit()
     conn.close()
+
+
+def update_price(code, market, added_price):
+    """更新自选股加选价格"""
+    conn = _ensure_db()
+    conn.execute('UPDATE watchlist SET added_price = ? WHERE code = ? AND market = ?', (str(added_price), code, market))
+    conn.commit()
+    conn.close()
