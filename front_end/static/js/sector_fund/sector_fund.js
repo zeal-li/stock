@@ -174,7 +174,7 @@ function renderSectorTable(containerId, list, isInflow) {
     html += '<th>#</th>';
     html += '<th>板块</th>';
     html += '<th>涨跌幅</th>';
-    html += '<th>净流入</th>';
+    html += '<th>主力净流入</th>';
     html += '<th>超大单</th>';
     html += '<th>大单</th>';
     html += '<th>中单</th>';
