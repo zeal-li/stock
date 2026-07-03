@@ -219,7 +219,8 @@ var KlineChartUtils = {
         });
 
         // ---- 主图: K线 + 均线 + 布林线 ----
-        var _priceDec = isETF(stockCode, stockMarket) ? 3 : 2;
+        var _isOverseas = stockMarket === '106' || stockMarket === '116';
+        var _priceDec = (_isOverseas || isETF(stockCode, stockMarket)) ? 3 : 2;
         var _priceFmt = { type: 'custom', formatter: function(v) { return v.toFixed(_priceDec); } };
         var series = mainChart.addCandlestickSeries({
             upColor: '#ef5350', downColor: '#26a69a',
