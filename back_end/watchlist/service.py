@@ -37,8 +37,10 @@ def add(code, market, added_price=''):
     """添加自选股，已存在则忽略"""
     from datetime import datetime
     conn = _ensure_db()
-    conn.execute('INSERT OR IGNORE INTO watchlist (code, market, created_at, added_price) VALUES (?, ?, ?, ?)',
-                 (code, market, datetime.now().isoformat(), str(added_price)))
+    # 新增股票排在末尾：取当前最大 sort_order + 1
+    max_sort = conn.execute('SELECT COALESCE(MAX(sort_order), -1) FROM watchlist').fetchone()[0]
+    conn.execute('INSERT OR IGNORE INTO watchlist (code, market, created_at, added_price, sort_order) VALUES (?, ?, ?, ?, ?)',
+                 (code, market, datetime.now().isoformat(), str(added_price), max_sort + 1))
     conn.commit()
     conn.close()
 
@@ -82,8 +84,9 @@ def etf_add(code, market, added_price=''):
     """添加场内ETF，已存在则忽略"""
     from datetime import datetime
     conn = _ensure_db()
-    conn.execute('INSERT OR IGNORE INTO etf (code, market, created_at, added_price) VALUES (?, ?, ?, ?)',
-                 (code, market, datetime.now().isoformat(), str(added_price)))
+    max_sort = conn.execute('SELECT COALESCE(MAX(sort_order), -1) FROM etf').fetchone()[0]
+    conn.execute('INSERT OR IGNORE INTO etf (code, market, created_at, added_price, sort_order) VALUES (?, ?, ?, ?, ?)',
+                 (code, market, datetime.now().isoformat(), str(added_price), max_sort + 1))
     conn.commit()
     conn.close()
 

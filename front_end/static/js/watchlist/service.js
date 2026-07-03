@@ -730,7 +730,9 @@ function _dragSaveOrder() {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'items=' + encodeURIComponent(JSON.stringify(items))
-    }).catch(function() {});
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (!d.success) console.log('排序保存失败:', d.error);
+    }).catch(function(e) { console.log('排序保存失败:', e); });
 
     if (_dragState.dataAttr === 'wcode') watchlistSaveCache();
 }
