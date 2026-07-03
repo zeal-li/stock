@@ -219,10 +219,13 @@ var KlineChartUtils = {
         });
 
         // ---- 主图: K线 + 均线 + 布林线 ----
+        var _priceDec = isETF(stockCode, stockMarket) ? 3 : 2;
+        var _priceFmt = { type: 'custom', formatter: function(v) { return v.toFixed(_priceDec); } };
         var series = mainChart.addCandlestickSeries({
             upColor: '#ef5350', downColor: '#26a69a',
             borderUpColor: '#ef5350', borderDownColor: '#26a69a',
             wickUpColor: '#ef5350', wickDownColor: '#26a69a',
+            priceFormat: _priceFmt,
         });
         series.setData(klinesData.map(function(k) {
             return { time: k.time, open: k.open, high: k.high, low: k.low, close: k.close };
@@ -337,11 +340,11 @@ var KlineChartUtils = {
         for (var mi = 0; mi < maP.length; mi++) {
             var md = KlineChartUtils.calcSMA(klinesData, maP[mi]);
             maData.push(md);
-            var line = mainChart.addLineSeries({ color: maC[mi], lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
+            var line = mainChart.addLineSeries({ color: maC[mi], lineWidth: 1, priceLineVisible: false, lastValueVisible: false, priceFormat: _priceFmt });
             line.setData(md);
             maLines.push(line);
         }
-        var lastMA = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
+        var lastMA = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(_priceDec) : '--'; };
         var maVals = {
             ma5: lastMA(maData[0]), ma10: lastMA(maData[1]),
             ma20: lastMA(maData[2]), ma30: lastMA(maData[3]),
@@ -351,10 +354,10 @@ var KlineChartUtils = {
         // ---- 布林线（主图，默认隐藏）----
         var bbLines = [];
         var bb = KlineChartUtils.calcBB(klinesData);
-        var lastBB = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(2) : '--'; };
+        var lastBB = function(arr) { return arr.length > 0 ? arr[arr.length - 1].value.toFixed(_priceDec) : '--'; };
         var bbVals = { up: lastBB(bb.up), mid: lastBB(bb.mid), lo: lastBB(bb.lo) };
         [{v: bb.up, d: true, c: '#ef5350'}, {v: bb.mid, d: false, c: '#60a5fa'}, {v: bb.lo, d: true, c: '#26a69a'}].forEach(function(x) {
-            var line = mainChart.addLineSeries({ color: x.c, lineWidth: 1, lineStyle: x.d ? 2 : 0, priceLineVisible: false, lastValueVisible: false, visible: false });
+            var line = mainChart.addLineSeries({ color: x.c, lineWidth: 1, lineStyle: x.d ? 2 : 0, priceLineVisible: false, lastValueVisible: false, visible: false, priceFormat: _priceFmt });
             line.setData(x.v);
             bbLines.push(line);
         });
