@@ -2,7 +2,9 @@
 
 import re
 import time
+import json
 import requests
+from bs4 import BeautifulSoup
 from common import REQUEST_PROXIES
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
 from money_flow.storage import _EM_HEADERS, _EM_UT
@@ -199,7 +201,7 @@ def get_sector_stocks(sector_code: str) -> dict:
 
 
 def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> list:
-    """从 fundf10 jjcc API 解析 ETF 持仓股票列表，返回 [{code, market, name, ratio}]"""
+    """从 fundf10 jjcc API 解析 ETF 持仓股票列表，返回 [{code, market, name, ratio, share_count, market_value}]"""
     params = {
         "type": "jjcc",
         "code": code,
@@ -215,35 +217,57 @@ def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> li
     if r.status_code != 200:
         return []
 
+    # 响应格式: var apidata={ content:"...", ...}  — 从中提取 HTML content
     text = r.text
-    # 按季度分组，取第一个有数据的季度（即最新）
-    sections = text.split("<div class='box'>")
+    match = re.search(r'var apidata\s*=\s*\{.*?content:"(.*?)".*?\}', text, re.DOTALL)
+    if not match:
+        return []
+    html_content = match.group(1)
+    # content 里的转义引号还原
+    html_content = html_content.replace('\\"', '"')
+
+    # 取第一个季度section（即最新）
+    sections = html_content.split("<div class='box'>")
     for section in sections[1:]:
-        # 按行整体提取：代码、名称、占比 — 避免全局扫描 tor td 导致索引错位
-        row_pattern = (
-            r"<tr><td>\d+</td>"
-            r"<td><a[^>]*>(\d{6})</a></td>"
-            r"<td[^>]*><a[^>]*>([^<]+)</a></td>"
-            r"[\s\S]*?"
-            r"<td[^>]*class=['\"]tor['\"]>([^<]*%)</td>"
-            r"[\s\S]*?</tr>"
-        )
-        rows = re.findall(row_pattern, section)
+        soup = BeautifulSoup(section, "html.parser")
+        tbody = soup.find("tbody")
+        if not tbody:
+            continue
+
+        rows = tbody.find_all("tr")
         if not rows:
             continue
 
         stocks = []
-        for row in rows:
-            stock_code = row[0]
-            if stock_code.startswith(("6", "9")):
+        for tr in rows:
+            tds = tr.find_all("td")
+            if len(tds) < 9:
+                continue
+            # tds[0]=序号, tds[1]=股票代码, tds[2]=名称, tds[3]=最新价(span), tds[4]=涨跌幅(span),
+            # tds[5]=相关资讯, tds[6]=占净值比例, tds[7]=持股数, tds[8]=持仓市值
+            code_link = tds[1].find("a")
+            stock_code = code_link.get_text(strip=True) if code_link else tds[1].get_text(strip=True)
+            # 跳过非6位数字代码（如 A19121 锦波生物）
+            if not re.match(r'^\d{6}$', stock_code):
+                continue
+            name_link = tds[2].find("a")
+            stock_name = name_link.get_text(strip=True) if name_link else tds[2].get_text(strip=True)
+            ratio = tds[6].get_text(strip=True)
+            share_count = tds[7].get_text(strip=True)
+            market_value = tds[8].get_text(strip=True)
+
+            # 上海(6xxxxx/688xxx) → market 1; 深圳/创业板/北交所 → market 0
+            if stock_code.startswith("6"):
                 market = "1"
             else:
                 market = "0"
             stocks.append({
                 "code": stock_code,
                 "market": market,
-                "name": row[1].strip(),
-                "ratio": row[2].strip(),
+                "name": stock_name,
+                "ratio": ratio,
+                "share_count": share_count,
+                "market_value": market_value,
             })
         return stocks
 
@@ -257,13 +281,13 @@ def get_etf_stocks(code: str, market: str) -> dict:
     if not code or not market:
         return {"success": False, "error": "缺少参数"}
 
-    # 从 fundf10 解析持仓，优先取数据最多的年份（覆盖面更全）
+    # 从 fundf10 解析持仓，优先取当年（最新季度），当年无数据才退到去年
     from datetime import datetime as _dt
     cur_year = str(_dt.now().year)
     prev_year = str(_dt.now().year - 1)
-    holdings_cur = _parse_fundf10_holdings(code, topline=300, year=cur_year)
-    holdings_prev = _parse_fundf10_holdings(code, topline=300, year=prev_year)
-    holdings = holdings_cur if len(holdings_cur) >= len(holdings_prev) else holdings_prev
+    holdings = _parse_fundf10_holdings(code, topline=300, year=cur_year)
+    if not holdings:
+        holdings = _parse_fundf10_holdings(code, topline=300, year=prev_year)
     if not holdings:
         # 再试不指定年份（让 API 自行选择）
         holdings = _parse_fundf10_holdings(code, topline=300, year="")
@@ -277,7 +301,7 @@ def get_etf_stocks(code: str, market: str) -> dict:
     url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
     params = {
         "fltt": "2", "invt": "2",
-        "fields": "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f62",
+        "fields": "f2,f3,f4,f12,f13,f14",
         "secids": secids,
         "ut": _EM_UT,
     }
@@ -292,7 +316,7 @@ def get_etf_stocks(code: str, market: str) -> dict:
     except Exception:
         pass
 
-    # 合合持仓 + 行情，按涨跌幅排序
+    # 合合持仓 + 行情
     stocks = []
     for h in holdings:
         key = f"{h['market']}.{h['code']}"
@@ -300,10 +324,6 @@ def get_etf_stocks(code: str, market: str) -> dict:
 
         change_pct = _safe_float(q.get("f3", 0)) if q else None
         price = _safe_float(q.get("f2", 0)) if q else None
-        change_amt = _safe_float(q.get("f4", 0)) if q else None
-        turnover = _safe_float(q.get("f8", 0)) if q else None
-        amplitude = _safe_float(q.get("f7", 0)) if q else None
-        main_net = q.get("f62") if q else None
         name = (q.get("f14") or h["name"]) if q else h["name"]
 
         etf = is_etf(h["code"], h["market"])
@@ -314,11 +334,9 @@ def get_etf_stocks(code: str, market: str) -> dict:
             "market": h["market"],
             "change_pct": f"{'+' if (change_pct or 0) >= 0 else ''}{(change_pct if change_pct is not None else 0):.2f}%" if change_pct is not None else "-",
             "price": fmt(price, etf) if price is not None else "-",
-            "change_amt": fmt(change_amt, etf) if change_amt is not None else "-",
-            "turnover": f"{turnover:.2f}%" if turnover is not None else "-",
-            "amplitude": f"{amplitude:.2f}%" if amplitude is not None else "-",
-            "main_net": _format_amount(main_net),
             "ratio": h["ratio"],
+            "share_count": h["share_count"],
+            "market_value": h["market_value"],
         })
 
     # 排序由前端完成

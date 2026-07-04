@@ -535,7 +535,7 @@ function showEtfPool(e, code, market, name) {
     var clickedRow = document.querySelector('tr[data-ecode="' + code + '"]');
     _positionPoolPanel(panel, clickedRow);
 
-    titleEl.textContent = name + ' — 成分股';
+    titleEl.textContent = code + ' ' + name + ' — 成分股';
     panel.style.display = 'block';
     document.getElementById('etfPoolTableWrap').innerHTML = '<div class="loading">加载中...</div>';
 
@@ -587,13 +587,11 @@ function renderEtfPoolTable(list, total) {
     html += '<table class="sector-fund-table stock-pool-table">';
     html += '<thead><tr>';
     html += '<th>#</th>';
-    html += '<th>名称</th>';
-    html += '<th>涨跌幅</th>';
+    html += '<th>股票代码</th>';
+    html += '<th>股票名称</th>';
     html += '<th>最新价</th>';
-    html += '<th>占比</th>';
-    html += '<th>主力净流入</th>';
-    html += '<th>换手率</th>';
-    html += '<th>振幅</th>';
+    html += '<th>涨跌幅</th>';
+    html += '<th>占净值比例</th>';
     html += '</tr></thead>';
     html += '<tbody>';
 
@@ -604,21 +602,13 @@ function renderEtfPoolTable(list, total) {
             cls = pct.startsWith('+') ? 'up' : (pct.startsWith('-') ? 'down' : '');
         }
 
-        var mainCls = '';
-        var mainNet = item.main_net || '-';
-        if (typeof mainNet === 'string') {
-            mainCls = mainNet.startsWith('+') ? 'up' : (mainNet.startsWith('-') ? 'down' : '');
-        }
-
         html += '<tr onclick="openStockDetail(\'' + item.code + '\',\'' + item.market + '\',\'' + (item.name || '').replace(/'/g, "\\'") + '\')" style="cursor:pointer">';
         html += '<td>' + (idx + 1) + '</td>';
+        html += '<td>' + (item.code || '-') + '</td>';
         html += '<td class="col-name">' + (item.name || '-') + '</td>';
-        html += '<td class="' + cls + '">' + pct + '</td>';
         html += '<td>' + (item.price || '-') + '</td>';
+        html += '<td class="' + cls + '">' + pct + '</td>';
         html += '<td>' + (item.ratio || '-') + '</td>';
-        html += '<td class="' + mainCls + '">' + mainNet + '</td>';
-        html += '<td>' + (item.turnover || '-') + '</td>';
-        html += '<td>' + (item.amplitude || '-') + '</td>';
         html += '</tr>';
     });
 
