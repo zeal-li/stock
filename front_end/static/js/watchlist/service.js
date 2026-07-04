@@ -376,22 +376,6 @@ function watchlistUpdateGoodwill() {
 
 var etfStocks = [];
 
-function _etfChgText(s) {
-    if (!s.addedPrice || s.price === '-') return '-';
-    var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);
-    if (isNaN(ap) || isNaN(cp) || ap === 0) return '-';
-    var pct = (cp - ap) / ap * 100;
-    var color = pct > 0 ? '#e94560' : (pct < 0 ? '#4ade80' : '#ddd');
-    var sign = pct > 0 ? '+' : '';
-    return '<span style="color:' + color + ';">' + s.addedPrice + ' / ' + sign + pct.toFixed(2) + '%</span>';
-}
-
-function _etfJoinDays(dateStr) {
-    if (!dateStr) return '-';
-    var d = new Date(), jd = new Date(dateStr);
-    return Math.max(0, Math.floor((d - jd) / 86400000)) + '天';
-}
-
 function loadEtfStocks() {
     fetch('/api/etf')
         .then(function(r) { return r.json(); })
@@ -399,7 +383,7 @@ function loadEtfStocks() {
             if (!data.success) throw new Error('API failed');
             etfStocks = (data.data || []).map(function(s) {
                 var ad = s.created_at ? s.created_at.slice(0, 10) : '';
-                return createStock(s.code, s.code, s.market, null, { addedDate: ad, addedPrice: s.added_price || '' });
+                return createStock(s.code, s.code, s.market, null, { addedDate: ad });
             });
             etfRender();
             if (etfStocks.length > 0) refreshEtfQuotes();
@@ -412,65 +396,12 @@ async function etfPickStock(code, market) {
     if (_etfPicking) return;
     if (etfStocks.find(function(s) { return s.code === code; })) return;
     _etfPicking = true;
-    var addPrice = '';
-    try {
-        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(market + '.' + code));
-        var d = await res.json();
-        if (d.success) {
-            var q = d.data[market + '.' + code];
-            if (q && q.price && q.price !== '-') addPrice = q.price;
-        }
-    } catch(e) {}
-    var body = 'code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market);
-    if (addPrice) body += '&added_price=' + encodeURIComponent(addPrice);
-    fetch('/api/etf', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
+    fetch('/api/etf', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market) })
         .catch(function() {});
-    var info = { addedDate: watchlistGetToday(), addedPrice: addPrice };
-    etfStocks.push(createStock(code, code, market, null, info));
+    etfStocks.push(createStock(code, code, market, null, {}));
     etfRender();
     refreshEtfQuotes();
     _etfPicking = false;
-}
-
-function etfEditAddedPrice(code, market) {
-    var s = etfStocks.find(function(x) { return x.code === code; });
-    if (!s) return;
-    var jcTd = document.querySelector('tr[data-ecode="' + code + '"] .cell-jc');
-    if (!jcTd || jcTd.querySelector('input')) return;
-    var oldPrice = s.addedPrice || '';
-    var confirmed = false;
-    function doConfirm() {
-        if (confirmed) return;
-        confirmed = true;
-        var newPrice = input.value.trim();
-        s.addedPrice = newPrice;
-        fetch('/api/etf/' + encodeURIComponent(code), {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'market=' + encodeURIComponent(market) + '&added_price=' + encodeURIComponent(newPrice)
-        }).catch(function() {});
-        jcTd.innerHTML = _etfChgText(s);
-    }
-    function doCancel() {
-        if (confirmed) return;
-        confirmed = true;
-        jcTd.innerHTML = _etfChgText(s);
-    }
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.value = oldPrice;
-    input.style.cssText = 'width:70px;background:#1a1a2e;color:#e94560;border:1px solid #e94560;padding:2px 4px;font-size:13px;text-align:center;';
-    input.addEventListener('click', function(e) { e.stopPropagation(); });
-    input.addEventListener('keydown', function(e) {
-        e.stopPropagation();
-        if (e.key === 'Enter') { doConfirm(); }
-        else if (e.key === 'Escape') { doCancel(); }
-    });
-    input.addEventListener('blur', function() { doConfirm(); });
-    jcTd.innerHTML = '';
-    jcTd.appendChild(input);
-    input.focus();
-    input.select();
 }
 
 function etfRemoveStock(code, market) {
@@ -505,7 +436,7 @@ async function refreshEtfQuotes() {
 function etfRender() {
     var div = document.getElementById('etfContent');
     if (etfStocks.length === 0) { div.innerHTML = ''; return; }
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>加选天数</th><th>加选价/涨幅</th><th></th></tr></thead><tbody>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th></th></tr></thead><tbody>';
     etfStocks.forEach(function(s) {
         var type = getStockType(s.code, s.market);
         var color = _chgColor(s.change);
@@ -519,8 +450,6 @@ function etfRender() {
             '<td class="cell-vol"><span style="color:#ddd;">' + _pairText(s.volume, s.amount) + '</span></td>' +
             '<td class="cell-cap"><span style="color:#ddd;">' + _pairText(s.total_cap, s.float_cap) + '</span></td>' +
             '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
-            '<td class="cell-jd"><span style="color:#ddd;">' + _etfJoinDays(s.addedDate) + '</span></td>' +
-            '<td class="cell-jc" style="cursor:pointer;" onclick="etfEditAddedPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击修改加选价格">' + _etfChgText(s) + '</td>' +
             '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="etfRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
         '</tr>';
     });
@@ -543,8 +472,6 @@ function etfUpdatePrices() {
         _setCell(row, 'cell-vol', _pairText(s.volume, s.amount), '#ddd');
         _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
         _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
-        var jdTd = row.querySelector('.cell-jd'); if (jdTd) { var jdSp = jdTd.querySelector('span'); if (jdSp) jdSp.textContent = _etfJoinDays(s.addedDate); }
-        var jcTd = row.querySelector('.cell-jc'); if (jcTd) jcTd.innerHTML = _etfChgText(s);
     });
 }
 

@@ -18,7 +18,7 @@ from sector_fund.service import get_sector_fund, get_sector_stocks
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove, update_price, reorder
-from watchlist.service import etf_get_all, etf_add, etf_remove, etf_update_price, etf_reorder
+from watchlist.service import etf_get_all, etf_add, etf_remove, etf_reorder
 from watchlist.service import holdings_get_all, holdings_add, holdings_remove, holdings_update, holdings_reorder
 import logging
 logger = logging.getLogger(__name__)
@@ -187,16 +187,15 @@ def watchlist_reorder_route():
 @app.route('/api/etf', methods=['GET'])
 def etf_get():
     rows = etf_get_all()
-    return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2], 'added_price': r[3]} for r in rows]})
+    return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2]} for r in rows]})
 
 @app.route('/api/etf', methods=['POST'])
 def etf_add_route():
     code = request.form.get('code', '').strip()
     market = request.form.get('market', '').strip()
-    added_price = request.form.get('added_price', '').strip()
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
-    etf_add(code, market, added_price)
+    etf_add(code, market)
     return jsonify({'success': True})
 
 @app.route('/api/etf/<code>', methods=['DELETE'])
@@ -207,14 +206,6 @@ def etf_remove_route(code):
     etf_remove(code, market)
     return jsonify({'success': True})
 
-@app.route('/api/etf/<code>', methods=['PUT'])
-def etf_update_route(code):
-    market = request.form.get('market', '').strip()
-    added_price = request.form.get('added_price', '').strip()
-    if not market:
-        return jsonify({'success': False, 'error': '缺少 market 参数'})
-    etf_update_price(code, market, added_price)
-    return jsonify({'success': True})
 
 
 @app.route('/api/etf/reorder', methods=['POST'])

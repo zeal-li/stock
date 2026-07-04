@@ -106,12 +106,6 @@ def etf_remove(code, market):
     conn.close()
 
 
-def etf_update_price(code, market, added_price):
-    """更新场内ETF加选价格"""
-    conn = _ensure_db()
-    conn.execute('UPDATE etf SET added_price = ? WHERE code = ? AND market = ?', (str(added_price), code, market))
-    conn.commit()
-    conn.close()
 
 
 def etf_reorder(items):
