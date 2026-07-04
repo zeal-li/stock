@@ -19,6 +19,7 @@ from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove, update_price, reorder
 from watchlist.service import etf_get_all, etf_add, etf_remove, etf_update_price, etf_reorder
+from watchlist.service import holdings_get_all, holdings_add, holdings_remove, holdings_update_price, holdings_reorder
 import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
@@ -226,6 +227,56 @@ def etf_reorder_route():
     try:
         items = _json.loads(items_raw)
         etf_reorder(items)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+# ==================== 持仓股 ====================
+
+@app.route('/api/holdings', methods=['GET'])
+def holdings_get():
+    rows = holdings_get_all()
+    return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2], 'added_price': r[3]} for r in rows]})
+
+@app.route('/api/holdings', methods=['POST'])
+def holdings_add_route():
+    code = request.form.get('code', '').strip()
+    market = request.form.get('market', '').strip()
+    added_price = request.form.get('added_price', '').strip()
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    holdings_add(code, market, added_price)
+    return jsonify({'success': True})
+
+@app.route('/api/holdings/<code>', methods=['DELETE'])
+def holdings_remove_route(code):
+    market = request.args.get('market', '')
+    if not market:
+        return jsonify({'success': False, 'error': '缺少 market 参数'})
+    holdings_remove(code, market)
+    return jsonify({'success': True})
+
+@app.route('/api/holdings/<code>', methods=['PUT'])
+def holdings_update_route(code):
+    market = request.form.get('market', '').strip()
+    added_price = request.form.get('added_price', '').strip()
+    if not market:
+        return jsonify({'success': False, 'error': '缺少 market 参数'})
+    holdings_update_price(code, market, added_price)
+    return jsonify({'success': True})
+
+
+@app.route('/api/holdings/reorder', methods=['POST'])
+def holdings_reorder_route():
+    """批量更新持仓股排序"""
+    import json as _json
+    items_raw = request.form.get('items', '').strip()
+    if not items_raw:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    try:
+        items = _json.loads(items_raw)
+        holdings_reorder(items)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -849,12 +900,14 @@ def trading_days():
 
 
 def _collect_target_codes():
-    """收集自选股+选股代码"""
+    """收集自选股+持仓股+选股代码"""
     wl_rows = get_all()
     wl_codes = {r[0] for r in wl_rows}
+    holdings_rows = holdings_get_all()
+    holdings_codes = {r[0] for r in holdings_rows}
     pick_codes_raw = request.args.get('codes', '').split(',')
     pick_codes = {c.strip() for c in pick_codes_raw if c.strip()}
-    return wl_codes | pick_codes
+    return wl_codes | holdings_codes | pick_codes
 
 
 @app.route('/api/announcements')

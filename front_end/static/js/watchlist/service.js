@@ -2,11 +2,18 @@
 
 var watchlistStocks = [];
 
+var _currentWatchlistTab = 'watchlist';
+
 function switchWatchlistTab(tab) {
     document.querySelectorAll('#page-watchlist .sector-tab').forEach(function(t) { t.classList.remove('active'); });
     document.querySelectorAll('.watchlist-tab-content').forEach(function(c) { c.classList.remove('active'); });
     document.querySelector('#page-watchlist .sector-tab[data-tab="' + tab + '"]').classList.add('active');
     document.getElementById('watchlist-tab-' + tab).classList.add('active');
+    _currentWatchlistTab = tab;
+    // 切到新 tab 立即刷新一次行情
+    if (tab === 'watchlist') refreshWatchlistQuotes();
+    else if (tab === 'etf') refreshEtfQuotes();
+    else if (tab === 'holdings') refreshHoldingsQuotes();
 }
 
 // ---- 搜索添加 ----
@@ -95,6 +102,10 @@ function wlAddStock(code, name, market) {
     } else if (tab === 'etf') {
         if (!etfStocks.find(function(s) { return s.code === code; })) {
             etfPickStock(code, market);
+        }
+    } else if (tab === 'holdings') {
+        if (!holdingsStocks.find(function(s) { return s.code === code; })) {
+            holdingsPickStock(code, market);
         }
     }
     // 清空搜索框
@@ -703,8 +714,9 @@ function _dragOnUp(e) {
 }
 
 function _dragSaveOrder() {
-    // 根据当前激活的tab确定tbody
-    var containerId = _dragState.dataAttr === 'wcode' ? 'watchlistStocks' : 'etfContent';
+    // 根据当前 dataAttr 确定容器
+    var containerMap = { 'wcode': 'watchlistStocks', 'ecode': 'etfContent', 'hcode': 'holdingsContent' };
+    var containerId = containerMap[_dragState.dataAttr];
     var tbody = document.querySelector('#' + containerId + ' .data-table tbody');
     if (!tbody || !_dragState.stocksArr) return;
 
@@ -767,4 +779,181 @@ function watchlistRender() {
     // 绑定拖拽
     var tbody = div.querySelector('.data-table tbody');
     if (tbody) _dragInit(tbody, watchlistStocks, 'wcode', '/api/watchlist/reorder');
+}
+
+
+// ==================== 持仓股 ====================
+
+var holdingsStocks = [];
+
+function _holdingsChgText(s) {
+    if (!s.addedPrice || s.price === '-') return '-';
+    var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);
+    if (isNaN(ap) || isNaN(cp) || ap === 0) return '-';
+    var pct = (cp - ap) / ap * 100;
+    var color = pct > 0 ? '#e94560' : (pct < 0 ? '#4ade80' : '#ddd');
+    var sign = pct > 0 ? '+' : '';
+    return '<span style="color:' + color + ';">' + s.addedPrice + ' / ' + sign + pct.toFixed(2) + '%</span>';
+}
+
+function _holdingsJoinDays(dateStr) {
+    if (!dateStr) return '-';
+    var d = new Date(), jd = new Date(dateStr);
+    return Math.max(0, Math.floor((d - jd) / 86400000)) + '天';
+}
+
+function loadHoldingsStocks() {
+    fetch('/api/holdings')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.success) throw new Error('API failed');
+            holdingsStocks = (data.data || []).map(function(s) {
+                var ad = s.created_at ? s.created_at.slice(0, 10) : '';
+                return createStock(s.code, s.code, s.market, null, { addedDate: ad, addedPrice: s.added_price || '' });
+            });
+            holdingsRender();
+            if (holdingsStocks.length > 0) refreshHoldingsQuotes();
+        })
+        .catch(function() { holdingsStocks = []; holdingsRender(); });
+}
+
+var _holdingsPicking = false;
+async function holdingsPickStock(code, market) {
+    if (_holdingsPicking) return;
+    if (holdingsStocks.find(function(s) { return s.code === code; })) return;
+    _holdingsPicking = true;
+    var addPrice = '';
+    try {
+        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(market + '.' + code));
+        var d = await res.json();
+        if (d.success) {
+            var q = d.data[market + '.' + code];
+            if (q && q.price && q.price !== '-') addPrice = q.price;
+        }
+    } catch(e) {}
+    var body = 'code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market);
+    if (addPrice) body += '&added_price=' + encodeURIComponent(addPrice);
+    fetch('/api/holdings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
+        .catch(function() {});
+    var info = { addedDate: watchlistGetToday(), addedPrice: addPrice };
+    holdingsStocks.push(createStock(code, code, market, null, info));
+    holdingsRender();
+    refreshHoldingsQuotes();
+    _holdingsPicking = false;
+}
+
+function holdingsEditAddedPrice(code, market) {
+    var s = holdingsStocks.find(function(x) { return x.code === code; });
+    if (!s) return;
+    var jcTd = document.querySelector('tr[data-hcode="' + code + '"] .cell-jc');
+    if (!jcTd || jcTd.querySelector('input')) return;
+    var oldPrice = s.addedPrice || '';
+    var confirmed = false;
+    function doConfirm() {
+        if (confirmed) return;
+        confirmed = true;
+        var newPrice = input.value.trim();
+        s.addedPrice = newPrice;
+        fetch('/api/holdings/' + encodeURIComponent(code), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'market=' + encodeURIComponent(market) + '&added_price=' + encodeURIComponent(newPrice)
+        }).catch(function() {});
+        jcTd.innerHTML = _holdingsChgText(s);
+    }
+    function doCancel() {
+        if (confirmed) return;
+        confirmed = true;
+        jcTd.innerHTML = _holdingsChgText(s);
+    }
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.value = oldPrice;
+    input.style.cssText = 'width:70px;background:#1a1a2e;color:#e94560;border:1px solid #e94560;padding:2px 4px;font-size:13px;text-align:center;';
+    input.addEventListener('click', function(e) { e.stopPropagation(); });
+    input.addEventListener('keydown', function(e) {
+        e.stopPropagation();
+        if (e.key === 'Enter') { doConfirm(); }
+        else if (e.key === 'Escape') { doCancel(); }
+    });
+    input.addEventListener('blur', function() { doConfirm(); });
+    jcTd.innerHTML = '';
+    jcTd.appendChild(input);
+    input.focus();
+    input.select();
+}
+
+function holdingsRemoveStock(code, market) {
+    fetch('/api/holdings/' + encodeURIComponent(code) + '?market=' + encodeURIComponent(market), { method: 'DELETE' })
+        .catch(function() {});
+    holdingsStocks = holdingsStocks.filter(function(s) { return s.code !== code; });
+    holdingsRender();
+}
+
+async function refreshHoldingsQuotes() {
+    if (holdingsStocks.length === 0) return;
+    var secids = holdingsStocks.map(function(s) { return s.market + '.' + s.code; }).join(',');
+    try {
+        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(secids));
+        var data = await res.json();
+        if (data.success) {
+            holdingsStocks.forEach(function(s) {
+                var q = data.data[s.market + '.' + s.code];
+                if (q) {
+                    if (q.name) s.name = q.name;
+                    s.price = q.price || '-'; s.pct = q.pct || '-'; s.change = q.change || '-';
+                    s.amplitude = q.amplitude || '-'; s.turnover = q.turnover || '-';
+                    s.volume = q.volume || '-'; s.amount = q.amount || '-';
+                    s.total_cap = q.total_cap || '-'; s.float_cap = q.float_cap || '-';
+                }
+            });
+            holdingsUpdatePrices();
+        }
+    } catch(e) { console.log('持仓股报价刷新失败:', e); }
+}
+
+function holdingsRender() {
+    var div = document.getElementById('holdingsContent');
+    if (holdingsStocks.length === 0) { div.innerHTML = ''; return; }
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>加选天数</th><th>加选价/涨幅</th><th></th></tr></thead><tbody>';
+    holdingsStocks.forEach(function(s) {
+        var type = getStockType(s.code, s.market);
+        var color = _chgColor(s.change);
+        var chgText = _chgText(s.change, s.pct);
+        html += '<tr data-hcode="' + s.code + '">' +
+            '<td><span style="color:#888;">' + s.code + '</span></td>' +
+            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + s.market + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
+            '<td><span style="color:#555;">' + type + '</span></td>' +
+            '<td class="cell-price"><span style="color:' + color + ';font-weight:bold;">' + s.price + '</span></td>' +
+            '<td class="cell-chg"><span style="color:' + color + ';">' + chgText + '</span></td>' +
+            '<td class="cell-vol"><span style="color:#ddd;">' + _pairText(s.volume, s.amount) + '</span></td>' +
+            '<td class="cell-cap"><span style="color:#ddd;">' + _pairText(s.total_cap, s.float_cap) + '</span></td>' +
+            '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
+            '<td class="cell-jd"><span style="color:#ddd;">' + _holdingsJoinDays(s.addedDate) + '</span></td>' +
+            '<td class="cell-jc" style="cursor:pointer;" onclick="holdingsEditAddedPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击修改加选价格">' + _holdingsChgText(s) + '</td>' +
+            '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="holdingsRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+    div.innerHTML = html;
+    // 绑定拖拽
+    var tbody = div.querySelector('.data-table tbody');
+    if (tbody) _dragInit(tbody, holdingsStocks, 'hcode', '/api/holdings/reorder');
+}
+
+function holdingsUpdatePrices() {
+    holdingsStocks.forEach(function(s) {
+        var row = document.querySelector('tr[data-hcode="' + s.code + '"]');
+        if (!row) return;
+        var nameEl = row.cells[1] && row.cells[1].querySelector('span');
+        if (nameEl && s.name !== '-' && nameEl.textContent !== s.name) { nameEl.textContent = s.name; nameEl.setAttribute('onclick', "KlinePopup.open('" + s.code + "','" + s.market + "','" + s.name + "')"); }
+        var color = _chgColor(s.change);
+        _setCell(row, 'cell-price', s.price, color);
+        _setCell(row, 'cell-chg', _chgText(s.change, s.pct), color);
+        _setCell(row, 'cell-vol', _pairText(s.volume, s.amount), '#ddd');
+        _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
+        _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
+        var jdTd = row.querySelector('.cell-jd'); if (jdTd) { var jdSp = jdTd.querySelector('span'); if (jdSp) jdSp.textContent = _holdingsJoinDays(s.addedDate); }
+        var jcTd = row.querySelector('.cell-jc'); if (jcTd) jcTd.innerHTML = _holdingsChgText(s);
+    });
 }
