@@ -1,8 +1,9 @@
 // ==================== 公共接口 ====================
 
-// 判断是否为ETF
+// 判断是否为场内基金（ETF+LOF），价格显示3位小数
 function isETF(code, market) {
-    return getStockType(code, market).indexOf('ETF') >= 0;
+    var type = getStockType(code, market);
+    return type.indexOf('ETF') >= 0 || type.indexOf('LOF') >= 0;
 }
 
 // 清除所有本地缓存数据
@@ -134,10 +135,10 @@ function getStockType(code, market) {
     if (/^30[01]/.test(c)) return '创业';
     if (/^00[0-3]/.test(c)) return '深A';
     if (/^51|^56|^58/.test(c)) return '沪ETF';
-    if (/^5/.test(c)) return '沪基';
+    if (/^5/.test(c)) return '沪LOF';
     if (/^11/.test(c)) return '沪债';
     if (/^159/.test(c)) return '深ETF';
-    if (/^1[6-8]/.test(c)) return '深基';
+    if (/^1[6-8]/.test(c)) return '深LOF';
     if (/^12/.test(c)) return '深债';
 
     // 代码没匹配到，按 market 兜底

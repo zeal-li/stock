@@ -104,6 +104,10 @@ function wlAddStock(code, name, market) {
             watchlistPickStock(code, market);
         }
     } else if (tab === 'etf') {
+        if (!isETF(code, market)) {
+            alert('场内ETF仅支持添加场内基金');
+            return;
+        }
         if (!etfStocks.find(function(s) { return s.code === code; })) {
             etfPickStock(code, market);
         }

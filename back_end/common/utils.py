@@ -1,13 +1,19 @@
 """通用格式化函数"""
 
 def is_etf(code, market):
-    """判断是否为ETF（沪市51xxxx/56xxxx/58xxxx，深市159xxx）"""
+    """判断是否为场内基金（ETF+LOF），价格显示3位小数"""
     c = str(code) if code else ''
     # 深ETF: 159开头
     if c[:3] == '159':
         return True
+    # 深LOF: 160~168开头
+    if c[:2] in ('16', '17', '18'):
+        return True
     # 沪ETF: 51/56/58开头
     if c[:2] in ('51', '56', '58'):
+        return True
+    # 沪LOF: 50开头（其他沪市场内基金）
+    if c[:2] == '50':
         return True
     return False
 
