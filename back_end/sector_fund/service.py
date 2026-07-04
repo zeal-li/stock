@@ -219,35 +219,31 @@ def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> li
     # 按季度分组，取第一个有数据的季度（即最新）
     sections = text.split("<div class='box'>")
     for section in sections[1:]:
-        # 第一步：提取序号、股票代码、名称（HTML 用单引号）
-        base_rows = re.findall(
-            r'<tr><td>(\d+)</td><td><a[^>]*>(\d{6})</a></td>'
-            r'<td[^>]*><a[^>]*>([^<]+)</a></td>',
-            section,
+        # 按行整体提取：代码、名称、占比 — 避免全局扫描 tor td 导致索引错位
+        row_pattern = (
+            r"<tr><td>\d+</td>"
+            r"<td><a[^>]*>(\d{6})</a></td>"
+            r"<td[^>]*><a[^>]*>([^<]+)</a></td>"
+            r"[\s\S]*?"
+            r"<td[^>]*class=['\"]tor['\"]>([^<]*%)</td>"
+            r"[\s\S]*?</tr>"
         )
-        if not base_rows:
+        rows = re.findall(row_pattern, section)
+        if not rows:
             continue
 
-        # 第二步：提取占净值比例（最后一个 class='tor' 或 class="tor" 的 td）
-        # 每行有多个 tor td：占比(带%)、持股数、持仓市值；只取带%的即为占比
-        ratio_rows = re.findall(
-            r"<td[^>]*class=['\"]tor['\"]>([^<]*%)</td>",
-            section,
-        )
-
         stocks = []
-        for i, row in enumerate(base_rows):
-            stock_code = row[1]
+        for row in rows:
+            stock_code = row[0]
             if stock_code.startswith(("6", "9")):
                 market = "1"
             else:
                 market = "0"
-            ratio = ratio_rows[i].strip() if i < len(ratio_rows) else ""
             stocks.append({
                 "code": stock_code,
                 "market": market,
-                "name": row[2],
-                "ratio": ratio,
+                "name": row[1].strip(),
+                "ratio": row[2].strip(),
             })
         return stocks
 
@@ -255,7 +251,7 @@ def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> li
 
 
 def get_etf_stocks(code: str, market: str) -> dict:
-    """获取ETF成分股列表（按涨跌幅排序）
+    """获取ETF成分股列表（前端按占比排序）
     步骤：1) 从 fundf10 解析持仓股票代码  2) 用 ulist.np/get 获取实时行情
     """
     if not code or not market:
@@ -325,7 +321,5 @@ def get_etf_stocks(code: str, market: str) -> dict:
             "ratio": h["ratio"],
         })
 
-    # 按占比降序排序
-    stocks.sort(key=lambda s: float(s["ratio"].replace("%", "")) if s["ratio"] not in (None, "-", "") else -999, reverse=True)
-
+    # 排序由前端完成
     return {"success": True, "stocks": stocks, "total": total}

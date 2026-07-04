@@ -470,7 +470,12 @@ function etfUpdatePrices() {
         var row = document.querySelector('tr[data-ecode="' + s.code + '"]');
         if (!row) return;
         var nameEl = row.cells[1] && row.cells[1].querySelector('span');
-        if (nameEl && s.name !== '-' && nameEl.textContent !== s.name) { nameEl.textContent = s.name; nameEl.setAttribute('onclick', "KlinePopup.open('" + s.code + "','" + s.market + "','" + s.name + "')"); }
+        if (nameEl && s.name !== '-' && nameEl.textContent !== s.name) {
+            nameEl.textContent = s.name;
+            nameEl.setAttribute('onclick', "KlinePopup.open('" + s.code + "','" + s.market + "','" + s.name + "')");
+            // 同步更新行的 onclick，让 showEtfPool 拿到最新名称
+            row.setAttribute('onclick', "showEtfPool(event,'" + s.code + "','" + s.market + "','" + s.name + "')");
+        }
         var color = _chgColor(s.change);
         _setCell(row, 'cell-price', s.price, color);
         _setCell(row, 'cell-chg', _chgText(s.change, s.pct), color);
@@ -568,6 +573,13 @@ function renderEtfPoolTable(list, total) {
         wrap.innerHTML = '<div class="loading">暂无数据</div>';
         return;
     }
+
+    // 按持仓占比降序排序
+    list.sort(function(a, b) {
+        var ra = parseFloat((a.ratio || '0').replace('%', ''));
+        var rb = parseFloat((b.ratio || '0').replace('%', ''));
+        return rb - ra;
+    });
 
     var countInfo = total > list.length ? '（显示前' + list.length + '只，共' + total + '只）' : '（共' + list.length + '只）';
 
