@@ -10,6 +10,10 @@ function switchWatchlistTab(tab) {
     document.querySelector('#page-watchlist .sector-tab[data-tab="' + tab + '"]').classList.add('active');
     document.getElementById('watchlist-tab-' + tab).classList.add('active');
     _currentWatchlistTab = tab;
+    // 持仓汇总只在持仓 tab 时显示
+    var summaryEl = document.getElementById('holdingsSummary');
+    if (summaryEl) summaryEl.style.display = tab === 'holdings' && holdingsStocks.length > 0 ? 'flex' : 'none';
+    if (tab === 'holdings') _holdingsUpdateSummary();
     // 切到新 tab 立即刷新一次行情
     if (tab === 'watchlist') refreshWatchlistQuotes();
     else if (tab === 'etf') refreshEtfQuotes();
@@ -786,16 +790,6 @@ function watchlistRender() {
 
 var holdingsStocks = [];
 
-function _holdingsChgText(s) {
-    if (!s.addedPrice || s.price === '-') return '-';
-    var ap = parseFloat(s.addedPrice), cp = parseFloat(s.price);
-    if (isNaN(ap) || isNaN(cp) || ap === 0) return '-';
-    var pct = (cp - ap) / ap * 100;
-    var color = pct > 0 ? '#e94560' : (pct < 0 ? '#4ade80' : '#ddd');
-    var sign = pct > 0 ? '+' : '';
-    return '<span style="color:' + color + ';">' + s.addedPrice + ' / ' + sign + pct.toFixed(2) + '%</span>';
-}
-
 function _holdingsJoinDays(dateStr) {
     if (!dateStr) return '-';
     var d = new Date(), jd = new Date(dateStr);
@@ -809,7 +803,7 @@ function loadHoldingsStocks() {
             if (!data.success) throw new Error('API failed');
             holdingsStocks = (data.data || []).map(function(s) {
                 var ad = s.created_at ? s.created_at.slice(0, 10) : '';
-                return createStock(s.code, s.code, s.market, null, { addedDate: ad, addedPrice: s.added_price || '' });
+                return createStock(s.code, s.code, s.market, null, { addedDate: ad, holdPrice: s.hold_price || '', holdQty: s.hold_qty || '' });
             });
             holdingsRender();
             if (holdingsStocks.length > 0) refreshHoldingsQuotes();
@@ -822,53 +816,50 @@ async function holdingsPickStock(code, market) {
     if (_holdingsPicking) return;
     if (holdingsStocks.find(function(s) { return s.code === code; })) return;
     _holdingsPicking = true;
-    var addPrice = '';
-    try {
-        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(market + '.' + code));
-        var d = await res.json();
-        if (d.success) {
-            var q = d.data[market + '.' + code];
-            if (q && q.price && q.price !== '-') addPrice = q.price;
-        }
-    } catch(e) {}
     var body = 'code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market);
-    if (addPrice) body += '&added_price=' + encodeURIComponent(addPrice);
     fetch('/api/holdings', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body })
         .catch(function() {});
-    var info = { addedDate: watchlistGetToday(), addedPrice: addPrice };
-    holdingsStocks.push(createStock(code, code, market, null, info));
+    holdingsStocks.push(createStock(code, code, market, null, { addedDate: watchlistGetToday(), holdPrice: '', holdQty: '' }));
     holdingsRender();
     refreshHoldingsQuotes();
     _holdingsPicking = false;
 }
 
-function holdingsEditAddedPrice(code, market) {
+function _holdingsEditField(code, market, field, cellClass, placeholder, paramName) {
     var s = holdingsStocks.find(function(x) { return x.code === code; });
     if (!s) return;
-    var jcTd = document.querySelector('tr[data-hcode="' + code + '"] .cell-jc');
-    if (!jcTd || jcTd.querySelector('input')) return;
-    var oldPrice = s.addedPrice || '';
+    var td = document.querySelector('tr[data-hcode="' + code + '"] .' + cellClass);
+    if (!td || td.querySelector('input')) return;
+    var oldValue = s[field] || '';
     var confirmed = false;
     function doConfirm() {
         if (confirmed) return;
         confirmed = true;
-        var newPrice = input.value.trim();
-        s.addedPrice = newPrice;
+        var newValue = input.value.trim();
+        s[field] = newValue;
         fetch('/api/holdings/' + encodeURIComponent(code), {
             method: 'PUT',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'market=' + encodeURIComponent(market) + '&added_price=' + encodeURIComponent(newPrice)
+            body: 'market=' + encodeURIComponent(market) + '&' + paramName + '=' + encodeURIComponent(newValue)
         }).catch(function() {});
-        jcTd.innerHTML = _holdingsChgText(s);
+        td.innerHTML = newValue || '<span style="color:#555;">' + placeholder + '</span>';
+        // 刷新计算列和汇总
+        var row = document.querySelector('tr[data-hcode="' + code + '"]');
+        if (row) {
+            var dpTd = row.querySelector('.cell-dp'); if (dpTd) dpTd.innerHTML = _dailyProfit(s);
+            var prTd = row.querySelector('.cell-pr'); if (prTd) prTd.innerHTML = _profitRate(s);
+            var tpTd = row.querySelector('.cell-tp'); if (tpTd) tpTd.innerHTML = _totalProfit(s);
+        }
+        _holdingsUpdateSummary();
     }
     function doCancel() {
         if (confirmed) return;
         confirmed = true;
-        jcTd.innerHTML = _holdingsChgText(s);
+        td.innerHTML = oldValue || '<span style="color:#555;">' + placeholder + '</span>';
     }
     var input = document.createElement('input');
     input.type = 'text';
-    input.value = oldPrice;
+    input.value = oldValue;
     input.style.cssText = 'width:70px;background:#1a1a2e;color:#e94560;border:1px solid #e94560;padding:2px 4px;font-size:13px;text-align:center;';
     input.addEventListener('click', function(e) { e.stopPropagation(); });
     input.addEventListener('keydown', function(e) {
@@ -877,10 +868,18 @@ function holdingsEditAddedPrice(code, market) {
         else if (e.key === 'Escape') { doCancel(); }
     });
     input.addEventListener('blur', function() { doConfirm(); });
-    jcTd.innerHTML = '';
-    jcTd.appendChild(input);
+    td.innerHTML = '';
+    td.appendChild(input);
     input.focus();
     input.select();
+}
+
+function holdingsEditHoldPrice(code, market) {
+    _holdingsEditField(code, market, 'holdPrice', 'cell-hp', '点击输入', 'hold_price');
+}
+
+function holdingsEditHoldQty(code, market) {
+    _holdingsEditField(code, market, 'holdQty', 'cell-hq', '点击输入', 'hold_qty');
 }
 
 function holdingsRemoveStock(code, market) {
@@ -905,6 +904,7 @@ async function refreshHoldingsQuotes() {
                     s.amplitude = q.amplitude || '-'; s.turnover = q.turnover || '-';
                     s.volume = q.volume || '-'; s.amount = q.amount || '-';
                     s.total_cap = q.total_cap || '-'; s.float_cap = q.float_cap || '-';
+                    s.pre_close = q.pre_close || '-';
                 }
             });
             holdingsUpdatePrices();
@@ -915,7 +915,7 @@ async function refreshHoldingsQuotes() {
 function holdingsRender() {
     var div = document.getElementById('holdingsContent');
     if (holdingsStocks.length === 0) { div.innerHTML = ''; return; }
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>加选天数</th><th>加选价/涨幅</th><th></th></tr></thead><tbody>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>持仓天数</th><th>持仓价</th><th>持仓数</th><th>当天收益</th><th>收益率</th><th>总收益</th><th></th></tr></thead><tbody>';
     holdingsStocks.forEach(function(s) {
         var type = getStockType(s.code, s.market);
         var color = _chgColor(s.change);
@@ -930,7 +930,11 @@ function holdingsRender() {
             '<td class="cell-cap"><span style="color:#ddd;">' + _pairText(s.total_cap, s.float_cap) + '</span></td>' +
             '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
             '<td class="cell-jd"><span style="color:#ddd;">' + _holdingsJoinDays(s.addedDate) + '</span></td>' +
-            '<td class="cell-jc" style="cursor:pointer;" onclick="holdingsEditAddedPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击修改加选价格">' + _holdingsChgText(s) + '</td>' +
+            '<td class="cell-hp" style="cursor:pointer;" onclick="holdingsEditHoldPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓价">' + (s.holdPrice || '<span style="color:#555;">点击输入</span>') + '</td>' +
+            '<td class="cell-hq" style="cursor:pointer;" onclick="holdingsEditHoldQty(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓数">' + (s.holdQty || '<span style="color:#555;">点击输入</span>') + '</td>' +
+            '<td class="cell-dp">' + _dailyProfit(s) + '</td>' +
+            '<td class="cell-pr">' + _profitRate(s) + '</td>' +
+            '<td class="cell-tp">' + _totalProfit(s) + '</td>' +
             '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="holdingsRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
         '</tr>';
     });
@@ -939,6 +943,71 @@ function holdingsRender() {
     // 绑定拖拽
     var tbody = div.querySelector('.data-table tbody');
     if (tbody) _dragInit(tbody, holdingsStocks, 'hcode', '/api/holdings/reorder');
+    _holdingsUpdateSummary();
+}
+
+function _fmtMoney(v) {
+    if (Math.abs(v) >= 10000) return (v / 10000).toFixed(2) + '万';
+    return v.toFixed(2);
+}
+
+function _dailyProfit(s) {
+    // 当天收益 = (最新价 - 昨收价) × 持仓数
+    var price = parseFloat(s.price), preClose = parseFloat(s.pre_close), qty = parseInt(s.holdQty);
+    if (isNaN(price) || isNaN(preClose) || isNaN(qty) || qty === 0) return '-';
+    var v = (price - preClose) * qty;
+    var color = v > 0 ? '#e94560' : (v < 0 ? '#4ade80' : '#ddd');
+    var sign = v > 0 ? '+' : '';
+    return '<span style="color:' + color + ';">' + sign + _fmtMoney(v) + '</span>';
+}
+
+function _profitRate(s) {
+    // 收益率 = (最新价 - 持仓价) / 持仓价 × 100%
+    var price = parseFloat(s.price), holdPrice = parseFloat(s.holdPrice);
+    if (isNaN(price) || isNaN(holdPrice) || holdPrice === 0) return '-';
+    var pct = (price - holdPrice) / holdPrice * 100;
+    var color = pct > 0 ? '#e94560' : (pct < 0 ? '#4ade80' : '#ddd');
+    var sign = pct > 0 ? '+' : '';
+    return '<span style="color:' + color + ';">' + sign + pct.toFixed(2) + '%</span>';
+}
+
+function _totalProfit(s) {
+    // 总收益 = (最新价 - 持仓价) × 持仓数
+    var price = parseFloat(s.price), holdPrice = parseFloat(s.holdPrice), qty = parseInt(s.holdQty);
+    if (isNaN(price) || isNaN(holdPrice) || isNaN(qty) || qty === 0) return '-';
+    var v = (price - holdPrice) * qty;
+    var color = v > 0 ? '#e94560' : (v < 0 ? '#4ade80' : '#ddd');
+    var sign = v > 0 ? '+' : '';
+    return '<span style="color:' + color + ';">' + sign + _fmtMoney(v) + '</span>';
+}
+
+function _holdingsUpdateSummary() {
+    var dailySum = 0, totalSum = 0;
+    holdingsStocks.forEach(function(s) {
+        var price = parseFloat(s.price), preClose = parseFloat(s.pre_close), holdPrice = parseFloat(s.holdPrice), qty = parseInt(s.holdQty);
+        if (!isNaN(price) && !isNaN(preClose) && !isNaN(qty) && qty !== 0) {
+            dailySum += (price - preClose) * qty;
+        }
+        if (!isNaN(price) && !isNaN(holdPrice) && !isNaN(qty) && qty !== 0) {
+            totalSum += (price - holdPrice) * qty;
+        }
+    });
+    var summaryEl = document.getElementById('holdingsSummary');
+    if (summaryEl) summaryEl.style.display = holdingsStocks.length > 0 ? 'flex' : 'none';
+    var dailyEl = document.getElementById('holdingsDailySummary');
+    var totalEl = document.getElementById('holdingsTotalSummary');
+    if (dailyEl) {
+        var color = dailySum > 0 ? '#e94560' : (dailySum < 0 ? '#4ade80' : '#ddd');
+        var sign = dailySum > 0 ? '+' : '';
+        dailyEl.textContent = sign + _fmtMoney(dailySum);
+        dailyEl.style.color = color;
+    }
+    if (totalEl) {
+        var color2 = totalSum > 0 ? '#e94560' : (totalSum < 0 ? '#4ade80' : '#ddd');
+        var sign2 = totalSum > 0 ? '+' : '';
+        totalEl.textContent = sign2 + _fmtMoney(totalSum);
+        totalEl.style.color = color2;
+    }
 }
 
 function holdingsUpdatePrices() {
@@ -954,6 +1023,9 @@ function holdingsUpdatePrices() {
         _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
         _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
         var jdTd = row.querySelector('.cell-jd'); if (jdTd) { var jdSp = jdTd.querySelector('span'); if (jdSp) jdSp.textContent = _holdingsJoinDays(s.addedDate); }
-        var jcTd = row.querySelector('.cell-jc'); if (jcTd) jcTd.innerHTML = _holdingsChgText(s);
+        var dpTd = row.querySelector('.cell-dp'); if (dpTd) dpTd.innerHTML = _dailyProfit(s);
+        var prTd = row.querySelector('.cell-pr'); if (prTd) prTd.innerHTML = _profitRate(s);
+        var tpTd = row.querySelector('.cell-tp'); if (tpTd) tpTd.innerHTML = _totalProfit(s);
     });
+    _holdingsUpdateSummary();
 }

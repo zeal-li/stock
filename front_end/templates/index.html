@@ -181,6 +181,16 @@
                         <span class="sector-tab" data-tab="etf" onclick="switchWatchlistTab('etf')">场内ETF</span>
                         <span class="sector-tab" data-tab="holdings" onclick="switchWatchlistTab('holdings')">持仓股</span>
                     </div>
+                    <div id="holdingsSummary" style="display:none;margin-left:auto;flex-wrap:wrap;gap:20px;">
+                        <div class="holdings-summary-item">
+                            <span style="color:#8b8b9e;font-size:13px;">当日收益</span>
+                            <span id="holdingsDailySummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
+                        </div>
+                        <div class="holdings-summary-item">
+                            <span style="color:#8b8b9e;font-size:13px;">总收益</span>
+                            <span id="holdingsTotalSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
+                        </div>
+                    </div>
                 </div>
                 <div id="watchlist-tab-watchlist" class="watchlist-tab-content active">
                     <div class="index-card" style="padding:30px;">

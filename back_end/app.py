@@ -19,7 +19,7 @@ from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove, update_price, reorder
 from watchlist.service import etf_get_all, etf_add, etf_remove, etf_update_price, etf_reorder
-from watchlist.service import holdings_get_all, holdings_add, holdings_remove, holdings_update_price, holdings_reorder
+from watchlist.service import holdings_get_all, holdings_add, holdings_remove, holdings_update, holdings_reorder
 import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
@@ -237,16 +237,17 @@ def etf_reorder_route():
 @app.route('/api/holdings', methods=['GET'])
 def holdings_get():
     rows = holdings_get_all()
-    return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2], 'added_price': r[3]} for r in rows]})
+    return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2], 'hold_price': r[3], 'hold_qty': r[4]} for r in rows]})
 
 @app.route('/api/holdings', methods=['POST'])
 def holdings_add_route():
     code = request.form.get('code', '').strip()
     market = request.form.get('market', '').strip()
-    added_price = request.form.get('added_price', '').strip()
+    hold_price = request.form.get('hold_price', '').strip()
+    hold_qty = request.form.get('hold_qty', '').strip()
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
-    holdings_add(code, market, added_price)
+    holdings_add(code, market, hold_price, hold_qty)
     return jsonify({'success': True})
 
 @app.route('/api/holdings/<code>', methods=['DELETE'])
@@ -260,10 +261,11 @@ def holdings_remove_route(code):
 @app.route('/api/holdings/<code>', methods=['PUT'])
 def holdings_update_route(code):
     market = request.form.get('market', '').strip()
-    added_price = request.form.get('added_price', '').strip()
+    hold_price = request.form.get('hold_price')
+    hold_qty = request.form.get('hold_qty')
     if not market:
         return jsonify({'success': False, 'error': '缺少 market 参数'})
-    holdings_update_price(code, market, added_price)
+    holdings_update(code, market, hold_price, hold_qty)
     return jsonify({'success': True})
 
 

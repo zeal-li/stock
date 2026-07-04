@@ -98,6 +98,12 @@ body {
     display: none;
 }
 
+/* 持仓股汇总 */
+.holdings-summary-item {
+    display: flex;
+    align-items: baseline;
+}
+
 /* 自选股搜索框 */
 .watchlist-search-box {
     position: relative;

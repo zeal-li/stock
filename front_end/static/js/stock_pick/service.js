@@ -140,6 +140,7 @@ function createStock(code, name, market, goodwill, info) {
         turnover: '-', amplitude: '-', volume: '-', amount: '-',
         total_cap: '-', float_cap: '-',
         addedDate: info.addedDate || '', addedPrice: info.addedPrice || '',
+        holdPrice: info.holdPrice || '', holdQty: info.holdQty || '',
     };
 }
 

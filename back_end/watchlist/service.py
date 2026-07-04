@@ -14,12 +14,18 @@ def _ensure_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute('CREATE TABLE IF NOT EXISTS watchlist (code TEXT, market TEXT, created_at TEXT, added_price TEXT, sort_order INTEGER DEFAULT 0, PRIMARY KEY (code, market))')
     conn.execute('CREATE TABLE IF NOT EXISTS etf (code TEXT, market TEXT, created_at TEXT, added_price TEXT, sort_order INTEGER DEFAULT 0, PRIMARY KEY (code, market))')
-    conn.execute('CREATE TABLE IF NOT EXISTS holdings (code TEXT, market TEXT, created_at TEXT, added_price TEXT, sort_order INTEGER DEFAULT 0, PRIMARY KEY (code, market))')
+    conn.execute('CREATE TABLE IF NOT EXISTS holdings (code TEXT, market TEXT, created_at TEXT, sort_order INTEGER DEFAULT 0, PRIMARY KEY (code, market))')
     # 迁移旧表：添加 sort_order 列（若不存在）
     for tbl in ('watchlist', 'etf', 'holdings'):
         cols = [r[1] for r in conn.execute('PRAGMA table_info(' + tbl + ')').fetchall()]
         if 'sort_order' not in cols:
             conn.execute('ALTER TABLE ' + tbl + ' ADD COLUMN sort_order INTEGER DEFAULT 0')
+    # 迁移 holdings 表：添加 hold_price / hold_qty 列（若不存在）
+    holdings_cols = [r[1] for r in conn.execute('PRAGMA table_info(holdings)').fetchall()]
+    if 'hold_price' not in holdings_cols:
+        conn.execute('ALTER TABLE holdings ADD COLUMN hold_price TEXT DEFAULT \'\'')
+    if 'hold_qty' not in holdings_cols:
+        conn.execute('ALTER TABLE holdings ADD COLUMN hold_qty TEXT DEFAULT \'\'')
     conn.commit()
     return conn
 
@@ -120,20 +126,20 @@ def etf_reorder(items):
 # ==================== 持仓股 ====================
 
 def holdings_get_all():
-    """获取所有持仓股 [(code, market, created_at, added_price), ...] 按 sort_order 排序"""
+    """获取所有持仓股 [(code, market, created_at, hold_price, hold_qty), ...] 按 sort_order 排序"""
     conn = _ensure_db()
-    rows = conn.execute('SELECT code, market, created_at, added_price FROM holdings ORDER BY sort_order ASC, created_at DESC').fetchall()
+    rows = conn.execute('SELECT code, market, created_at, hold_price, hold_qty FROM holdings ORDER BY sort_order ASC, created_at DESC').fetchall()
     conn.close()
     return rows
 
 
-def holdings_add(code, market, added_price=''):
+def holdings_add(code, market, hold_price='', hold_qty=''):
     """添加持仓股，已存在则忽略"""
     from datetime import datetime
     conn = _ensure_db()
     max_sort = conn.execute('SELECT COALESCE(MAX(sort_order), -1) FROM holdings').fetchone()[0]
-    conn.execute('INSERT OR IGNORE INTO holdings (code, market, created_at, added_price, sort_order) VALUES (?, ?, ?, ?, ?)',
-                 (code, market, datetime.now().isoformat(), str(added_price), max_sort + 1))
+    conn.execute('INSERT OR IGNORE INTO holdings (code, market, created_at, hold_price, hold_qty, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+                 (code, market, datetime.now().isoformat(), str(hold_price), str(hold_qty), max_sort + 1))
     conn.commit()
     conn.close()
 
@@ -146,10 +152,13 @@ def holdings_remove(code, market):
     conn.close()
 
 
-def holdings_update_price(code, market, added_price):
-    """更新持仓股加选价格"""
+def holdings_update(code, market, hold_price=None, hold_qty=None):
+    """更新持仓股持仓价和/或持仓数"""
     conn = _ensure_db()
-    conn.execute('UPDATE holdings SET added_price = ? WHERE code = ? AND market = ?', (str(added_price), code, market))
+    if hold_price is not None:
+        conn.execute('UPDATE holdings SET hold_price = ? WHERE code = ? AND market = ?', (str(hold_price), code, market))
+    if hold_qty is not None:
+        conn.execute('UPDATE holdings SET hold_qty = ? WHERE code = ? AND market = ?', (str(hold_qty), code, market))
     conn.commit()
     conn.close()
 
