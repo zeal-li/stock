@@ -258,10 +258,10 @@ def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> li
             market_value = tds[8].get_text(strip=True)
 
             if is_qdii:
-                # QDII: 境外股代码如 NVDA、APA，无国内行情
+                # QDII: 境外股代码如 NVDA、AAPL，东方财富市场代码 105=美股
                 stocks.append({
                     "code": stock_code,
-                    "market": "",
+                    "market": "105",
                     "name": stock_name,
                     "ratio": ratio,
                     "share_count": share_count,
@@ -310,36 +310,29 @@ def get_etf_stocks(code: str, market: str) -> dict:
 
     total = len(holdings)
 
-    # 分离国内股和境外股：境外股无国内行情，只返回持仓信息
-    domestic = [h for h in holdings if not h.get("is_foreign")]
-    foreign = [h for h in holdings if h.get("is_foreign")]
-
-    # 国内股：构造 secids，调用 ulist.np/get 获取实时行情
+    # 所有持仓股统一请求行情（国内股 market 0/1，美股 market 105）
     quote_data = {}
-    if domestic:
-        secids = ",".join(f"{s['market']}.{s['code']}" for s in domestic)
-        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-        params = {
-            "fltt": "2", "invt": "2",
-            "fields": "f2,f3,f4,f12,f13,f14",
-            "secids": secids,
-            "ut": _EM_UT,
-        }
-        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-        try:
-            diff = (r.json().get("data") or {}).get("diff") or []
-            for row in diff:
-                key = f"{row.get('f13', '')}.{row.get('f12', '')}"
-                if row.get("f12"):
-                    quote_data[key] = row
-        except Exception:
-            pass
+    secids = ",".join(f"{h['market']}.{h['code']}" for h in holdings)
+    url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+    params = {
+        "fltt": "2", "invt": "2",
+        "fields": "f2,f3,f4,f12,f13,f14",
+        "secids": secids,
+        "ut": _EM_UT,
+    }
+    r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+    try:
+        diff = (r.json().get("data") or {}).get("diff") or []
+        for row in diff:
+            key = f"{row.get('f13', '')}.{row.get('f12', '')}"
+            if row.get("f12"):
+                quote_data[key] = row
+    except Exception:
+        pass
 
     # 合并持仓 + 行情
     stocks = []
-
-    # 国内股：合并行情
-    for h in domestic:
+    for h in holdings:
         key = f"{h['market']}.{h['code']}"
         q = quote_data.get(key)
 
@@ -358,21 +351,7 @@ def get_etf_stocks(code: str, market: str) -> dict:
             "ratio": h["ratio"],
             "share_count": h["share_count"],
             "market_value": h["market_value"],
-            "is_foreign": False,
-        })
-
-    # 境外股：无行情数据，只显示持仓信息
-    for h in foreign:
-        stocks.append({
-            "name": h["name"],
-            "code": h["code"],
-            "market": h["market"],
-            "change_pct": "-",
-            "price": "-",
-            "ratio": h["ratio"],
-            "share_count": h["share_count"],
-            "market_value": h["market_value"],
-            "is_foreign": True,
+            "is_foreign": h.get("is_foreign", False),
         })
 
     # 排序由前端完成

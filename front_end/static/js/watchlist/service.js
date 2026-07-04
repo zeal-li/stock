@@ -486,7 +486,7 @@ function etfUpdatePrices() {
 }
 
 
-// ==================== ETF成分股弹窗 ====================
+// ==================== ETF持仓股弹窗 ====================
 
 var _currentEtfCode = null;
 var _currentEtfMarket = null;
@@ -518,7 +518,7 @@ function _positionPoolPanel(panel, clickedRow) {
 }
 
 function showEtfPool(e, code, market, name) {
-    // 点击名称链接、删除按钮时不触发成分股弹窗
+    // 点击名称链接、删除按钮时不触发持仓股弹窗
     if (e && e.target) {
         var target = e.target;
         if (target.closest('span[onclick]') || target.tagName === 'INPUT' || target.closest('.stock-pool-close')) return;
@@ -535,7 +535,7 @@ function showEtfPool(e, code, market, name) {
     var clickedRow = document.querySelector('tr[data-ecode="' + code + '"]');
     _positionPoolPanel(panel, clickedRow);
 
-    titleEl.textContent = code + ' ' + name + ' — 成分股';
+    titleEl.textContent = code + ' ' + name + ' — 持仓股';
     panel.style.display = 'block';
     document.getElementById('etfPoolTableWrap').innerHTML = '<div class="loading">加载中...</div>';
 
@@ -549,7 +549,7 @@ function showEtfPool(e, code, market, name) {
             renderEtfPoolTable(res.stocks || [], res.total || 0);
         })
         .catch(function(e) {
-            console.log('ETF成分股加载失败:', e);
+            console.log('ETF持仓股加载失败:', e);
             document.getElementById('etfPoolTableWrap').innerHTML = '<div class="loading">加载失败</div>';
         });
 }
