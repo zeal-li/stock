@@ -855,9 +855,7 @@ body {
 }
 
 .stock-pool-panel {
-    position: absolute;
-    right: 0;
-    top: 0;
+    position: fixed;
     width: 380px;
     background: #16213e;
     border-radius: 10px;
@@ -865,7 +863,7 @@ body {
     padding: 16px;
     max-height: 80vh;
     overflow-y: auto;
-    z-index: 10;
+    z-index: 50;
     box-shadow: -4px 0 20px rgba(0,0,0,0.4);
 }
 

@@ -60,13 +60,15 @@ function showStockPool(sectorCode, sectorName, isInflow) {
     var titleEl = document.getElementById('stockPoolTitle');
     if (!panel || !titleEl) return;
 
-    // 流入表格（左边）→ 面板浮到右边；流出表格（右边）→ 面板浮到左边
-    if (isInflow) {
-        panel.style.right = '0';
-        panel.style.left = 'auto';
-    } else {
-        panel.style.left = '0';
-        panel.style.right = 'auto';
+    // 动态定位：根据点击行位置 + 流入/流出决定左右
+    var clickedRow = document.querySelector('.sector-row-active') || document.querySelector('tr[onclick*="' + sectorCode + '"]');
+    if (typeof _positionPoolPanel === 'function') {
+        _positionPoolPanel(panel, clickedRow);
+        // 流入表格在左边 → 面板偏右；流出表格在右边 → 面板偏左
+        if (!isInflow) {
+            panel.style.left = '30px';
+            panel.style.right = 'auto';
+        }
     }
 
     titleEl.textContent = sectorName + ' — 成分股';

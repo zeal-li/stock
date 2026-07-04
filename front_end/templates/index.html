@@ -206,8 +206,18 @@
                     </div>
                 </div>
                 <div id="watchlist-tab-etf" class="watchlist-tab-content">
-                    <div class="index-card" style="padding:30px;">
-                        <div id="etfContent" style="margin-top:8px;"></div>
+                    <div class="etf-fund-layout" style="position:relative;">
+                        <div class="index-card" style="padding:30px;">
+                            <div id="etfContent" style="margin-top:8px;"></div>
+                        </div>
+                        <div id="etfPoolPanel" class="stock-pool-panel" style="display:none;">
+                            <div class="stock-pool-header">
+                                <h3 id="etfPoolTitle" class="card-title">ETF成分股</h3>
+                                <span class="stock-pool-close" onclick="closeEtfPool()">✕</span>
+                            </div>
+                            <div id="etfPoolTableWrap" class="sector-table-wrap">
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div id="watchlist-tab-holdings" class="watchlist-tab-content">

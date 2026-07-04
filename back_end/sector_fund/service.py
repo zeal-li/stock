@@ -1,8 +1,10 @@
 """板块资金流向 — 东方财富行业/概念板块主力资金流入/流出排行"""
 
+import re
 import time
 import requests
 from common import REQUEST_PROXIES
+from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
 from money_flow.storage import _EM_HEADERS, _EM_UT
 from sector_fund.storage import cache_get, cache_set
 
@@ -192,5 +194,138 @@ def get_sector_stocks(sector_code: str) -> dict:
             "turnover": f"{turnover:.2f}%" if turnover is not None else "-",
             "main_net": _format_amount(main_net),
         })
+
+    return {"success": True, "stocks": stocks, "total": total}
+
+
+def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> list:
+    """从 fundf10 jjcc API 解析 ETF 持仓股票列表，返回 [{code, market, name, ratio}]"""
+    params = {
+        "type": "jjcc",
+        "code": code,
+        "topline": str(topline),
+        "year": year,
+        "month": "",
+        "rt": "0.5",
+    }
+    r = requests.get("https://fundf10.eastmoney.com/FundArchivesDatas.aspx",
+                      params=params,
+                      headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fund.eastmoney.com/"},
+                      timeout=15, proxies=REQUEST_PROXIES)
+    if r.status_code != 200:
+        return []
+
+    text = r.text
+    # 按季度分组，取第一个有数据的季度（即最新）
+    sections = text.split("<div class='box'>")
+    for section in sections[1:]:
+        # 第一步：提取序号、股票代码、名称（HTML 用单引号）
+        base_rows = re.findall(
+            r'<tr><td>(\d+)</td><td><a[^>]*>(\d{6})</a></td>'
+            r'<td[^>]*><a[^>]*>([^<]+)</a></td>',
+            section,
+        )
+        if not base_rows:
+            continue
+
+        # 第二步：提取占净值比例（最后一个 class='tor' 或 class="tor" 的 td）
+        # 每行有多个 tor td：占比(带%)、持股数、持仓市值；只取带%的即为占比
+        ratio_rows = re.findall(
+            r"<td[^>]*class=['\"]tor['\"]>([^<]*%)</td>",
+            section,
+        )
+
+        stocks = []
+        for i, row in enumerate(base_rows):
+            stock_code = row[1]
+            if stock_code.startswith(("6", "9")):
+                market = "1"
+            else:
+                market = "0"
+            ratio = ratio_rows[i].strip() if i < len(ratio_rows) else ""
+            stocks.append({
+                "code": stock_code,
+                "market": market,
+                "name": row[2],
+                "ratio": ratio,
+            })
+        return stocks
+
+    return []
+
+
+def get_etf_stocks(code: str, market: str) -> dict:
+    """获取ETF成分股列表（按涨跌幅排序）
+    步骤：1) 从 fundf10 解析持仓股票代码  2) 用 ulist.np/get 获取实时行情
+    """
+    if not code or not market:
+        return {"success": False, "error": "缺少参数"}
+
+    # 从 fundf10 解析持仓，优先取数据最多的年份（覆盖面更全）
+    from datetime import datetime as _dt
+    cur_year = str(_dt.now().year)
+    prev_year = str(_dt.now().year - 1)
+    holdings_cur = _parse_fundf10_holdings(code, topline=300, year=cur_year)
+    holdings_prev = _parse_fundf10_holdings(code, topline=300, year=prev_year)
+    holdings = holdings_cur if len(holdings_cur) >= len(holdings_prev) else holdings_prev
+    if not holdings:
+        # 再试不指定年份（让 API 自行选择）
+        holdings = _parse_fundf10_holdings(code, topline=300, year="")
+    if not holdings:
+        return {"success": True, "stocks": [], "total": 0}
+
+    total = len(holdings)
+
+    # 构造 secids，调用 ulist.np/get 获取实时行情
+    secids = ",".join(f"{s['market']}.{s['code']}" for s in holdings)
+    url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+    params = {
+        "fltt": "2", "invt": "2",
+        "fields": "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f62",
+        "secids": secids,
+        "ut": _EM_UT,
+    }
+    r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+    quote_data = {}
+    try:
+        diff = (r.json().get("data") or {}).get("diff") or []
+        for row in diff:
+            key = f"{row.get('f13', '')}.{row.get('f12', '')}"
+            if row.get("f12"):
+                quote_data[key] = row
+    except Exception:
+        pass
+
+    # 合合持仓 + 行情，按涨跌幅排序
+    stocks = []
+    for h in holdings:
+        key = f"{h['market']}.{h['code']}"
+        q = quote_data.get(key)
+
+        change_pct = _safe_float(q.get("f3", 0)) if q else None
+        price = _safe_float(q.get("f2", 0)) if q else None
+        change_amt = _safe_float(q.get("f4", 0)) if q else None
+        turnover = _safe_float(q.get("f8", 0)) if q else None
+        amplitude = _safe_float(q.get("f7", 0)) if q else None
+        main_net = q.get("f62") if q else None
+        name = (q.get("f14") or h["name"]) if q else h["name"]
+
+        etf = is_etf(h["code"], h["market"])
+
+        stocks.append({
+            "name": name,
+            "code": h["code"],
+            "market": h["market"],
+            "change_pct": f"{'+' if (change_pct or 0) >= 0 else ''}{(change_pct if change_pct is not None else 0):.2f}%" if change_pct is not None else "-",
+            "price": fmt(price, etf) if price is not None else "-",
+            "change_amt": fmt(change_amt, etf) if change_amt is not None else "-",
+            "turnover": f"{turnover:.2f}%" if turnover is not None else "-",
+            "amplitude": f"{amplitude:.2f}%" if amplitude is not None else "-",
+            "main_net": _format_amount(main_net),
+            "ratio": h["ratio"],
+        })
+
+    # 按占比降序排序
+    stocks.sort(key=lambda s: float(s["ratio"].replace("%", "")) if s["ratio"] not in (None, "-", "") else -999, reverse=True)
 
     return {"success": True, "stocks": stocks, "total": total}

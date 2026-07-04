@@ -14,7 +14,7 @@ from money_flow.margin import get_margin_trading
 from longhu_bang.service import get_longhu_bang, cleanup_old_data
 from global_market.commodities import get_global_commodities
 from global_market.forex import get_forex_rates
-from sector_fund.service import get_sector_fund, get_sector_stocks
+from sector_fund.service import get_sector_fund, get_sector_stocks, get_etf_stocks
 from money_flow.storage import start_major_indices_poller
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove, update_price, reorder
@@ -115,6 +115,14 @@ def sector_stocks():
     """板块成分股列表"""
     sector_code = request.args.get('code', '').strip()
     return jsonify(get_sector_stocks(sector_code))
+
+
+@app.route('/api/etf-stocks')
+def etf_stocks():
+    """ETF成分股列表"""
+    code = request.args.get('code', '').strip()
+    market = request.args.get('market', '').strip()
+    return jsonify(get_etf_stocks(code, market))
 
 
 # ==================== 搜索 ====================

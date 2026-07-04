@@ -10,6 +10,7 @@ function switchWatchlistTab(tab) {
     document.querySelector('#page-watchlist .sector-tab[data-tab="' + tab + '"]').classList.add('active');
     document.getElementById('watchlist-tab-' + tab).classList.add('active');
     _currentWatchlistTab = tab;
+    closeEtfPool();
     // 持仓汇总只在持仓 tab 时显示
     var summaryEl = document.getElementById('holdingsSummary');
     if (summaryEl) summaryEl.style.display = tab === 'holdings' && holdingsStocks.length > 0 ? 'flex' : 'none';
@@ -445,16 +446,16 @@ function etfRender() {
         var type = getStockType(s.code, s.market);
         var color = _chgColor(s.change);
         var chgText = _chgText(s.change, s.pct);
-        html += '<tr data-ecode="' + s.code + '">' +
+        html += '<tr data-ecode="' + s.code + '" onclick="showEtfPool(event,\'' + s.code + '\',\'' + s.market + '\',\'' + (s.name || '').replace(/'/g, '\\\'') + '\')" style="cursor:pointer">' +
             '<td><span style="color:#888;">' + s.code + '</span></td>' +
-            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + s.code + '\',\'' + s.market + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
+            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="event.stopPropagation();KlinePopup.open(\'' + s.code + '\',\'' + s.market + '\',\'' + s.name + '\')">' + s.name + '</span></td>' +
             '<td><span style="color:#555;">' + type + '</span></td>' +
             '<td class="cell-price"><span style="color:' + color + ';font-weight:bold;">' + s.price + '</span></td>' +
             '<td class="cell-chg"><span style="color:' + color + ';">' + chgText + '</span></td>' +
             '<td class="cell-vol"><span style="color:#ddd;">' + _pairText(s.volume, s.amount) + '</span></td>' +
             '<td class="cell-cap"><span style="color:#ddd;">' + _pairText(s.total_cap, s.float_cap) + '</span></td>' +
             '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
-            '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="etfRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
+            '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="event.stopPropagation();etfRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
         '</tr>';
     });
     html += '</tbody></table></div>';
@@ -477,6 +478,140 @@ function etfUpdatePrices() {
         _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
         _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
     });
+}
+
+
+// ==================== ETF成分股弹窗 ====================
+
+var _currentEtfCode = null;
+var _currentEtfMarket = null;
+
+function _positionPoolPanel(panel, clickedRow) {
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var panelW = 380;
+    var panelMaxH = vh * 0.8;
+
+    // 确定弹窗右侧位置：尽量贴近右侧，但至少留 20px 给主内容
+    var rightPos = 30;
+    var leftPos = vw - panelW - rightPos;
+
+    // 确定弹窗垂直位置：尽量与点击行对齐，但不出视口
+    var topPos = 20;
+    if (clickedRow) {
+        var rowRect = clickedRow.getBoundingClientRect();
+        topPos = Math.max(10, rowRect.top - 20);
+        // 如果弹窗底部会超出视口，往上推
+        if (topPos + panelMaxH > vh - 10) {
+            topPos = Math.max(10, vh - panelMaxH - 10);
+        }
+    }
+
+    panel.style.left = leftPos + 'px';
+    panel.style.right = 'auto';
+    panel.style.top = topPos + 'px';
+}
+
+function showEtfPool(e, code, market, name) {
+    // 点击名称链接、删除按钮时不触发成分股弹窗
+    if (e && e.target) {
+        var target = e.target;
+        if (target.closest('span[onclick]') || target.tagName === 'INPUT' || target.closest('.stock-pool-close')) return;
+    }
+    if (_dragState.isDragging) return;
+    _currentEtfCode = code;
+    _currentEtfMarket = market;
+
+    var panel = document.getElementById('etfPoolPanel');
+    var titleEl = document.getElementById('etfPoolTitle');
+    if (!panel || !titleEl) return;
+
+    // 动态定位：根据点击行的视口位置
+    var clickedRow = document.querySelector('tr[data-ecode="' + code + '"]');
+    _positionPoolPanel(panel, clickedRow);
+
+    titleEl.textContent = name + ' — 成分股';
+    panel.style.display = 'block';
+    document.getElementById('etfPoolTableWrap').innerHTML = '<div class="loading">加载中...</div>';
+
+    fetch('/api/etf-stocks?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market))
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res.success) {
+                document.getElementById('etfPoolTableWrap').innerHTML = '<div class="loading">暂无数据</div>';
+                return;
+            }
+            renderEtfPoolTable(res.stocks || [], res.total || 0);
+        })
+        .catch(function(e) {
+            console.log('ETF成分股加载失败:', e);
+            document.getElementById('etfPoolTableWrap').innerHTML = '<div class="loading">加载失败</div>';
+        });
+}
+
+function closeEtfPool() {
+    var panel = document.getElementById('etfPoolPanel');
+    if (panel) {
+        panel.style.display = 'none';
+        panel.style.top = '';
+        panel.style.left = '';
+    }
+    _currentEtfCode = null;
+    _currentEtfMarket = null;
+}
+
+function renderEtfPoolTable(list, total) {
+    var wrap = document.getElementById('etfPoolTableWrap');
+    if (!wrap) return;
+
+    if (!list || list.length === 0) {
+        wrap.innerHTML = '<div class="loading">暂无数据</div>';
+        return;
+    }
+
+    var countInfo = total > list.length ? '（显示前' + list.length + '只，共' + total + '只）' : '（共' + list.length + '只）';
+
+    var html = '<div class="stock-pool-count">' + countInfo + '</div>';
+    html += '<table class="sector-fund-table stock-pool-table">';
+    html += '<thead><tr>';
+    html += '<th>#</th>';
+    html += '<th>名称</th>';
+    html += '<th>涨跌幅</th>';
+    html += '<th>最新价</th>';
+    html += '<th>占比</th>';
+    html += '<th>主力净流入</th>';
+    html += '<th>换手率</th>';
+    html += '<th>振幅</th>';
+    html += '</tr></thead>';
+    html += '<tbody>';
+
+    list.forEach(function(item, idx) {
+        var pct = item.change_pct || '-';
+        var cls = '';
+        if (typeof pct === 'string') {
+            cls = pct.startsWith('+') ? 'up' : (pct.startsWith('-') ? 'down' : '');
+        }
+
+        var mainCls = '';
+        var mainNet = item.main_net || '-';
+        if (typeof mainNet === 'string') {
+            mainCls = mainNet.startsWith('+') ? 'up' : (mainNet.startsWith('-') ? 'down' : '');
+        }
+
+        html += '<tr onclick="openStockDetail(\'' + item.code + '\',\'' + item.market + '\',\'' + (item.name || '').replace(/'/g, "\\'") + '\')" style="cursor:pointer">';
+        html += '<td>' + (idx + 1) + '</td>';
+        html += '<td class="col-name">' + (item.name || '-') + '</td>';
+        html += '<td class="' + cls + '">' + pct + '</td>';
+        html += '<td>' + (item.price || '-') + '</td>';
+        html += '<td>' + (item.ratio || '-') + '</td>';
+        html += '<td class="' + mainCls + '">' + mainNet + '</td>';
+        html += '<td>' + (item.turnover || '-') + '</td>';
+        html += '<td>' + (item.amplitude || '-') + '</td>';
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
 }
 
 
