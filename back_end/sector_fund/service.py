@@ -201,7 +201,7 @@ def get_sector_stocks(sector_code: str) -> dict:
 
 
 def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> list:
-    """从 fundf10 jjcc API 解析 ETF 持仓股票列表，返回 [{code, market, name, ratio, share_count, market_value}]"""
+    """从 fundf10 jjcc API 解析 ETF 持仓股票列表，返回 [{code, market, name, ratio, share_count, market_value, is_foreign}]"""
     params = {
         "type": "jjcc",
         "code": code,
@@ -238,37 +238,51 @@ def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> li
         if not rows:
             continue
 
+        # 检测是否为境外股：td[1] 的 class 为 toc 表示境外股，tor 表示国内股
+        first_row_tds = rows[0].find_all("td")
+        is_qdii = len(first_row_tds) > 1 and "toc" in (first_row_tds[1].get("class") or [])
+
         stocks = []
         for tr in rows:
             tds = tr.find_all("td")
             if len(tds) < 9:
                 continue
-            # tds[0]=序号, tds[1]=股票代码, tds[2]=名称, tds[3]=最新价(span), tds[4]=涨跌幅(span),
+            # tds[0]=序号, tds[1]=股票代码, tds[2]=名称, tds[3]=最新价, tds[4]=涨跌幅,
             # tds[5]=相关资讯, tds[6]=占净值比例, tds[7]=持股数, tds[8]=持仓市值
             code_link = tds[1].find("a")
             stock_code = code_link.get_text(strip=True) if code_link else tds[1].get_text(strip=True)
-            # 跳过非6位数字代码（如 A19121 锦波生物）
-            if not re.match(r'^\d{6}$', stock_code):
-                continue
             name_link = tds[2].find("a")
             stock_name = name_link.get_text(strip=True) if name_link else tds[2].get_text(strip=True)
             ratio = tds[6].get_text(strip=True)
             share_count = tds[7].get_text(strip=True)
             market_value = tds[8].get_text(strip=True)
 
-            # 上海(6xxxxx/688xxx) → market 1; 深圳/创业板/北交所 → market 0
-            if stock_code.startswith("6"):
-                market = "1"
+            if is_qdii:
+                # QDII: 境外股代码如 NVDA、APA，无国内行情
+                stocks.append({
+                    "code": stock_code,
+                    "market": "",
+                    "name": stock_name,
+                    "ratio": ratio,
+                    "share_count": share_count,
+                    "market_value": market_value,
+                    "is_foreign": True,
+                })
             else:
-                market = "0"
-            stocks.append({
-                "code": stock_code,
-                "market": market,
-                "name": stock_name,
-                "ratio": ratio,
-                "share_count": share_count,
-                "market_value": market_value,
-            })
+                # 国内股：跳过非6位数字代码（如 A19121）
+                if not re.match(r'^\d{6}$', stock_code):
+                    continue
+                # 上海(6xxxxx/688xxx) → market 1; 深圳/创业板/北交所 → market 0
+                market = "1" if stock_code.startswith("6") else "0"
+                stocks.append({
+                    "code": stock_code,
+                    "market": market,
+                    "name": stock_name,
+                    "ratio": ratio,
+                    "share_count": share_count,
+                    "market_value": market_value,
+                    "is_foreign": False,
+                })
         return stocks
 
     return []
@@ -296,29 +310,36 @@ def get_etf_stocks(code: str, market: str) -> dict:
 
     total = len(holdings)
 
-    # 构造 secids，调用 ulist.np/get 获取实时行情
-    secids = ",".join(f"{s['market']}.{s['code']}" for s in holdings)
-    url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-    params = {
-        "fltt": "2", "invt": "2",
-        "fields": "f2,f3,f4,f12,f13,f14",
-        "secids": secids,
-        "ut": _EM_UT,
-    }
-    r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-    quote_data = {}
-    try:
-        diff = (r.json().get("data") or {}).get("diff") or []
-        for row in diff:
-            key = f"{row.get('f13', '')}.{row.get('f12', '')}"
-            if row.get("f12"):
-                quote_data[key] = row
-    except Exception:
-        pass
+    # 分离国内股和境外股：境外股无国内行情，只返回持仓信息
+    domestic = [h for h in holdings if not h.get("is_foreign")]
+    foreign = [h for h in holdings if h.get("is_foreign")]
 
-    # 合合持仓 + 行情
+    # 国内股：构造 secids，调用 ulist.np/get 获取实时行情
+    quote_data = {}
+    if domestic:
+        secids = ",".join(f"{s['market']}.{s['code']}" for s in domestic)
+        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+        params = {
+            "fltt": "2", "invt": "2",
+            "fields": "f2,f3,f4,f12,f13,f14",
+            "secids": secids,
+            "ut": _EM_UT,
+        }
+        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+        try:
+            diff = (r.json().get("data") or {}).get("diff") or []
+            for row in diff:
+                key = f"{row.get('f13', '')}.{row.get('f12', '')}"
+                if row.get("f12"):
+                    quote_data[key] = row
+        except Exception:
+            pass
+
+    # 合并持仓 + 行情
     stocks = []
-    for h in holdings:
+
+    # 国内股：合并行情
+    for h in domestic:
         key = f"{h['market']}.{h['code']}"
         q = quote_data.get(key)
 
@@ -337,6 +358,21 @@ def get_etf_stocks(code: str, market: str) -> dict:
             "ratio": h["ratio"],
             "share_count": h["share_count"],
             "market_value": h["market_value"],
+            "is_foreign": False,
+        })
+
+    # 境外股：无行情数据，只显示持仓信息
+    for h in foreign:
+        stocks.append({
+            "name": h["name"],
+            "code": h["code"],
+            "market": h["market"],
+            "change_pct": "-",
+            "price": "-",
+            "ratio": h["ratio"],
+            "share_count": h["share_count"],
+            "market_value": h["market_value"],
+            "is_foreign": True,
         })
 
     # 排序由前端完成
