@@ -846,6 +846,8 @@ function _holdingsEditField(code, market, field, cellClass, placeholder, paramNa
         // 刷新计算列和汇总
         var row = document.querySelector('tr[data-hcode="' + code + '"]');
         if (row) {
+            var hmTd = row.querySelector('.cell-hm'); if (hmTd) hmTd.innerHTML = _holdingsMarketCap(s);
+            var haTd = row.querySelector('.cell-ha'); if (haTd) haTd.innerHTML = _holdingsAmount(s);
             var dpTd = row.querySelector('.cell-dp'); if (dpTd) dpTd.innerHTML = _dailyProfit(s);
             var prTd = row.querySelector('.cell-pr'); if (prTd) prTd.innerHTML = _profitRate(s);
             var tpTd = row.querySelector('.cell-tp'); if (tpTd) tpTd.innerHTML = _totalProfit(s);
@@ -915,7 +917,7 @@ async function refreshHoldingsQuotes() {
 function holdingsRender() {
     var div = document.getElementById('holdingsContent');
     if (holdingsStocks.length === 0) { div.innerHTML = ''; return; }
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>总市值/流通市值</th><th>换手/振幅</th><th>持仓天数</th><th>持仓价</th><th>持仓数</th><th>当天收益</th><th>收益率</th><th>总收益</th><th></th></tr></thead><tbody>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>换手/振幅</th><th>持仓天数</th><th>持仓价</th><th>持仓数</th><th>持仓市值</th><th>持仓成本</th><th>当天收益</th><th>收益率</th><th>总收益</th><th></th></tr></thead><tbody>';
     holdingsStocks.forEach(function(s) {
         var type = getStockType(s.code, s.market);
         var color = _chgColor(s.change);
@@ -927,11 +929,12 @@ function holdingsRender() {
             '<td class="cell-price"><span style="color:' + color + ';font-weight:bold;">' + s.price + '</span></td>' +
             '<td class="cell-chg"><span style="color:' + color + ';">' + chgText + '</span></td>' +
             '<td class="cell-vol"><span style="color:#ddd;">' + _pairText(s.volume, s.amount) + '</span></td>' +
-            '<td class="cell-cap"><span style="color:#ddd;">' + _pairText(s.total_cap, s.float_cap) + '</span></td>' +
             '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
             '<td class="cell-jd"><span style="color:#ddd;">' + _holdingsJoinDays(s.addedDate) + '</span></td>' +
             '<td class="cell-hp" style="cursor:pointer;" onclick="holdingsEditHoldPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓价">' + (s.holdPrice || '<span style="color:#555;">点击输入</span>') + '</td>' +
             '<td class="cell-hq" style="cursor:pointer;" onclick="holdingsEditHoldQty(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓数">' + (s.holdQty || '<span style="color:#555;">点击输入</span>') + '</td>' +
+            '<td class="cell-hm">' + _holdingsMarketCap(s) + '</td>' +
+            '<td class="cell-ha">' + _holdingsAmount(s) + '</td>' +
             '<td class="cell-dp">' + _dailyProfit(s) + '</td>' +
             '<td class="cell-pr">' + _profitRate(s) + '</td>' +
             '<td class="cell-tp">' + _totalProfit(s) + '</td>' +
@@ -949,6 +952,22 @@ function holdingsRender() {
 function _fmtMoney(v) {
     if (Math.abs(v) >= 10000) return (v / 10000).toFixed(2) + '万';
     return v.toFixed(2);
+}
+
+function _holdingsMarketCap(s) {
+    // 持仓市值 = 最新价 × 持仓数
+    var price = parseFloat(s.price), qty = parseInt(s.holdQty);
+    if (isNaN(price) || isNaN(qty) || qty === 0) return '-';
+    var v = price * qty;
+    return '<span style="color:#ddd;">' + _fmtMoney(v) + '</span>';
+}
+
+function _holdingsAmount(s) {
+    // 持仓金额 = 持仓价 × 持仓数
+    var holdPrice = parseFloat(s.holdPrice), qty = parseInt(s.holdQty);
+    if (isNaN(holdPrice) || isNaN(qty) || qty === 0) return '-';
+    var v = holdPrice * qty;
+    return '<span style="color:#ddd;">' + _fmtMoney(v) + '</span>';
 }
 
 function _dailyProfit(s) {
@@ -982,7 +1001,7 @@ function _totalProfit(s) {
 }
 
 function _holdingsUpdateSummary() {
-    var dailySum = 0, totalSum = 0;
+    var dailySum = 0, totalSum = 0, capSum = 0, costSum = 0, yesterdayCapSum = 0;
     holdingsStocks.forEach(function(s) {
         var price = parseFloat(s.price), preClose = parseFloat(s.pre_close), holdPrice = parseFloat(s.holdPrice), qty = parseInt(s.holdQty);
         if (!isNaN(price) && !isNaN(preClose) && !isNaN(qty) && qty !== 0) {
@@ -991,21 +1010,38 @@ function _holdingsUpdateSummary() {
         if (!isNaN(price) && !isNaN(holdPrice) && !isNaN(qty) && qty !== 0) {
             totalSum += (price - holdPrice) * qty;
         }
+        if (!isNaN(price) && !isNaN(qty) && qty !== 0) {
+            capSum += price * qty;
+        }
+        if (!isNaN(holdPrice) && !isNaN(qty) && qty !== 0) {
+            costSum += holdPrice * qty;
+        }
+        if (!isNaN(preClose) && !isNaN(qty) && qty !== 0) {
+            yesterdayCapSum += preClose * qty;
+        }
     });
     var summaryEl = document.getElementById('holdingsSummary');
     if (summaryEl) summaryEl.style.display = holdingsStocks.length > 0 ? 'flex' : 'none';
+    var capEl = document.getElementById('holdingsCapSummary');
+    if (capEl) capEl.textContent = _fmtMoney(capSum);
+    var costEl = document.getElementById('holdingsCostSummary');
+    if (costEl) costEl.textContent = _fmtMoney(costSum);
     var dailyEl = document.getElementById('holdingsDailySummary');
     var totalEl = document.getElementById('holdingsTotalSummary');
     if (dailyEl) {
         var color = dailySum > 0 ? '#e94560' : (dailySum < 0 ? '#4ade80' : '#ddd');
         var sign = dailySum > 0 ? '+' : '';
-        dailyEl.textContent = sign + _fmtMoney(dailySum);
+        var dailyPct = yesterdayCapSum !== 0 ? (dailySum / yesterdayCapSum * 100).toFixed(2) + '%' : '';
+        var dailyPctSign = dailySum > 0 ? '+' : '';
+        dailyEl.textContent = sign + _fmtMoney(dailySum) + (dailyPct ? '(' + dailyPctSign + dailyPct + ')' : '');
         dailyEl.style.color = color;
     }
     if (totalEl) {
         var color2 = totalSum > 0 ? '#e94560' : (totalSum < 0 ? '#4ade80' : '#ddd');
         var sign2 = totalSum > 0 ? '+' : '';
-        totalEl.textContent = sign2 + _fmtMoney(totalSum);
+        var totalPct = costSum !== 0 ? (totalSum / costSum * 100).toFixed(2) + '%' : '';
+        var totalPctSign = totalSum > 0 ? '+' : '';
+        totalEl.textContent = sign2 + _fmtMoney(totalSum) + (totalPct ? '(' + totalPctSign + totalPct + ')' : '');
         totalEl.style.color = color2;
     }
 }
@@ -1023,6 +1059,8 @@ function holdingsUpdatePrices() {
         _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
         _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
         var jdTd = row.querySelector('.cell-jd'); if (jdTd) { var jdSp = jdTd.querySelector('span'); if (jdSp) jdSp.textContent = _holdingsJoinDays(s.addedDate); }
+        var hmTd = row.querySelector('.cell-hm'); if (hmTd) hmTd.innerHTML = _holdingsMarketCap(s);
+        var haTd = row.querySelector('.cell-ha'); if (haTd) haTd.innerHTML = _holdingsAmount(s);
         var dpTd = row.querySelector('.cell-dp'); if (dpTd) dpTd.innerHTML = _dailyProfit(s);
         var prTd = row.querySelector('.cell-pr'); if (prTd) prTd.innerHTML = _profitRate(s);
         var tpTd = row.querySelector('.cell-tp'); if (tpTd) tpTd.innerHTML = _totalProfit(s);
