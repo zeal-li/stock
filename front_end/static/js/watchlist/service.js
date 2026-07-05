@@ -11,9 +11,9 @@ function switchWatchlistTab(tab) {
     document.getElementById('watchlist-tab-' + tab).classList.add('active');
     _currentWatchlistTab = tab;
     closeEtfPool();
-    // 持仓汇总只在持仓 tab 时显示
+    // 持仓汇总只在持仓 tab 时显示，且不管有没有数据都显示
     var summaryEl = document.getElementById('holdingsSummary');
-    if (summaryEl) summaryEl.style.display = tab === 'holdings' && holdingsStocks.length > 0 ? 'flex' : 'none';
+    if (summaryEl) summaryEl.style.display = tab === 'holdings' ? 'flex' : 'none';
     if (tab === 'holdings') _holdingsUpdateSummary();
     // 切到新 tab 立即刷新一次行情
     if (tab === 'watchlist') refreshWatchlistQuotes();
@@ -1089,7 +1089,7 @@ function _holdingsUpdateSummary() {
         }
     });
     var summaryEl = document.getElementById('holdingsSummary');
-    if (summaryEl) summaryEl.style.display = holdingsStocks.length > 0 ? 'flex' : 'none';
+    if (summaryEl) summaryEl.style.display = _currentWatchlistTab === 'holdings' ? 'flex' : 'none';
     var capEl = document.getElementById('holdingsCapSummary');
     if (capEl) capEl.textContent = _fmtMoney(capSum);
     var costEl = document.getElementById('holdingsCostSummary');
