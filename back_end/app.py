@@ -662,79 +662,173 @@ def stock_minute():
 
 @app.route('/api/stock-kline')
 def stock_kline():
-    """股票K线（日K/周K/月K/1分钟）"""
+    """股票K线（日K/周K/月K/分钟K线）"""
     import re, json, datetime as _dt
     code = request.args.get('code', '')
     market = request.args.get('market', '')
-    period = request.args.get('period', 'day')  # day / week / month / 1min
+    period = request.args.get('period', 'day')  # day / week / month / 1min / 5min / 15min / 30min / 60min / 120min
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
         rows = []
 
-        # 1分钟K线：单独处理
-        if period == '1min':
-            if market in ('1', '2', '0', '90'):
-                # A 股用东财 push2his API（klt=1 即1分钟K线）
-                url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
-                params = {
-                    'secid': f"{market}.{code}",
-                    'klt': '1',  # 1分钟
-                    'fqt': '1',  # 前复权
-                    'beg': '0',
-                    'end': '20500101',
-                    'lmt': '240',  # 最近240根（约1个交易日）
-                    'fields1': 'f1,f2,f3,f4,f5,f6',
-                    'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
-                    'ut': 'fa5fd1943c7b386f172d6893dbfba10b',
+        # 分钟K线：A股 1/5/30/60min→同花顺，15min→新浪，120min→新浪60min合成，港股美股→Yahoo
+        _THS_MINUTE = {'1min': '61', '5min': '31', '30min': '41', '60min': '51'}
+        _SINA_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj'}
+        _YAHOO_RANGE_INTV = {
+            '1min': ('5d', '1m'), '5min': ('1mo', '5m'),
+            '15min': ('1mo', '15m'), '30min': ('3mo', '30m'),
+            '60min': ('3mo', '60m'), '120min': ('6mo', '2h'),
+        }
+        if period in ('1min', '5min', '15min', '30min', '60min', '120min'):
+            yh_range, yh_intv = _YAHOO_RANGE_INTV[period]
+            # A股 1/5/30/60min → 同花顺 v4 API（格式与日K一致：date,open,high,low,close,volume,amount,turnover）
+            if market in ('1', '2', '0', '90') and period in _THS_MINUTE:
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                ths_code = _THS_MINUTE[period]
+                ths_prefix = 'sz' if market == '0' else 'sh'
+                current_year = _dt.datetime.now().year
+                # 1min 只有最近约43天数据，拉当年即可；5/30/60min 拉近3年
+                years = range(current_year, current_year - 1, -1) if period == '1min' else range(current_year, current_year - 3, -1)
+                ths_headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': 'https://www.10jqka.com.cn/',
                 }
-                r = requests.get(url, params=params,
-                    headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
-                    timeout=10, proxies=REQUEST_PROXIES)
-                d = r.json()
-                klines = (d.get('data') or {}).get('klines') or []
-                for line in klines:
+                def _fetch_ths_year(y):
+                    url = f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{code}/{ths_code}/{y}.js"
+                    r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
+                    if r.status_code != 200:
+                        return None
+                    text = r.text
+                    s = text.find('(') + 1; e = text.rfind(')')
+                    jd = json.loads(text[s:e])
+                    return jd.get('data', '')
+                year_results = {}
+                with ThreadPoolExecutor(max_workers=5) as pool:
+                    futs = {pool.submit(_fetch_ths_year, y): y for y in years}
+                    for fut in as_completed(futs):
+                        raw = fut.result()
+                        if raw:
+                            year_results[futs[fut]] = raw
+                all_lines = []
+                for y in sorted(year_results.keys()):
+                    all_lines.extend(year_results[y].split(';'))
+                seen = set()
+                tz_cn = _dt.timezone(_dt.timedelta(hours=8))
+                for line in all_lines:
                     parts = line.split(',')
-                    if len(parts) < 6:
+                    if len(parts) < 8:
                         continue
-                    # 东财1分钟K线格式: "2024-01-15 09:31,开,收,高,低,量,额,振幅,涨跌幅,涨跌额,换手率"
-                    dt_str = parts[0]  # "YYYY-MM-DD HH:MM"
+                    d = parts[0]  # YYYYMMDDHHmm
+                    if d in seen:
+                        continue
+                    seen.add(d)
                     o = float(parts[1]) if parts[1] else 0
-                    c = float(parts[2]) if parts[2] else 0
-                    h = float(parts[3]) if parts[3] else 0
-                    l = float(parts[4]) if parts[4] else 0
-                    vol = int(float(parts[5]) if parts[5] else 0)
-                    amt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
+                    h = float(parts[2]) if parts[2] else 0
+                    l = float(parts[3]) if parts[3] else 0
+                    c = float(parts[4]) if parts[4] else 0
                     if c <= 0:
                         continue
                     if o <= 0: o = c
                     if h <= 0: h = c
                     if l <= 0: l = c
-                    # 转为Unix时间戳（秒），显式指定UTC+8时区避免服务器时区差异
-                    tz_cn = _dt.timezone(_dt.timedelta(hours=8))
-                    dt_obj = _dt.datetime.strptime(dt_str, '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
-                    ts = int(dt_obj.timestamp())
+                    dt_obj = _dt.datetime.strptime(d, '%Y%m%d%H%M').replace(tzinfo=tz_cn)
                     rows.append({
-                        'time': ts,
+                        'time': int(dt_obj.timestamp()),
                         'open': o, 'close': c,
                         'high': h, 'low': l,
-                        'volume': vol * 100,  # A股手→股
-                        'amount': amt,
-                        'turnover': round(float(parts[10]) if len(parts) > 10 and parts[10] else 0, 2),
+                        'volume': int(float(parts[5]) if parts[5] else 0),
+                        'amount': float(parts[6]) if parts[6] else 0,
+                        'turnover': round(float(parts[7]) if parts[7] else 0, 2),
                     })
+            # A股 15min → 新浪财经（同花顺不支持15min）
+            elif market in _SINA_PREFIX and period == '15min':
+                sina_sym = _SINA_PREFIX[market] + code
+                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=15&ma=no&datalen=240"
+                r_sina = requests.get(sina_url,
+                    headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
+                    timeout=10, proxies=REQUEST_PROXIES)
+                d_sina = r_sina.json()
+                if not d_sina or not isinstance(d_sina, list):
+                    return jsonify({'success': False, 'error': '暂无15分钟K线数据'})
+                tz_cn = _dt.timezone(_dt.timedelta(hours=8))
+                for bar in d_sina:
+                    dt_str = bar.get('day', '')
+                    if not dt_str:
+                        continue
+                    o = float(bar.get('open') or 0)
+                    c = float(bar.get('close') or 0)
+                    h = float(bar.get('high') or 0)
+                    l = float(bar.get('low') or 0)
+                    vol = int(float(bar.get('volume') or 0))
+                    if c <= 0:
+                        continue
+                    if o <= 0: o = c
+                    if h <= 0: h = c
+                    if l <= 0: l = c
+                    dt_obj = _dt.datetime.strptime(dt_str[:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                    rows.append({
+                        'time': int(dt_obj.timestamp()),
+                        'open': o, 'close': c,
+                        'high': h, 'low': l,
+                        'volume': vol,
+                        'amount': 0,
+                    })
+            # A股 120min → 新浪 60min 两两合并合成
+            elif market in _SINA_PREFIX and period == '120min':
+                sina_sym = _SINA_PREFIX[market] + code
+                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=60&ma=no&datalen=480"
+                r_sina = requests.get(sina_url,
+                    headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
+                    timeout=10, proxies=REQUEST_PROXIES)
+                d_sina = r_sina.json()
+                if not d_sina or not isinstance(d_sina, list) or len(d_sina) < 2:
+                    return jsonify({'success': False, 'error': '暂无120分钟K线数据'})
+                tz_cn = _dt.timezone(_dt.timedelta(hours=8))
+                bars_60 = []
+                for bar in d_sina:
+                    dt_str = bar.get('day', '')
+                    if not dt_str:
+                        continue
+                    o = float(bar.get('open') or 0)
+                    c = float(bar.get('close') or 0)
+                    h = float(bar.get('high') or 0)
+                    l = float(bar.get('low') or 0)
+                    vol = int(float(bar.get('volume') or 0))
+                    if c <= 0:
+                        continue
+                    if o <= 0: o = c
+                    if h <= 0: h = c
+                    if l <= 0: l = c
+                    dt_obj = _dt.datetime.strptime(dt_str[:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                    bars_60.append({'time': int(dt_obj.timestamp()), 'open': o, 'close': c, 'high': h, 'low': l, 'volume': vol})
+                i = 0
+                while i + 1 < len(bars_60):
+                    t1, t2 = bars_60[i]['time'], bars_60[i + 1]['time']
+                    if t2 - t1 > 5400:
+                        i += 1
+                        continue
+                    rows.append({
+                        'time': t1,
+                        'open': bars_60[i]['open'],
+                        'close': bars_60[i + 1]['close'],
+                        'high': max(bars_60[i]['high'], bars_60[i + 1]['high']),
+                        'low': min(bars_60[i]['low'], bars_60[i + 1]['low']),
+                        'volume': bars_60[i]['volume'] + bars_60[i + 1]['volume'],
+                        'amount': 0,
+                    })
+                    i += 2
             elif market in ('116', '106'):
-                # 港股/美股用 Yahoo Finance 1分钟K线（range=5d, interval=1m）
+                # 港股/美股用 Yahoo Finance 分钟K线
                 import os as _os
                 _old_no = _os.environ.pop('no_proxy', None)
                 _old_NO = _os.environ.pop('NO_PROXY', None)
                 try:
                     if market == '116':
                         symbol = str(int(code)).zfill(4) + '.HK'
-                        _yh_tz = _dt.timezone(_dt.timedelta(hours=8))
                     else:
                         symbol = code
-                        _yh_tz = _dt.timezone(_dt.timedelta(hours=-5))
-                    yh_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1m"
+                    yh_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={yh_range}&interval={yh_intv}"
                     r_yh = requests.get(yh_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
                     result = (r_yh.json().get('chart', {}).get('result') or [None])[0]
                     if not result:
@@ -760,7 +854,7 @@ def stock_kline():
                     if _old_no is not None: _os.environ['no_proxy'] = _old_no
                     if _old_NO is not None: _os.environ['NO_PROXY'] = _old_NO
             else:
-                return jsonify({'success': False, 'error': '暂不支持该市场1分钟K线'})
+                return jsonify({'success': False, 'error': '暂不支持该市场分钟K线'})
             rows.sort(key=lambda r: r['time'])
             return jsonify({'success': True, 'data': {'name': code, 'code': code, 'market': market, 'klines': rows, 'isMinuteKline': True}})
 

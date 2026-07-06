@@ -72,6 +72,11 @@ var KlinePopup = (function() {
                     '<button data-p="month" onclick="KlinePopup._switchPeriod(\'month\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">月K</button>' +
                     '<button data-p="5day" onclick="KlinePopup._switchPeriod(\'5day\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">五日</button>' +
                     '<button data-p="1min" onclick="KlinePopup._switchPeriod(\'1min\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">1分</button>' +
+                    '<button data-p="5min" onclick="KlinePopup._switchPeriod(\'5min\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">5分</button>' +
+                    '<button data-p="15min" onclick="KlinePopup._switchPeriod(\'15min\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">15分</button>' +
+                    '<button data-p="30min" onclick="KlinePopup._switchPeriod(\'30min\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">30分</button>' +
+                    '<button data-p="60min" onclick="KlinePopup._switchPeriod(\'60min\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">60分</button>' +
+                    '<button data-p="120min" onclick="KlinePopup._switchPeriod(\'120min\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">120分</button>' +
                 '</div>' +
                 '<div id="klIndBar" style="display:none;padding:4px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;align-items:center;gap:8px;font-size:11px;color:#8b8b9e;">' +
                     '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)" style="cursor:pointer;font-size:10px;padding:1px 4px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;">' +
@@ -213,6 +218,11 @@ var KlinePopup = (function() {
                     delete all[_stockCode].minute;
                     delete all[_stockCode].fiveday;
                     delete all[_stockCode]['1min'];
+                    delete all[_stockCode]['5min'];
+                    delete all[_stockCode]['15min'];
+                    delete all[_stockCode]['30min'];
+                    delete all[_stockCode]['60min'];
+                    delete all[_stockCode]['120min'];
                     delete all[_stockCode].extra;
                     delete all[_stockCode].quotes;
                 }
@@ -356,7 +366,8 @@ var KlinePopup = (function() {
         var cached = _getCachedKlines(_currentPeriod);
         if (cached) {
             _klinesData = cached;
-            var isMinCache = (_currentPeriod === '1min');
+            var _minutePeriods = ['1min', '5min', '15min', '30min', '60min', '120min'];
+            var isMinCache = (_minutePeriods.indexOf(_currentPeriod) >= 0);
             try { _renderChart({klines: _klinesData, isMinuteKline: isMinCache}); var sel2 = document.getElementById('klIndSelect'); if (sel2) sel2.value = _indicatorMode; _switchIndicator(_indicatorMode); }
             catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             console.log('[弹窗] ' + _stockCode + ' _loadKlineChart(' + _currentPeriod + ') 缓存命中, 耗时 ' + (Date.now() - _tStart) + 'ms');
@@ -612,7 +623,7 @@ var KlinePopup = (function() {
         // 初始显示范围
         if (_klinesData && _klinesData.length > 0) {
             if (isMinuteKline) {
-                // 1分钟K线：显示最近1天数据，右留空10%
+                // 分钟K线：显示最近240根，右留空10%
                 var visibleBars = Math.min(_klinesData.length, 240);
                 var fromIdx = _klinesData.length - visibleBars;
                 var rightPad = Math.round(visibleBars * 0.1);
