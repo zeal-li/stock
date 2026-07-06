@@ -79,6 +79,14 @@ var KlineChartUtils = {
     },
     // 十字线提示文案
     tooltipText: function(k, prevClose, isEtf) {
+        // 时间格式化：数字时间戳转为 "YYYY-MM-DD HH:MM"，字符串直接用
+        var timeDisplay;
+        if (typeof k.time === 'number') {
+            var dt = new Date(k.time * 1000);
+            timeDisplay = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0') + ' ' + String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0');
+        } else {
+            timeDisplay = k.time;
+        }
         var chg = prevClose ? (k.close - prevClose) : 0;
         var chgPct = (prevClose && prevClose !== 0) ? (chg / prevClose * 100) : 0;
         var sign = chg >= 0 ? '+' : '';
@@ -103,7 +111,7 @@ var KlineChartUtils = {
                    '<td style="color:#888;padding:0 4px;">' + r + '</td><td>' + rv + '</td></tr>';
         };
         return (
-            '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + k.time + '</div>' +
+            '<div style="font-weight:600;color:#fff;margin-bottom:4px;text-align:center;">' + timeDisplay + '</div>' +
             '<table style="border-spacing:0;">' +
                 row('高', relSpan(k.high),
                     '低', relSpan(k.low)) +
@@ -117,31 +125,41 @@ var KlineChartUtils = {
         );
     },
     // 渲染 K 线图，返回 { chart, series, volSeries, maLines, bbLines, kdjLines, kdjVals, observer }
-    render: function(el, klinesData, stockCode, stockMarket, kdjParams, macdParams) {
+    render: function(el, klinesData, stockCode, stockMarket, kdjParams, macdParams, isMinuteKline) {
         kdjParams = kdjParams || { n: 9, m1: 3, m2: 3 };
         macdParams = macdParams || { fast: 12, slow: 26, signal: 9 };
+        isMinuteKline = isMinuteKline || false;
         el.style.display = 'flex';
         el.style.flexDirection = 'column';
         var tickFmt = function(time) {
-            var y, m, d;
+            var y, m, d, hh, mm;
             if (typeof time === 'number') {
                 var dt = new Date(time * 1000);
                 y = dt.getFullYear(); m = dt.getMonth() + 1; d = dt.getDate();
+                hh = dt.getHours(); mm = dt.getMinutes();
+                if (isMinuteKline) {
+                    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0') + ' ' + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+                }
+                return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
             } else if (time && time.year) {
                 y = time.year; m = time.month; d = time.day;
+                hh = time.hour || 0; mm = time.minute || 0;
+                if (isMinuteKline) {
+                    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0') + ' ' + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+                }
+                return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
             } else if (typeof time === 'string') {
                 return time;
             } else {
                 return '';
             }
-            return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
         };
         var subChartBase = {
             layout: { background: { color: '#1e1e2e' }, textColor: '#8b8b9e' },
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 1 },
             rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 84, scaleMargins: { top: 0.05, bottom: 0.02 } },
-            timeScale: { borderColor: '#2a2a4e', visible: false },
+            timeScale: { borderColor: '#2a2a4e', visible: false, timeVisible: isMinuteKline, secondsVisible: false },
         };
 
         el.innerHTML =
@@ -193,7 +211,7 @@ var KlineChartUtils = {
             grid: { vertLines: { color: 'rgba(42,42,78,0.5)' }, horzLines: { color: 'rgba(42,42,78,0.5)' } },
             crosshair: { mode: 1 },
             rightPriceScale: { borderColor: '#2a2a4e', minimumWidth: 84, scaleMargins: { top: 0.05, bottom: 0.02 } },
-            timeScale: { borderColor: '#2a2a4e', visible: false },
+            timeScale: { borderColor: '#2a2a4e', visible: false, timeVisible: isMinuteKline, secondsVisible: false },
             width: mainCanvas.clientWidth, height: mainCanvas.clientHeight,
         });
         var volChart = LightweightCharts.createChart(volCanvas, Object.assign({}, subChartBase, { width: volCanvas.clientWidth, height: volCanvas.clientHeight }));
@@ -391,8 +409,19 @@ var KlineChartUtils = {
                 return;
             }
             var idx = -1;
-            var tKey = typeof time === 'string' ? time :
-                       time.year ? time.year + '-' + String(time.month).padStart(2,'0') + '-' + String(time.day).padStart(2,'0') : '';
+            var tKey;
+            if (typeof time === 'number') {
+                tKey = time;  // 1分钟K线用Unix时间戳
+            } else if (typeof time === 'string') {
+                tKey = time;
+            } else if (time && time.year) {
+                tKey = time.year + '-' + String(time.month).padStart(2,'0') + '-' + String(time.day).padStart(2,'0');
+                if (isMinuteKline && (time.hour || time.minute)) {
+                    tKey += ' ' + String(time.hour || 0).padStart(2,'0') + ':' + String(time.minute || 0).padStart(2,'0');
+                }
+            } else {
+                tKey = '';
+            }
             for (var i = 0; i < klinesData.length; i++) {
                 if (klinesData[i].time === tKey) { idx = i; break; }
             }

@@ -662,15 +662,107 @@ def stock_minute():
 
 @app.route('/api/stock-kline')
 def stock_kline():
-    """股票K线（日K/周K/月K）"""
+    """股票K线（日K/周K/月K/1分钟）"""
     import re, json, datetime as _dt
     code = request.args.get('code', '')
     market = request.args.get('market', '')
-    period = request.args.get('period', 'day')  # day / week / month
+    period = request.args.get('period', 'day')  # day / week / month / 1min
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
         rows = []
+
+        # 1分钟K线：单独处理
+        if period == '1min':
+            if market in ('1', '2', '0', '90'):
+                # A 股用东财 push2his API（klt=1 即1分钟K线）
+                url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+                params = {
+                    'secid': f"{market}.{code}",
+                    'klt': '1',  # 1分钟
+                    'fqt': '1',  # 前复权
+                    'beg': '0',
+                    'end': '20500101',
+                    'lmt': '240',  # 最近240根（约1个交易日）
+                    'fields1': 'f1,f2,f3,f4,f5,f6',
+                    'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
+                    'ut': 'fa5fd1943c7b386f172d6893dbfba10b',
+                }
+                r = requests.get(url, params=params,
+                    headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
+                    timeout=10, proxies=REQUEST_PROXIES)
+                d = r.json()
+                klines = (d.get('data') or {}).get('klines') or []
+                for line in klines:
+                    parts = line.split(',')
+                    if len(parts) < 6:
+                        continue
+                    # 东财1分钟K线格式: "2024-01-15 09:31,开,收,高,低,量,额,振幅,涨跌幅,涨跌额,换手率"
+                    dt_str = parts[0]  # "YYYY-MM-DD HH:MM"
+                    o = float(parts[1]) if parts[1] else 0
+                    c = float(parts[2]) if parts[2] else 0
+                    h = float(parts[3]) if parts[3] else 0
+                    l = float(parts[4]) if parts[4] else 0
+                    vol = int(float(parts[5]) if parts[5] else 0)
+                    amt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
+                    if c <= 0:
+                        continue
+                    if o <= 0: o = c
+                    if h <= 0: h = c
+                    if l <= 0: l = c
+                    # 转为Unix时间戳（秒），显式指定UTC+8时区避免服务器时区差异
+                    tz_cn = _dt.timezone(_dt.timedelta(hours=8))
+                    dt_obj = _dt.datetime.strptime(dt_str, '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                    ts = int(dt_obj.timestamp())
+                    rows.append({
+                        'time': ts,
+                        'open': o, 'close': c,
+                        'high': h, 'low': l,
+                        'volume': vol * 100,  # A股手→股
+                        'amount': amt,
+                        'turnover': round(float(parts[10]) if len(parts) > 10 and parts[10] else 0, 2),
+                    })
+            elif market in ('116', '106'):
+                # 港股/美股用 Yahoo Finance 1分钟K线（range=5d, interval=1m）
+                import os as _os
+                _old_no = _os.environ.pop('no_proxy', None)
+                _old_NO = _os.environ.pop('NO_PROXY', None)
+                try:
+                    if market == '116':
+                        symbol = str(int(code)).zfill(4) + '.HK'
+                        _yh_tz = _dt.timezone(_dt.timedelta(hours=8))
+                    else:
+                        symbol = code
+                        _yh_tz = _dt.timezone(_dt.timedelta(hours=-5))
+                    yh_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=1m"
+                    r_yh = requests.get(yh_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                    result = (r_yh.json().get('chart', {}).get('result') or [None])[0]
+                    if not result:
+                        return jsonify({'success': False, 'error': '无数据'})
+                    timestamps = result.get('timestamp') or []
+                    quotes = (result.get('indicators', {}).get('quote') or [None])[0]
+                    if not quotes:
+                        return jsonify({'success': False, 'error': '无数据'})
+                    for i, ts in enumerate(timestamps):
+                        o = quotes['open'][i]
+                        if o is None:
+                            continue
+                        rows.append({
+                            'time': int(ts),
+                            'open': round(float(o), 3),
+                            'close': round(float(quotes['close'][i] or 0), 3),
+                            'high': round(float(quotes['high'][i] or 0), 3),
+                            'low': round(float(quotes['low'][i] or 0), 3),
+                            'volume': int(quotes['volume'][i] or 0),
+                            'amount': 0,
+                        })
+                finally:
+                    if _old_no is not None: _os.environ['no_proxy'] = _old_no
+                    if _old_NO is not None: _os.environ['NO_PROXY'] = _old_NO
+            else:
+                return jsonify({'success': False, 'error': '暂不支持该市场1分钟K线'})
+            rows.sort(key=lambda r: r['time'])
+            return jsonify({'success': True, 'data': {'name': code, 'code': code, 'market': market, 'klines': rows, 'isMinuteKline': True}})
 
         tx_period = {'day': 'day', 'week': 'week', 'month': 'month'}.get(period, 'day')
         yh_intv = {'day': '1d', 'week': '1wk', 'month': '1mo'}.get(period, '1d')

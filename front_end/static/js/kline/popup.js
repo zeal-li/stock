@@ -71,6 +71,7 @@ var KlinePopup = (function() {
                     '<button data-p="week" onclick="KlinePopup._switchPeriod(\'week\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">周K</button>' +
                     '<button data-p="month" onclick="KlinePopup._switchPeriod(\'month\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">月K</button>' +
                     '<button data-p="5day" onclick="KlinePopup._switchPeriod(\'5day\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">五日</button>' +
+                    '<button data-p="1min" onclick="KlinePopup._switchPeriod(\'1min\')" style="cursor:pointer;font-size:10px;padding:1px 7px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#8b8b9e;">1分</button>' +
                 '</div>' +
                 '<div id="klIndBar" style="display:none;padding:4px 16px;background:#1a1a2e;border-bottom:1px solid #2a2a4e;flex-shrink:0;align-items:center;gap:8px;font-size:11px;color:#8b8b9e;">' +
                     '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)" style="cursor:pointer;font-size:10px;padding:1px 4px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;">' +
@@ -211,6 +212,7 @@ var KlinePopup = (function() {
                     delete all[_stockCode].month;
                     delete all[_stockCode].minute;
                     delete all[_stockCode].fiveday;
+                    delete all[_stockCode]['1min'];
                     delete all[_stockCode].extra;
                     delete all[_stockCode].quotes;
                 }
@@ -354,7 +356,8 @@ var KlinePopup = (function() {
         var cached = _getCachedKlines(_currentPeriod);
         if (cached) {
             _klinesData = cached;
-            try { _renderChart({klines: _klinesData}); var sel2 = document.getElementById('klIndSelect'); if (sel2) sel2.value = _indicatorMode; _switchIndicator(_indicatorMode); }
+            var isMinCache = (_currentPeriod === '1min');
+            try { _renderChart({klines: _klinesData, isMinuteKline: isMinCache}); var sel2 = document.getElementById('klIndSelect'); if (sel2) sel2.value = _indicatorMode; _switchIndicator(_indicatorMode); }
             catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
             console.log('[弹窗] ' + _stockCode + ' _loadKlineChart(' + _currentPeriod + ') 缓存命中, 耗时 ' + (Date.now() - _tStart) + 'ms');
             return;
@@ -566,9 +569,9 @@ var KlinePopup = (function() {
     // ---- 渲染图表 ----
     function _renderChart(data) {
         _klinesData = data.klines;
-        // 渲染前用行情数据覆盖/插入今日K线（同花顺日K当天数据可能缺失或不完整）
-        // 非交易日不注入，避免显示无意义的今日K线
-        if (_quoteData && _klinesData && _klinesData.length > 0 && isTradingDay(_stockMarket)) {
+        var isMinuteKline = data.isMinuteKline || false;
+        // 1分钟K线不注入今日行情（时间格式不同，且数据本身就是分钟级）
+        if (!isMinuteKline && _quoteData && _klinesData && _klinesData.length > 0 && isTradingDay(_stockMarket)) {
             var today = new Date();
             var todayStr = today.getFullYear() + '-' +
                            String(today.getMonth() + 1).padStart(2, '0') + '-' +
@@ -593,7 +596,7 @@ var KlinePopup = (function() {
         }
         var el = document.getElementById('klChart');
         if (_observer) _observer.disconnect();
-        var result = KlineChartUtils.render(el, _klinesData, _stockCode, _stockMarket, _kdjParams, _macdParams);
+        var result = KlineChartUtils.render(el, _klinesData, _stockCode, _stockMarket, _kdjParams, _macdParams, isMinuteKline);
         _charts = result.charts;
         _series = result.series;
         _volSeries = result.volSeries;
@@ -606,21 +609,31 @@ var KlinePopup = (function() {
         _macdLines = result.macdLines;
         _macdVals = result.macdVals;
         _observer = result.observer;
-        // 初始显示范围：日K≈1年，周K≈5年，月K≈10年，右留空20%，柱宽均匀
+        // 初始显示范围
         if (_klinesData && _klinesData.length > 0) {
-            var lookbackYears = _currentPeriod === 'week' ? 5 : _currentPeriod === 'month' ? 10 : 1;
-            var lastT = _klinesData[_klinesData.length - 1].time;
-            var parts = lastT.split('-');
-            var agoT = (parseInt(parts[0]) - lookbackYears) + '-' + parts[1] + '-' + parts[2];
-            var fromIdx = 0;
-            for (var i = 0; i < _klinesData.length; i++) {
-                if (_klinesData[i].time >= agoT) { fromIdx = i; break; }
+            if (isMinuteKline) {
+                // 1分钟K线：显示最近1天数据，右留空10%
+                var visibleBars = Math.min(_klinesData.length, 240);
+                var fromIdx = _klinesData.length - visibleBars;
+                var rightPad = Math.round(visibleBars * 0.1);
+                _charts.forEach(function(c) {
+                    c.timeScale().setVisibleLogicalRange({ from: fromIdx, to: _klinesData.length - 1 + rightPad });
+                });
+            } else {
+                var lookbackYears = _currentPeriod === 'week' ? 5 : _currentPeriod === 'month' ? 10 : 1;
+                var lastT = _klinesData[_klinesData.length - 1].time;
+                var parts = lastT.split('-');
+                var agoT = (parseInt(parts[0]) - lookbackYears) + '-' + parts[1] + '-' + parts[2];
+                var fromIdx = 0;
+                for (var i = 0; i < _klinesData.length; i++) {
+                    if (_klinesData[i].time >= agoT) { fromIdx = i; break; }
+                }
+                var visibleBars = _klinesData.length - fromIdx;
+                var rightPad = Math.round(visibleBars * 0.2);
+                _charts.forEach(function(c) {
+                    c.timeScale().setVisibleLogicalRange({ from: fromIdx, to: _klinesData.length - 1 + rightPad });
+                });
             }
-            var visibleBars = _klinesData.length - fromIdx;
-            var rightPad = Math.round(visibleBars * 0.2);
-            _charts.forEach(function(c) {
-                c.timeScale().setVisibleLogicalRange({ from: fromIdx, to: _klinesData.length - 1 + rightPad });
-            });
         }
     }
 
