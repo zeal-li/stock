@@ -622,7 +622,7 @@ var KlinePopup = (function() {
         // 初始显示范围
         if (_klinesData && _klinesData.length > 0) {
             if (isMinuteKline) {
-                // 分钟K线：显示最近240根，右留空10%
+                // 分钟K线：默认显示最近240根，右留空10%
                 var visibleBars = Math.min(_klinesData.length, 240);
                 var fromIdx = _klinesData.length - visibleBars;
                 var rightPad = Math.round(visibleBars * 0.1);

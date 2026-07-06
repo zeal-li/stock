@@ -672,8 +672,9 @@ def stock_kline():
     try:
         rows = []
 
-        # 分钟K线：A股 1/5/30/60min→同花顺，15min→新浪，120min→新浪60min合成，港股美股→Yahoo
-        _THS_MINUTE = {'1min': '61', '5min': '31', '30min': '41', '60min': '51'}
+        # 分钟K线：A股 1min→东财，5/15/30/60min→新浪，120min→新浪60min合成，港股美股→Yahoo
+        _SINA_SCALE = {'5min': 5, '15min': 15, '30min': 30, '60min': 60}
+        _SINA_DATALEN = {'5min': 240, '15min': 240, '30min': 240, '60min': 240}
         _SINA_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj'}
         _YAHOO_RANGE_INTV = {
             '1min': ('5d', '1m'), '5min': ('1mo', '5m'),
@@ -682,64 +683,57 @@ def stock_kline():
         }
         if period in ('1min', '5min', '15min', '30min', '60min', '120min'):
             yh_range, yh_intv = _YAHOO_RANGE_INTV[period]
-            # A股 1/5/30/60min → 同花顺 v4 API（格式与日K一致：date,open,high,low,close,volume,amount,turnover）
-            if market in ('1', '2', '0', '90') and period in _THS_MINUTE:
-                ths_code = _THS_MINUTE[period]
-                ths_prefix = 'sz' if market == '0' else 'sh'
-                current_year = _dt.datetime.now().year
-                ths_headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer': 'https://www.10jqka.com.cn/',
+            # A股 1min → 东财push2delay（固定240条，刚好1天，够用且快）
+            if market in ('1', '2', '0', '90') and period == '1min':
+                url = "https://push2delay.eastmoney.com/api/qt/stock/kline/get"
+                params = {
+                    'secid': f"{market}.{code}",
+                    'klt': '1',
+                    'fqt': '1', 'beg': '0', 'end': '20500101', 'lmt': '240',
+                    'fields1': 'f1,f2,f3,f4,f5,f6',
+                    'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
                 }
-                url = f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{code}/{ths_code}/{current_year}.js"
-                r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
-                if r.status_code != 200:
-                    return jsonify({'success': False, 'error': '暂无K线数据'})
-                text = r.text
-                s = text.find('(') + 1; e = text.rfind(')')
-                jd = json.loads(text[s:e])
-                data = jd.get('data', '')
-                if not data:
-                    return jsonify({'success': False, 'error': '暂无K线数据'})
-                all_lines = data.split(';')
-                seen = set()
+                r = requests.get(url, params=params,
+                    headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
+                    timeout=10, proxies=REQUEST_PROXIES)
+                d = r.json()
+                klines = (d.get('data') or {}).get('klines') or []
                 tz_cn = _dt.timezone(_dt.timedelta(hours=8))
-                for line in all_lines:
+                for line in klines:
                     parts = line.split(',')
-                    if len(parts) < 8:
+                    if len(parts) < 6:
                         continue
-                    d = parts[0]  # YYYYMMDDHHmm
-                    if d in seen:
-                        continue
-                    seen.add(d)
+                    dt_str = parts[0]
                     o = float(parts[1]) if parts[1] else 0
-                    h = float(parts[2]) if parts[2] else 0
-                    l = float(parts[3]) if parts[3] else 0
-                    c = float(parts[4]) if parts[4] else 0
+                    c = float(parts[2]) if parts[2] else 0
+                    h = float(parts[3]) if parts[3] else 0
+                    l = float(parts[4]) if parts[4] else 0
+                    vol = int(float(parts[5]) if parts[5] else 0)
+                    amt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
                     if c <= 0:
                         continue
                     if o <= 0: o = c
                     if h <= 0: h = c
                     if l <= 0: l = c
-                    dt_obj = _dt.datetime.strptime(d, '%Y%m%d%H%M').replace(tzinfo=tz_cn)
+                    dt_obj = _dt.datetime.strptime(dt_str, '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
                     rows.append({
                         'time': int(dt_obj.timestamp()),
                         'open': o, 'close': c,
                         'high': h, 'low': l,
-                        'volume': int(float(parts[5]) if parts[5] else 0),
-                        'amount': float(parts[6]) if parts[6] else 0,
-                        'turnover': round(float(parts[7]) if parts[7] else 0, 2),
+                        'volume': vol * 100,
+                        'amount': amt,
+                        'turnover': round(float(parts[10]) if len(parts) > 10 and parts[10] else 0, 2),
                     })
-            # A股 15min → 新浪财经（同花顺不支持15min）
-            elif market in _SINA_PREFIX and period == '15min':
+            # A股 5/15/30/60min → 新浪
+            elif market in _SINA_PREFIX and period in _SINA_SCALE:
                 sina_sym = _SINA_PREFIX[market] + code
-                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=15&ma=no&datalen=4000"
+                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale={_SINA_SCALE[period]}&ma=no&datalen={_SINA_DATALEN[period]}"
                 r_sina = requests.get(sina_url,
                     headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
                     timeout=10, proxies=REQUEST_PROXIES)
                 d_sina = r_sina.json()
                 if not d_sina or not isinstance(d_sina, list):
-                    return jsonify({'success': False, 'error': '暂无15分钟K线数据'})
+                    return jsonify({'success': False, 'error': '暂无分钟K线数据'})
                 tz_cn = _dt.timezone(_dt.timedelta(hours=8))
                 for bar in d_sina:
                     dt_str = bar.get('day', '')
@@ -766,7 +760,7 @@ def stock_kline():
             # A股 120min → 新浪 60min 两两合并合成
             elif market in _SINA_PREFIX and period == '120min':
                 sina_sym = _SINA_PREFIX[market] + code
-                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=60&ma=no&datalen=1000"
+                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=60&ma=no&datalen=480"
                 r_sina = requests.get(sina_url,
                     headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
                     timeout=10, proxies=REQUEST_PROXIES)
