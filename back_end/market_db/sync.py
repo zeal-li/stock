@@ -24,6 +24,10 @@ from .db import (
     stock_info_all, stock_info_kline_maps, stock_info_remove, stock_info_clear_market,
     stock_info_sync_atomic, klines_get, klines_count_market,
 )
+from common.utils import (
+    MARKET_HOURS, is_before_open, is_after_close, is_trading_hours,
+    is_cross_day, get_market_hours,
+)
 
 # 市场分段 — key 用作 market 字段值（已移除北交所、新三板）
 SEGMENTS = {
@@ -33,16 +37,6 @@ SEGMENTS = {
     'star':     {'label': '科创板',   'prefix': ('688',)},
     'hk_main':  {'label': '港股',     'fs': 'm:116+t:3',       'api': 'eastmoney'},
     'us_main':  {'label': '美股',     'fs': 'm:105,m:106,m:107',       'api': 'eastmoney'},
-}
-
-# 各市场交易时间（UTC+8 北京时间），用于判断是否需要更新
-MARKET_HOURS = {
-    'hs_main':  {'open': (9, 30), 'close': (15, 0)},
-    'hs_etf':   {'open': (9, 30), 'close': (15, 0)},
-    'gem':      {'open': (9, 30), 'close': (15, 0)},
-    'star':     {'open': (9, 30), 'close': (15, 0)},
-    'hk_main':  {'open': (9, 30), 'close': (16, 0)},
-    'us_main':  {'open': (21, 30), 'close': (4, 0)},  # 美股夏令时 21:30-04:00
 }
 
 
@@ -745,44 +739,7 @@ def _need_update(seg_key):
 
     open_h, open_m = seg_hours['open']
     close_h, close_m = seg_hours['close']
-
-    # 美股跨日：close 小于 open 表示次日收盘
-    is_cross_day = close_h < open_h or (close_h == open_h and close_m < open_m)
-
-    def _to_minutes(h, m):
-        return h * 60 + m
-
-    open_min = _to_minutes(open_h, open_m)
-    close_min = _to_minutes(close_h, close_m)
-
-    def _is_before_open(dt):
-        """判断时间是否在开盘前"""
-        dt_min = _to_minutes(dt.hour, dt.minute)
-        if is_cross_day:
-            # 美股：开盘在晚上，close 在次日凌晨
-            # 开盘前 = dt_min < open_min (晚上开盘前)
-            return dt_min < open_min
-        else:
-            return dt_min < open_min
-
-    def _is_after_close(dt):
-        """判断时间是否在收盘后"""
-        dt_min = _to_minutes(dt.hour, dt.minute)
-        if is_cross_day:
-            # 美股收盘在次日凌晨: close_min 如 4:00 = 240
-            # 收盘后 = dt_min >= close_min 且 dt_min < open_min（次日凌晨到当晚开盘前）
-            return dt_min >= close_min and dt_min < open_min
-        else:
-            return dt_min >= close_min
-
-    def _is_trading_hours(dt):
-        """判断时间是否在交易时段内（含收盘时刻）"""
-        dt_min = _to_minutes(dt.hour, dt.minute)
-        if is_cross_day:
-            # 交易时段 = open_min..24:00 或 0:00..close_min
-            return dt_min >= open_min or dt_min < close_min
-        else:
-            return open_min <= dt_min < close_min
+    _is_cross_day = is_cross_day(open_h, open_m, close_h, close_m)
 
     # 计算两个时间之间排除周末的天数差异
     def _trading_days_between(d1, d2):
@@ -804,16 +761,16 @@ def _need_update(seg_key):
 
     # 同一天内（或跨0个交易日）
     # 情况1: 记录时间在开盘前，现在也在开盘前 → 没有新K线
-    if _is_before_open(last_ts) and _is_before_open(now):
+    if is_before_open(last_ts, open_h, open_m) and is_before_open(now, open_h, open_m):
         return False
 
     # 情况2: 记录时间在交易时段内 → 当天K线数据还在变化，需要更新
-    if _is_trading_hours(last_ts):
+    if is_trading_hours(last_ts, open_h, open_m, close_h, close_m, _is_cross_day):
         return True
 
     # 情况3: 记录时间在收盘后
-    if _is_after_close(last_ts):
-        if _is_before_open(now):
+    if is_after_close(last_ts, close_h, close_m, open_h, open_m, _is_cross_day):
+        if is_before_open(now, open_h, open_m):
             # 收盘后到次日开盘前 → 没有新K线
             return False
         else:
@@ -871,26 +828,15 @@ def _list_need_refresh(seg_key):
         return True
 
     open_h, open_m = seg_hours['open']
-    is_cross_day = seg_hours['close'][0] < open_h or (seg_hours['close'][0] == open_h and seg_hours['close'][1] < open_m)
-
-    def _to_minutes(h, m):
-        return h * 60 + m
-    open_min = _to_minutes(open_h, open_m)
-
-    def _is_in_or_after_open(dt):
-        """判断时间是否在开盘时间或之后（美股考虑跨日）"""
-        dt_min = _to_minutes(dt.hour, dt.minute)
-        if is_cross_day:
-            # 美股：开盘在晚上 21:30，dt_min >= open_min 即"已开盘"或之后
-            return dt_min >= open_min
-        else:
-            return dt_min >= open_min
+    close_h, close_m = seg_hours['close']
+    _is_cross_day = is_cross_day(open_h, open_m, close_h, close_m)
 
     # 找到"最近一次该市场开盘"的时间点
     now = datetime.datetime.now()
-    last_open_dt = None
+    from common.utils import to_minutes
+    open_min = to_minutes(open_h, open_m)
 
-    if is_cross_day:
+    if _is_cross_day:
         # 美股：开盘在晚上
         # 找最近一次"今天或昨天的晚上 21:30"
         # 如果当前时间在开盘前（早上到晚上开盘前），最近开盘是"昨天的 21:30"

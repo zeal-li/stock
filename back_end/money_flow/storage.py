@@ -6,6 +6,7 @@ import sqlite3
 import time
 import threading
 from common import REQUEST_PROXIES
+from common.utils import is_a_trading_time, effective_today_str
 
 # 数据库路径（与 watchlist.db 同级在 data/ 目录下）
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'money_flow.db')
@@ -85,16 +86,6 @@ _MARGIN_KEY = 'margin_trading'
 _DAILY_CLOSES_KEY = 'daily_closes'
 
 
-def _is_trading_time():
-    """判断当前是否在A股交易时段（周一至周五 09:15-11:35, 12:55-15:05）"""
-    now = datetime.datetime.now()
-    day = now.weekday()
-    if day >= 5:
-        return False
-    t = now.hour * 60 + now.minute
-    return (555 <= t <= 695) or (775 <= t <= 905)
-
-
 def _is_cache_from_today(cached_row, today_str):
     """检查缓存是否来自今天，兼容 meta 为时间戳(float)或日期字符串"""
     if not cached_row:
@@ -107,12 +98,6 @@ def _is_cache_from_today(cached_row, today_str):
     return meta == today_str
 
 
-def _effective_today_str():
-    """返回有效的"今天"日期：开盘前（<9:00）退回昨天，因为当天数据还不存在"""
-    now = datetime.datetime.now()
-    if now.weekday() < 5 and now.hour < 9:
-        return (now - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
-    return now.strftime('%Y-%m-%d')
 
 
 def _background_poller():
@@ -122,7 +107,7 @@ def _background_poller():
     from money_flow.turnover import _fetch_and_cache_turnover
     from money_flow.margin import _fetch_and_cache_margin
 
-    today = _effective_today_str()
+    today = effective_today_str()
 
     # 检查是否已有当日数据（兼容 meta 为时间戳或日期字符串）
     cached = db_get(_MAJOR_INDICES_KEY)
@@ -141,7 +126,7 @@ def _background_poller():
         time.sleep(5)
         _loop_count += 1
         try:
-            if _is_trading_time():
+            if is_a_trading_time():
                 _fetch_and_cache_major_indices()
                 if _loop_count % 12 == 0:
                     _fetch_and_cache_breadth()

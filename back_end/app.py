@@ -4,7 +4,7 @@ from flask_cors import CORS
 import requests
 
 from common import REQUEST_PROXIES
-from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
+from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened
 from common.finance import get_goodwill
 from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
 from money_flow.fund_flow import get_market_fund_flow
@@ -894,6 +894,10 @@ def stock_kline():
                 l = float(parts[3]) if parts[3] else 0
                 c = float(parts[4]) if parts[4] else 0
                 if c <= 0:
+                    continue
+                # 如果K线日期是今天且市场还没开盘，跳过未开盘的假K线
+                today_str = _dt.datetime.now().strftime('%Y%m%d')
+                if d == today_str and not is_market_opened(market):
                     continue
                 # 开/高/低为空或为 0 时，用收盘价补上（同花顺当天可能只有收盘价）
                 if o <= 0:
