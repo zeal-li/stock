@@ -684,35 +684,24 @@ def stock_kline():
             yh_range, yh_intv = _YAHOO_RANGE_INTV[period]
             # A股 1/5/30/60min → 同花顺 v4 API（格式与日K一致：date,open,high,low,close,volume,amount,turnover）
             if market in ('1', '2', '0', '90') and period in _THS_MINUTE:
-                from concurrent.futures import ThreadPoolExecutor, as_completed
                 ths_code = _THS_MINUTE[period]
                 ths_prefix = 'sz' if market == '0' else 'sh'
                 current_year = _dt.datetime.now().year
-                # 1min 只有最近约43天数据，拉当年即可；5/30/60min 拉近3年
-                years = range(current_year, current_year - 1, -1) if period == '1min' else range(current_year, current_year - 3, -1)
                 ths_headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                     'Referer': 'https://www.10jqka.com.cn/',
                 }
-                def _fetch_ths_year(y):
-                    url = f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{code}/{ths_code}/{y}.js"
-                    r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
-                    if r.status_code != 200:
-                        return None
-                    text = r.text
-                    s = text.find('(') + 1; e = text.rfind(')')
-                    jd = json.loads(text[s:e])
-                    return jd.get('data', '')
-                year_results = {}
-                with ThreadPoolExecutor(max_workers=5) as pool:
-                    futs = {pool.submit(_fetch_ths_year, y): y for y in years}
-                    for fut in as_completed(futs):
-                        raw = fut.result()
-                        if raw:
-                            year_results[futs[fut]] = raw
-                all_lines = []
-                for y in sorted(year_results.keys()):
-                    all_lines.extend(year_results[y].split(';'))
+                url = f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{code}/{ths_code}/{current_year}.js"
+                r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
+                if r.status_code != 200:
+                    return jsonify({'success': False, 'error': '暂无K线数据'})
+                text = r.text
+                s = text.find('(') + 1; e = text.rfind(')')
+                jd = json.loads(text[s:e])
+                data = jd.get('data', '')
+                if not data:
+                    return jsonify({'success': False, 'error': '暂无K线数据'})
+                all_lines = data.split(';')
                 seen = set()
                 tz_cn = _dt.timezone(_dt.timedelta(hours=8))
                 for line in all_lines:
@@ -744,7 +733,7 @@ def stock_kline():
             # A股 15min → 新浪财经（同花顺不支持15min）
             elif market in _SINA_PREFIX and period == '15min':
                 sina_sym = _SINA_PREFIX[market] + code
-                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=15&ma=no&datalen=240"
+                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=15&ma=no&datalen=4000"
                 r_sina = requests.get(sina_url,
                     headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
                     timeout=10, proxies=REQUEST_PROXIES)
@@ -777,7 +766,7 @@ def stock_kline():
             # A股 120min → 新浪 60min 两两合并合成
             elif market in _SINA_PREFIX and period == '120min':
                 sina_sym = _SINA_PREFIX[market] + code
-                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=60&ma=no&datalen=480"
+                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=60&ma=no&datalen=1000"
                 r_sina = requests.get(sina_url,
                     headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
                     timeout=10, proxies=REQUEST_PROXIES)

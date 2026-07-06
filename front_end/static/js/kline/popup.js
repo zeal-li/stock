@@ -374,16 +374,15 @@ var KlinePopup = (function() {
             return;
         }
 
-        fetch('/api/stock-kline?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&period=' + _currentPeriod)
-            .then(function(r) { return r.json(); })
+        var klineUrl = '/api/stock-kline?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&period=' + _currentPeriod;
+        _fetchKlineWithRetry(klineUrl, 3, 800)
             .then(function(kdata) {
-                if (!kdata.success || !kdata.data.klines || kdata.data.klines.length === 0) {
+                if (!kdata.success || !kdata.data || !kdata.data.klines || kdata.data.klines.length === 0) {
                     chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">暂无K线数据</div>';
                     console.log('[弹窗] ' + _stockCode + ' _loadKlineChart(' + _currentPeriod + ') 无数据, 耗时 ' + (Date.now() - _tStart) + 'ms');
                     return;
                 }
                 _klinesData = kdata.data.klines;
-                _setCachedKlines(_currentPeriod, _klinesData);
                 try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _switchIndicator(_indicatorMode); }
                 catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
                 console.log('[弹窗] ' + _stockCode + ' _loadKlineChart(' + _currentPeriod + ') 完成, 耗时 ' + (Date.now() - _tStart) + 'ms');
