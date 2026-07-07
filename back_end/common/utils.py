@@ -107,6 +107,25 @@ def get_market_hours(seg_key):
     cross = is_cross_day(open_h, open_m, close_h, close_m)
     return open_h, open_m, close_h, close_m, cross
 
+def guess_market(code):
+    """根据股票代码推断市场。
+    0=深交所 (00xxxx, 30xxxx, 15xxxx, 16xxxx 等)
+    1=上交所 (60xxxx, 68xxxx, 51xxxx, 56xxxx, 58xxxx, 50xxxx 等)
+    2=北交所 (4xxxxx, 8xxxxx)
+    """
+    c = str(code) if code else ''
+    if not c: return '0'
+    prefix2 = c[:2]
+    prefix3 = c[:3]
+    # 北交所: 40xxxx, 43xxxx, 83xxxx, 87xxxx 等
+    if c[0] in ('4', '8'): return '2'
+    # 上交所主板+科创板+沪ETF/LOF: 60xxxx, 68xxxx, 51xxxx, 56xxxx, 58xxxx, 50xxxx
+    if c[0] == '6' or prefix2 in ('51', '56', '58', '50'):
+        return '1'
+    # 其余归深交所: 00xxxx, 30xxxx, 15xxxx, 16xxxx, 18xxxx, 20xxxx 等
+    return '0'
+
+
 def is_etf(code, market):
     """判断是否为场内基金（ETF+LOF），价格显示3位小数"""
     c = str(code) if code else ''

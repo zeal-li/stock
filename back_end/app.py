@@ -4,7 +4,7 @@ from flask_cors import CORS
 import requests
 
 from common import REQUEST_PROXIES
-from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened
+from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market
 from common.finance import get_goodwill
 from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
 from money_flow.fund_flow import get_market_fund_flow
@@ -1123,8 +1123,10 @@ def announcements_list():
                 notice_date = (item.get('notice_date') or '')[:10]
                 if notice_date < cutoff:
                     continue  # 超出15天范围，跳过
+                code_val = code_info.get('stock_code', '')
                 result.append({
-                    'code': code_info.get('stock_code', ''),
+                    'code': code_val,
+                    'market': guess_market(code_val),
                     'name': code_info.get('short_name', ''),
                     'title': item.get('title', ''),
                     'notice_date': notice_date,
@@ -1278,6 +1280,7 @@ def earnings_list():
             period = _report_period_type(report_date)
             result.append({
                 'code': code,
+                'market': guess_market(code),
                 'name': str(item.get('SECURITY_NAME_ABBR') or ''),
                 'row_type': '业绩预告',
                 'sub_type': str(item.get('PREDICT_TYPE') or ''),
@@ -1324,6 +1327,7 @@ def earnings_list():
             period = _report_period_type(report_date)
             result.append({
                 'code': code,
+                'market': guess_market(code),
                 'name': str(item.get('SECURITY_NAME_ABBR') or ''),
                 'row_type': '业绩快报',
                 'sub_type': period,
@@ -1369,6 +1373,7 @@ def earnings_list():
             period = _report_period_type(reportdate)
             result.append({
                 'code': code,
+                'market': guess_market(code),
                 'name': str(item.get('SECURITY_NAME_ABBR') or ''),
                 'row_type': '业绩报表',
                 'sub_type': period,

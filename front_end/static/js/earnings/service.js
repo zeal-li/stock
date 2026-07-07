@@ -155,7 +155,7 @@ function renderEarningsList(records) {
         html += '<tr>' +
             '<td style="white-space:nowrap;">' + (r.report_date || '-') + '</td>' +
             '<td style="color:#888;">' + (r.code || '-') + '</td>' +
-            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + escCode + '\',\'1\',\'' + escName + '\')">' + (r.name || '-') + '</span></td>' +
+            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + escCode + '\',\'' + (r.market || '1') + '\',\'' + escName + '\')">' + (r.name || '-') + '</span></td>' +
             '<td>' + typeHtml + '</td>' +
             '<td style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' +
             '<a href="' + (r.detail_url || '#') + '" target="_blank" style="color:#4da6ff;text-decoration:none;" onmouseover="this.style.color=\'#e94560\'" onmouseout="this.style.color=\'#4da6ff\'" title="' + detail.replace(/"/g, '&quot;') + '">' + detail + '</a>' +

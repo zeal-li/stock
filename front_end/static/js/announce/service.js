@@ -81,7 +81,7 @@ function renderAnnounceList(records) {
         html += '<tr>' +
             '<td style="white-space:nowrap;">' + (r.notice_date || '-') + '</td>' +
             '<td style="color:#888;">' + (r.code || '-') + '</td>' +
-            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + (r.code || '') + '\',\'1\',\'' + (r.name || '') + '\')">' + (r.name || '-') + '</span></td>' +
+            '<td><span style="color:#fff;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + (r.code || '') + '\',\'' + (r.market || '1') + '\',\'' + (r.name || '') + '\')">' + (r.name || '-') + '</span></td>' +
             '<td><span style="color:' + color + ';font-weight:600;">' + (r.column_name || '-') + '</span></td>' +
             '<td><a href="' + (r.art_url || '#') + '" target="_blank" style="color:#fff;text-decoration:none;" onmouseover="this.style.color=\'#e94560\'" onmouseout="this.style.color=\'#fff\'">' + (r.title || '-') + '</a></td>' +
             '</tr>';
