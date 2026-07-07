@@ -353,6 +353,19 @@ body {
     gap: 20px;
 }
 
+/* 资金流向页面三栏布局 */
+.money-flow-row {
+    display: flex;
+    gap: 15px;
+}
+
+.money-flow-side {
+    width: 220px;
+    min-width: 220px;
+    display: flex;
+    flex-direction: column;
+}
+
 .chart-box {
     flex: 1;
     height: 180px;
@@ -742,6 +755,16 @@ body {
     .chart-row {
         flex-direction: column;
         gap: 12px;
+    }
+
+    .money-flow-row {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .money-flow-side {
+        width: 100%;
+        min-width: 0;
     }
 
     .chart-box {

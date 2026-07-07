@@ -111,7 +111,7 @@ async function loadIndexWithChart() {
                     <span id="headerTurnover">加载中...</span>
                     <span id="headerFlow"></span>
                 </div>
-                <div style="display: flex; gap: 15px;">
+                <div class="money-flow-row">
                     <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;">
                         <div class="chart-box" style="position:relative;">
                             <canvas id="minuteChart"></canvas>
@@ -127,7 +127,7 @@ async function loadIndexWithChart() {
                             <div class="chart-title">融资融券</div>
                         </div>
                     </div>
-                    <div style="width: 220px; min-width: 220px; display: flex; flex-direction: column;">
+                    <div class="money-flow-side">
                         <div class="index-card" style="height: 100%; padding: 18px; display: flex; flex-direction: column;">
                             <div class="chart-title" style="margin-bottom: 12px;">市场风险指数</div>
                             <div id="riskIndex" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
@@ -135,7 +135,7 @@ async function loadIndexWithChart() {
                             </div>
                         </div>
                     </div>
-                    <div style="width: 220px; min-width: 220px; display: flex; flex-direction: column;">
+                    <div class="money-flow-side">
                         <div class="index-card" style="height: 100%; padding: 18px; display: flex; flex-direction: column;">
                             <div class="chart-title" style="margin-bottom: 12px;">市场恐慌指数</div>
                             <div id="fearIndex" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
