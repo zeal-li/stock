@@ -919,6 +919,7 @@ function _holdingsEditField(code, market, field, cellClass, placeholder, paramNa
             var dpTd = row.querySelector('.cell-dp'); if (dpTd) dpTd.innerHTML = _dailyProfit(s);
             var prTd = row.querySelector('.cell-pr'); if (prTd) prTd.innerHTML = _profitRate(s);
             var tpTd = row.querySelector('.cell-tp'); if (tpTd) tpTd.innerHTML = _totalProfit(s);
+            var bbTd = row.querySelector('.cell-bb'); if (bbTd) bbTd.innerHTML = _backBreak(s);
         }
         _holdingsUpdateSummary();
     }
@@ -985,7 +986,7 @@ async function refreshHoldingsQuotes() {
 function holdingsRender() {
     var div = document.getElementById('holdingsContent');
     if (holdingsStocks.length === 0) { div.innerHTML = ''; return; }
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>成交量/额</th><th>换手/振幅</th><th>持仓天数</th><th>持仓价</th><th>持仓数</th><th>持仓市值</th><th>持仓成本</th><th>当天收益</th><th>收益率</th><th>总收益</th><th></th></tr></thead><tbody>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>换手/振幅</th><th>持仓天数</th><th>持仓价</th><th>持仓数</th><th>持仓市值</th><th>持仓成本</th><th>当天收益</th><th>收益率</th><th>总收益</th><th>回本涨幅</th><th></th></tr></thead><tbody>';
     holdingsStocks.forEach(function(s) {
         var type = getStockType(s.code, s.market);
         var color = _chgColor(s.change);
@@ -996,7 +997,6 @@ function holdingsRender() {
             '<td><span style="color:#555;">' + type + '</span></td>' +
             '<td class="cell-price"><span style="color:' + color + ';font-weight:bold;">' + s.price + '</span></td>' +
             '<td class="cell-chg"><span style="color:' + color + ';">' + chgText + '</span></td>' +
-            '<td class="cell-vol"><span style="color:#ddd;">' + _pairText(s.volume, s.amount) + '</span></td>' +
             '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
             '<td class="cell-jd"><span style="color:#ddd;">' + _holdingsJoinDays(s.addedDate) + '</span></td>' +
             '<td class="cell-hp" style="cursor:pointer;" onclick="holdingsEditHoldPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓价">' + (s.holdPrice || '<span style="color:#555;">点击输入</span>') + '</td>' +
@@ -1006,6 +1006,7 @@ function holdingsRender() {
             '<td class="cell-dp">' + _dailyProfit(s) + '</td>' +
             '<td class="cell-pr">' + _profitRate(s) + '</td>' +
             '<td class="cell-tp">' + _totalProfit(s) + '</td>' +
+            '<td class="cell-bb">' + _backBreak(s) + '</td>' +
             '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="holdingsRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
         '</tr>';
     });
@@ -1068,6 +1069,17 @@ function _totalProfit(s) {
     return '<span style="color:' + color + ';">' + sign + _fmtMoney(v) + '</span>';
 }
 
+function _backBreak(s) {
+    // 回本涨幅 = (持仓价 / 最新价 - 1) × 100%，表示从当前价格涨回成本价所需的百分比
+    var price = parseFloat(s.price), holdPrice = parseFloat(s.holdPrice);
+    if (isNaN(price) || isNaN(holdPrice) || price <= 0) return '-';
+    var v = (holdPrice / price - 1) * 100;
+    if (v <= 0.005 && v >= -0.005) return '<span style="color:#ddd;">--</span>';
+    var color = v > 0 ? '#e94560' : '#4ade80';
+    var sign = v > 0 ? '+' : '';
+    return '<span style="color:' + color + ';">' + sign + v.toFixed(2) + '%</span>';
+}
+
 function _holdingsUpdateSummary() {
     var dailySum = 0, totalSum = 0, capSum = 0, costSum = 0, yesterdayCapSum = 0;
     holdingsStocks.forEach(function(s) {
@@ -1123,7 +1135,6 @@ function holdingsUpdatePrices() {
         var color = _chgColor(s.change);
         _setCell(row, 'cell-price', s.price, color);
         _setCell(row, 'cell-chg', _chgText(s.change, s.pct), color);
-        _setCell(row, 'cell-vol', _pairText(s.volume, s.amount), '#ddd');
         _setCell(row, 'cell-cap', _pairText(s.total_cap, s.float_cap), '#ddd');
         _setCell(row, 'cell-to', _pairText(s.turnover, s.amplitude), '#ddd');
         var jdTd = row.querySelector('.cell-jd'); if (jdTd) { var jdSp = jdTd.querySelector('span'); if (jdSp) jdSp.textContent = _holdingsJoinDays(s.addedDate); }
@@ -1132,6 +1143,7 @@ function holdingsUpdatePrices() {
         var dpTd = row.querySelector('.cell-dp'); if (dpTd) dpTd.innerHTML = _dailyProfit(s);
         var prTd = row.querySelector('.cell-pr'); if (prTd) prTd.innerHTML = _profitRate(s);
         var tpTd = row.querySelector('.cell-tp'); if (tpTd) tpTd.innerHTML = _totalProfit(s);
+        var bbTd = row.querySelector('.cell-bb'); if (bbTd) bbTd.innerHTML = _backBreak(s);
     });
     _holdingsUpdateSummary();
 }
