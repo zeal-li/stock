@@ -467,6 +467,9 @@ body {
 .data-table tbody tr {
     border-bottom: 1px solid #0f3460;
     transition: background 0.3s;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
 }
 
 .data-table tbody tr:hover {
