@@ -21,9 +21,10 @@ A_INDEX_LIST = [
 ]
 
 # 海外指数：名称, 新浪代码（第二排）
+# 道琼斯/纳斯达克用 gb_ 实时代码（int_ 是静态快照，数据不更新）
 US_INDEX_LIST = [
-    ('道琼斯',   'int_dji'),
-    ('纳斯达克', 'int_nasdaq'),
+    ('道琼斯',   'gb_$dji'),
+    ('纳斯达克', 'gb_$ixic'),
     ('英国富时', 'znb_UKX'),
     ('德国DAX',  'znb_DAX'),
     ('法国CAC',  'znb_CAC'),
@@ -40,10 +41,10 @@ _ZNB_TO_GLOBAL = {
     'znb_KOSPI': 'KOSPI',
 }
 
-# int_ 前缀代码 → usstock 代码映射
-_INT_TO_US = {
-    'int_dji':    '.dji',
-    'int_nasdaq': '.ixic',
+# gb_ 前缀代码 → usstock 代码映射
+_GB_TO_US = {
+    'gb_$dji':  '.dji',
+    'gb_$ixic': '.ixic',
 }
 
 
@@ -53,8 +54,8 @@ def _make_index_url(code: str) -> str:
         real_code = code[2:]  # 去掉 s_ 前缀
         return f"https://finance.sina.com.cn/realstock/company/{real_code}/nc.shtml"
 
-    # 美股指数：int_ 前缀 → usstock/quotes/{code}.html
-    us_code = _INT_TO_US.get(code)
+    # 美股指数：gb_ / int_ 前缀 → usstock/quotes/{code}.html
+    us_code = _GB_TO_US.get(code)
     if us_code:
         return f"https://stock.finance.sina.com.cn/usstock/quotes/{us_code}.html"
 
@@ -87,8 +88,14 @@ def get_global_indices():
 
             name = parts[0].strip()
             price = float(parts[1]) if parts[1] else 0
-            chg_val = float(parts[2]) if parts[2] else 0
-            chg_pct = float(parts[3]) if parts[3] else 0
+            # gb_ 代码字段顺序不同：price(1), change_pct(2), change_value(4)
+            is_gb = code.startswith('gb_')
+            if is_gb:
+                chg_pct = float(parts[2]) if parts[2] else 0
+                chg_val = float(parts[4]) if len(parts) > 4 and parts[4] else 0
+            else:
+                chg_val = float(parts[2]) if parts[2] else 0
+                chg_pct = float(parts[3]) if parts[3] else 0
 
             parsed[code] = {
                 'name': name,
