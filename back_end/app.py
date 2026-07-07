@@ -844,7 +844,40 @@ def stock_kline():
         tx_period = {'day': 'day', 'week': 'week', 'month': 'month'}.get(period, 'day')
         yh_intv = {'day': '1d', 'week': '1wk', 'month': '1mo'}.get(period, '1d')
 
-        if market in ('1', '2', '0', '90'):
+        # 债券（沪债 11xxxx / 深债 12xxxx）用新浪 K 线 API，同花顺不支持债券
+        if code[:2] in ('11', '12'):
+            _SINA_SCALE_BOND = {'day': 240, 'week': 1200, 'month': 6000}
+            sina_scale = _SINA_SCALE_BOND.get(period, 240)
+            sina_prefix = {'1': 'sh', '0': 'sz', '2': 'bj'}.get(market, 'sz')
+            sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale={sina_scale}&ma=no&datalen=800"
+            r_sina = requests.get(sina_url,
+                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
+                timeout=10, proxies=REQUEST_PROXIES)
+            d_sina = r_sina.json()
+            if d_sina and isinstance(d_sina, list):
+                for bar in d_sina:
+                    dt_str = bar.get('day', '')
+                    if not dt_str:
+                        continue
+                    o = float(bar.get('open') or 0)
+                    c = float(bar.get('close') or 0)
+                    h = float(bar.get('high') or 0)
+                    l = float(bar.get('low') or 0)
+                    vol = int(float(bar.get('volume') or 0))
+                    if c <= 0:
+                        continue
+                    if o <= 0: o = c
+                    if h <= 0: h = c
+                    if l <= 0: l = c
+                    rows.append({
+                        'time': dt_str,
+                        'open': o, 'close': c,
+                        'high': h, 'low': l,
+                        'volume': vol,
+                        'amount': 0,
+                    })
+            rows.sort(key=lambda r: r['time'])
+        elif market in ('1', '2', '0', '90'):
             # A 股用同花顺 K 线 API（v4 并发拉取 10 年）
             from concurrent.futures import ThreadPoolExecutor, as_completed
             ths_period_code = {'day': '01', 'week': '11', 'month': '21'}.get(tx_period, '01')
