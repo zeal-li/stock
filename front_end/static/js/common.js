@@ -118,6 +118,27 @@ function isInTradingHours() {
     // 09:15-11:35, 12:55-15:05
 }
 
+// 与后端 is_market_opened 对齐：只要市场已开盘（>=9:30）就为 true
+// 用于判断是否可以用实时行情补全今日K线（收盘后同花顺日K延迟更新时需要）
+function isMarketOpened(market) {
+    if (market === '116') {
+        // 港股: >= 9:30, 周一至周五
+        const now = new Date();
+        if (now.getDay() === 0 || now.getDay() === 6) return false;
+        return now.getHours() * 60 + now.getMinutes() >= 570;
+    }
+    if (market === '106') {
+        // 美股: 北京时间 >= 21:30
+        const now = new Date();
+        if (now.getDay() === 0 || now.getDay() === 6) return false;
+        return now.getHours() * 60 + now.getMinutes() >= 1290;
+    }
+    // A股: >= 9:30, 周一至周五
+    const now = new Date();
+    if (now.getDay() === 0 || now.getDay() === 6) return false;
+    return now.getHours() * 60 + now.getMinutes() >= 570;
+}
+
 // 股票类型判断（代码前缀决定类型，market 仅兜底）
 function getStockType(code, market) {
     const c = (code || '').toString();

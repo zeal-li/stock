@@ -581,7 +581,8 @@ var KlinePopup = (function() {
         _klinesData = data.klines;
         var isMinuteKline = data.isMinuteKline || false;
         // 1分钟K线不注入今日行情（时间格式不同，且数据本身就是分钟级）
-        if (!isMinuteKline && _quoteData && _klinesData && _klinesData.length > 0 && isTradingDay(_stockMarket) && isMarketTradingTime(_stockMarket)) {
+        // 与后端 is_market_opened 对齐：已开盘就允许用实时行情补全今日K线
+        if (!isMinuteKline && _quoteData && _klinesData && _klinesData.length > 0 && isTradingDay(_stockMarket) && isMarketOpened(_stockMarket)) {
             var today = new Date();
             var todayStr = today.getFullYear() + '-' +
                            String(today.getMonth() + 1).padStart(2, '0') + '-' +
