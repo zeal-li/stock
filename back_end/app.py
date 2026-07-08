@@ -4,7 +4,8 @@ from flask_cors import CORS
 import requests
 
 from common import REQUEST_PROXIES
-from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market
+from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market, \
+    is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX
 from common.finance import get_goodwill
 from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
 from money_flow.fund_flow import get_market_fund_flow
@@ -359,7 +360,7 @@ def stock_extra():
         d = (r.json().get('data') or {})
         vr = d.get('f50')
         br = d.get('f191')
-        if market not in ('1', '2', '0', '90'): br = None
+        if not is_a_share(market): br = None
         return jsonify({
             'success': True,
             'data': {
@@ -380,10 +381,10 @@ def stock_concepts():
     market = request.args.get('market', '')
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
-    if market not in ('0', '1', '2', '90'):
+    if not is_a_share(market):
         return jsonify({'success': True, 'data': []})
     try:
-        prefix = {'0': 'SZ', '1': 'SH', '2': 'SH'}.get(str(market), 'SZ')
+        prefix = EM_F10_PREFIX.get(str(market), 'SZ')
         url = f"https://emweb.securities.eastmoney.com/PC_HSF10/CoreConception/PageAjax?code={prefix}{code}"
         r = requests.get(url, headers={
             'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.eastmoney.com/',
@@ -409,7 +410,7 @@ def stock_biz_comp():
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
-        prefix = {'0': 'SZ', '1': 'SH', '2': 'SH'}.get(str(market), 'SZ')
+        prefix = EM_F10_PREFIX.get(str(market), 'SZ')
         url = f"https://emweb.securities.eastmoney.com/PC_HSF10/BusinessAnalysis/PageAjax?code={prefix}{code}"
         r = requests.get(url, headers={
             'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.eastmoney.com/',
@@ -500,7 +501,7 @@ def stock_minute():
                 if len(parts) >= 2:
                     full_tm = parts[0]
                     tm = full_tm.split(' ')[-1] if ' ' in full_tm else full_tm
-                    if market in ('0','1','2','90','116'):
+                    if is_a_share(market) or is_hk(market):
                         if tm < '09:30': continue
                     curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0
                     curAmt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
@@ -528,26 +529,22 @@ def stock_minute():
                     agg_amt += raw_points[j]['amt']
                     last_price = raw_points[j]['price']
                     j += 1
-                if market in ('0', '1', '2', '90'):
-                    agg_vol *= 100
-                times.append(p['full_tm'] if market == '106' else minute_key)
+                if is_a_share(market):
+                    agg_vol = adjust_volume(agg_vol, market)
+                times.append(p['full_tm'] if is_us(market) else minute_key)
                 prices.append(last_price)
                 volumes.append(agg_vol)
                 amounts.append(agg_amt)
                 i = j
-        elif market in ('116', '106'):
+        elif is_overseas(market):
             # 港股/美股多日：Yahoo Finance 5分钟K线
             import os as _os2, datetime as _dt2
             from datetime import timezone as _tz, timedelta as _td
             _old_no2 = _os2.environ.pop('no_proxy', None)
             _old_NO2 = _os2.environ.pop('NO_PROXY', None)
             try:
-                if market == '116':
-                    symbol = str(int(code)).zfill(4) + '.HK'
-                    _yh_tz = _tz(_td(hours=8))  # UTC+8
-                else:
-                    symbol = code
-                    _yh_tz = _tz(_td(hours=-5))  # 美股冬令时 UTC-5
+                symbol = to_yahoo_symbol(code, market)
+                _yh_tz = _tz(_td(hours=8)) if is_hk(market) else _tz(_td(hours=-5))  # HK UTC+8 / 美股 UTC-5
 
                 url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=5m"
                 r_yh = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
@@ -605,12 +602,10 @@ def stock_minute():
                 if _old_no2 is not None: _os2.environ['no_proxy'] = _old_no2
                 if _old_NO2 is not None: _os2.environ['NO_PROXY'] = _old_NO2
         else:
-            # 多日：A股 新浪 5分钟K线
-            prefix = 'sh' if market in ('1', '2') else 'sz' if market in ('0', '90') else None
-            if not prefix:
+            # 多日：A股 新浪 5分钟K线（多日分时图新浪API仅支持 sh/sz）
+            if not is_a_share(market):
                 return jsonify({'success': False, 'error': '该市场暂不支持多日分时'})
-
-            sina_prefix = 'sh' if prefix == 'sh' else 'sz'
+            sina_prefix = 'sh' if str(market) in ('1', '2') else 'sz'
             sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale=5&datalen={days*60}"
             sr = requests.get(sina_url,
                 headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
@@ -648,8 +643,7 @@ def stock_minute():
                     if ':' in dt and dt.count(':') == 2:
                         dt = dt[:dt.rfind(':')]
                     price = float(close_v)
-                    vol = int(float(vol_v)) if vol_v else 0
-                    if market in ('0', '1', '2', '90'): vol *= 100  # 手→股
+                    vol = adjust_volume(float(vol_v) if vol_v else 0, market)
                     times.append(dt)
                     prices.append(price)
                     volumes.append(vol)
@@ -675,7 +669,6 @@ def stock_kline():
         # 分钟K线：A股 1min→东财，5/15/30/60min→新浪，120min→新浪60min合成，港股美股→Yahoo
         _SINA_SCALE = {'5min': 5, '15min': 15, '30min': 30, '60min': 60}
         _SINA_DATALEN = {'5min': 240, '15min': 240, '30min': 240, '60min': 240}
-        _SINA_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj'}
         _YAHOO_RANGE_INTV = {
             '1min': ('5d', '1m'), '5min': ('1mo', '5m'),
             '15min': ('1mo', '15m'), '30min': ('3mo', '30m'),
@@ -684,7 +677,7 @@ def stock_kline():
         if period in ('1min', '5min', '15min', '30min', '60min', '120min'):
             yh_range, yh_intv = _YAHOO_RANGE_INTV[period]
             # A股 1min → 东财push2delay（固定240条，刚好1天，够用且快）
-            if market in ('1', '2', '0', '90') and period == '1min':
+            if is_a_share(market) and period == '1min':
                 url = "https://push2delay.eastmoney.com/api/qt/stock/kline/get"
                 params = {
                     'secid': f"{market}.{code}",
@@ -725,8 +718,8 @@ def stock_kline():
                         'turnover': round(float(parts[10]) if len(parts) > 10 and parts[10] else 0, 2),
                     })
             # A股 5/15/30/60min → 新浪
-            elif market in _SINA_PREFIX and period in _SINA_SCALE:
-                sina_sym = _SINA_PREFIX[market] + code
+            elif market in SINA_PREFIX and period in _SINA_SCALE:
+                sina_sym = SINA_PREFIX[market] + code
                 sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale={_SINA_SCALE[period]}&ma=no&datalen={_SINA_DATALEN[period]}"
                 r_sina = requests.get(sina_url,
                     headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
@@ -758,8 +751,8 @@ def stock_kline():
                         'amount': 0,
                     })
             # A股 120min → 新浪 60min 两两合并合成
-            elif market in _SINA_PREFIX and period == '120min':
-                sina_sym = _SINA_PREFIX[market] + code
+            elif market in SINA_PREFIX and period == '120min':
+                sina_sym = SINA_PREFIX[market] + code
                 sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=60&ma=no&datalen=480"
                 r_sina = requests.get(sina_url,
                     headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
@@ -801,16 +794,13 @@ def stock_kline():
                         'amount': 0,
                     })
                     i += 2
-            elif market in ('116', '106'):
+            elif is_overseas(market):
                 # 港股/美股用 Yahoo Finance 分钟K线
                 import os as _os
                 _old_no = _os.environ.pop('no_proxy', None)
                 _old_NO = _os.environ.pop('NO_PROXY', None)
                 try:
-                    if market == '116':
-                        symbol = str(int(code)).zfill(4) + '.HK'
-                    else:
-                        symbol = code
+                    symbol = to_yahoo_symbol(code, market)
                     yh_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={yh_range}&interval={yh_intv}"
                     r_yh = requests.get(yh_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
                     result = (r_yh.json().get('chart', {}).get('result') or [None])[0]
@@ -848,7 +838,7 @@ def stock_kline():
         if code[:2] in ('11', '12'):
             _SINA_SCALE_BOND = {'day': 240, 'week': 1200, 'month': 6000}
             sina_scale = _SINA_SCALE_BOND.get(period, 240)
-            sina_prefix = {'1': 'sh', '0': 'sz', '2': 'bj'}.get(market, 'sz')
+            sina_prefix = SINA_PREFIX.get(str(market), 'sz')
             sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale={sina_scale}&ma=no&datalen=800"
             r_sina = requests.get(sina_url,
                 headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
@@ -877,7 +867,7 @@ def stock_kline():
                         'amount': 0,
                     })
             rows.sort(key=lambda r: r['time'])
-        elif market in ('1', '2', '0', '90'):
+        elif is_a_share(market):
             # A 股用同花顺 K 线 API（v4 并发拉取 10 年）
             from concurrent.futures import ThreadPoolExecutor, as_completed
             ths_period_code = {'day': '01', 'week': '11', 'month': '21'}.get(tx_period, '01')
@@ -888,8 +878,7 @@ def stock_kline():
                 'Referer': 'https://www.10jqka.com.cn/',
             }
 
-            # 同花顺前缀：按交易所区分，market=0 深交所(sz_)，其余上交所(sh_)
-            ths_prefix = 'sz' if market == '0' else 'sh'
+            ths_prefix = THS_PREFIX.get(str(market), 'sh')
 
             def _fetch_year(y):
                 url = f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{code}/{ths_period_code}/{y}.js"
@@ -949,7 +938,7 @@ def stock_kline():
                 }
                 rows.append(row)
             rows.sort(key=lambda r: r['time'])
-        elif market in ('116', '106'):
+        elif is_overseas(market):
             # 港股/美股 → 本地 DB（由 sync 提前拉取），无缓存时再走 Yahoo
             from market_db.db import klines_get
             db_rows = klines_get(code, market, tx_period, limit=800)
@@ -968,10 +957,7 @@ def stock_kline():
                 _old_no = _os.environ.pop('no_proxy', None)
                 _old_NO = _os.environ.pop('NO_PROXY', None)
                 try:
-                    if market == '116':
-                        symbol = str(int(code)).zfill(4) + '.HK'
-                    else:
-                        symbol = code
+                    symbol = to_yahoo_symbol(code, market)
                     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval={yh_intv}"
                     r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
                     result = (r.json().get('chart', {}).get('result') or [None])[0]

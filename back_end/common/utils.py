@@ -1,6 +1,60 @@
-"""通用格式化函数"""
+"""通用格式化函数 & 市场常量"""
 
 from datetime import datetime, timedelta, time
+
+# ========================= 市场常量 =========================
+# market code → 数据源前缀（各功能模块统一引用，不再各自写死）
+
+# 新浪行情前缀
+SINA_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj', '90': 'sz'}
+
+# 东方财富 F10 前缀（概念题材/主营业务 API）
+EM_F10_PREFIX = {'0': 'SZ', '1': 'SH', '2': 'SH', '90': 'SZ'}
+
+# 同花顺 K线 API 前缀
+THS_PREFIX = {'0': 'sz', '1': 'sh', '2': 'sh', '90': 'sh'}
+
+# Yahoo Finance 代码构造
+YAHOO_PREFIX = {'116': '.HK', '106': ''}
+
+
+# ========================= 市场分类 =========================
+
+def is_a_share(market):
+    """A股（深/沪/北/板块）"""
+    return str(market) in ('0', '1', '2', '90')
+
+def is_hk(market):
+    """港股"""
+    return str(market) == '116'
+
+def is_us(market):
+    """美股"""
+    return str(market) == '106'
+
+def is_overseas(market):
+    """港股或美股"""
+    return str(market) in ('116', '106')
+
+
+# ========================= 成交量/代码转换 =========================
+
+def adjust_volume(vol, market):
+    """A股成交量为手，转为股；港股/美股成交量已是股，不需要转换"""
+    v = float(vol)
+    if is_a_share(market):
+        v *= 100
+    return int(v)
+
+
+def to_yahoo_symbol(code, market):
+    """构造 Yahoo Finance 代码：港股补零+.HK，美股直接返回"""
+    if is_hk(market):
+        return str(int(code)).zfill(4) + '.HK'
+    return str(code)
+
+
+# ========================= 市场时间配置 =========================
 
 # 市场开盘/收盘时间配置（北京时间）
 MARKET_HOURS = {
@@ -160,8 +214,7 @@ def fmt_volume(v, market=None):
     if v is None or v == '-' or v == '': return '-'
     try:
         v = float(v)
-        market = str(market) if market is not None else ''
-        if market in ('0', '1', '2', '90'):
+        if is_a_share(market):
             v *= 100
         if v >= 1e8: return f"{v/1e8:.2f}亿股"
         if v >= 1e4: return f"{v/1e4:.2f}万股"

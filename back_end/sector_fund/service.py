@@ -6,7 +6,7 @@ import json
 import requests
 from bs4 import BeautifulSoup
 from common import REQUEST_PROXIES
-from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap
+from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_a_share, is_hk, is_us
 from money_flow.storage import _EM_HEADERS, _EM_UT
 from sector_fund.storage import cache_get, cache_set
 
@@ -258,10 +258,12 @@ def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> li
             market_value = tds[8].get_text(strip=True)
 
             if is_qdii:
-                # QDII: 境外股代码如 NVDA、AAPL，东方财富市场代码 105=美股
+                # QDII: 区分港股(116)和美股(106)，数字代码为港股，字母代码为美股
+                is_us = bool(re.match(r'^[A-Z]', stock_code, re.IGNORECASE))
+                market = "106" if is_us else "116"
                 stocks.append({
                     "code": stock_code,
-                    "market": "105",
+                    "market": market,
                     "name": stock_name,
                     "ratio": ratio,
                     "share_count": share_count,
@@ -310,25 +312,55 @@ def get_etf_stocks(code: str, market: str) -> dict:
 
     total = len(holdings)
 
-    # 所有持仓股统一请求行情（国内股 market 0/1，美股 market 105）
+    # 分两批请求行情：A股+港股走 ulist.np/get，美股走新浪 gb_ API
     quote_data = {}
-    secids = ",".join(f"{h['market']}.{h['code']}" for h in holdings)
-    url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-    params = {
-        "fltt": "2", "invt": "2",
-        "fields": "f2,f3,f4,f12,f13,f14",
-        "secids": secids,
-        "ut": _EM_UT,
-    }
-    r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-    try:
-        diff = (r.json().get("data") or {}).get("diff") or []
-        for row in diff:
-            key = f"{row.get('f13', '')}.{row.get('f12', '')}"
-            if row.get("f12"):
-                quote_data[key] = row
-    except Exception:
-        pass
+    em_holdings = [h for h in holdings if is_a_share(h["market"]) or is_hk(h["market"])]
+    us_holdings = [h for h in holdings if is_us(h["market"])]
+
+    # 1) A股 + 港股 → 东方财富 ulist.np/get
+    if em_holdings:
+        secids = ",".join(f"{h['market']}.{h['code']}" for h in em_holdings)
+        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
+        params = {
+            "fltt": "2", "invt": "2",
+            "fields": "f2,f3,f4,f12,f13,f14",
+            "secids": secids,
+            "ut": _EM_UT,
+        }
+        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+        try:
+            diff = (r.json().get("data") or {}).get("diff") or []
+            for row in diff:
+                key = f"{row.get('f13', '')}.{row.get('f12', '')}"
+                if row.get("f12"):
+                    quote_data[key] = row
+        except Exception:
+            pass
+
+    # 2) 美股 → 新浪 gb_ API（ulist.np/get 不支持美股）
+    if us_holdings:
+        us_codes = ",".join(f"gb_{h['code'].lower()}" for h in us_holdings)
+        us_url = f"https://hq.sinajs.cn/list={us_codes}"
+        r_us = requests.get(us_url,
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"},
+            timeout=10, proxies=REQUEST_PROXIES)
+        r_us.encoding = "gb2312"
+        for line in r_us.text.strip().split("\n"):
+            if '=""' in line or '="' not in line:
+                continue
+            # var hq_str_gb_pdd="拼多多,82.53,-1.44,..." → pdd
+            sina_code = line.split("var hq_str_gb_")[1].split("=")[0]
+            parts = line.split('="')[1].rstrip('";').split(",")
+            if len(parts) < 5:
+                continue
+            # gb_ 格式: name(0), price(1), change_pct%(2), datetime(3), change_val(4)
+            quote_data[f"106.{sina_code.upper()}"] = {
+                "f2": parts[1],
+                "f3": parts[2],
+                "f12": sina_code.upper(),
+                "f13": "106",
+                "f14": parts[0],
+            }
 
     # 合并持仓 + 行情
     stocks = []
