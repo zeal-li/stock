@@ -13,7 +13,7 @@ from sector_fund.storage import cache_get, cache_set
 _API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
 _FIELDS = "f2,f3,f4,f12,f14,f62,f66,f72,f78,f84,f164,f174,f204,f205"
 _STOCK_FIELDS = "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f62,f184"
-_PZ = 30
+_PZ = 50
 _CACHE_TTL = 60
 
 _SECTOR_TYPES = {
