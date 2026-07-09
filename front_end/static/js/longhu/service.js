@@ -216,10 +216,10 @@ function renderLonghuTable(data, tradeDate, tab) {
         else if (row.lhb_type === 'both') { typeTag = '机构+游资'; typeCls += ' both'; }
 
         html += '<tr class="lhb-row" onclick="toggleLHBDetail(' + i + ')" style="cursor:pointer;">';
-        html += '<td><span class="lhb-stock-name" onclick="event.stopPropagation();KlinePopup.open(\'' + row.code + '\',\'' + (row.code.startsWith('6') ? '1' : '0') + '\',\'' + (row.name || row.code) + '\')">' + (row.name || row.code) + '</span><span style="color:#888;font-size:11px;margin-left:4px;">' + row.code + '</span>';
+        html += '<td><span class="lhb-stock-name" onclick="event.stopPropagation();KlinePopup.open(\'' + row.code + '\',\'' + guessMarket(row.code) + '\',\'' + (row.name || row.code) + '\')">' + (row.name || row.code) + '</span><span style="color:#888;font-size:11px;margin-left:4px;">' + row.code + '</span>';
         if (typeTag) html += '<span class="' + typeCls + '">' + typeTag + '</span>';
         html += '</td>';
-        html += '<td style="text-align:center;color:#888;font-size:11px;">' + getStockType(row.code, row.code.startsWith('6') ? '1' : '0') + '</td>';
+        html += '<td style="text-align:center;color:#888;font-size:11px;">' + getStockType(row.code, guessMarket(row.code)) + '</td>';
         html += '<td style="text-align:right;color:#ccc;">' + fmtLHB(row.price, 'price') + '</td>';
         html += '<td style="text-align:right;" class="' + changeClass + '">' + fmtLHB(row.change_pct, 'pct') + '</td>';
         html += '<td style="text-align:right;color:#888;">' + fmtLHB(row.amount_raw, 'amt') + '</td>';

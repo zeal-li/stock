@@ -139,6 +139,24 @@ function isMarketOpened(market) {
     return now.getHours() * 60 + now.getMinutes() >= 570;
 }
 
+// 根据代码前缀推断市场（与后端 guess_market 对齐）
+// 0=深交所, 1=上交所, 2=北交所
+function guessMarket(code) {
+    const c = (code || '').toString();
+    if (!c) return '0';
+    const p2 = c.substring(0, 2);
+    // 北交所: 4xxxxx, 8xxxxx
+    if (c[0] === '4' || c[0] === '8') return '2';
+    // 上交所主板+科创板+沪ETF/LOF: 60xxxx, 68xxxx, 51xxxx, 56xxxx, 58xxxx, 50xxxx
+    if (c[0] === '6' || p2 === '51' || p2 === '56' || p2 === '58' || p2 === '50') return '1';
+    // 沪债: 11xxxx → 上交所
+    if (p2 === '11') return '1';
+    // 深债: 12xxxx → 深交所
+    if (p2 === '12') return '0';
+    // 其余归深交所
+    return '0';
+}
+
 // 股票类型判断（代码前缀决定类型，market 仅兜底）
 function getStockType(code, market) {
     const c = (code || '').toString();

@@ -176,6 +176,12 @@ def guess_market(code):
     # 上交所主板+科创板+沪ETF/LOF: 60xxxx, 68xxxx, 51xxxx, 56xxxx, 58xxxx, 50xxxx
     if c[0] == '6' or prefix2 in ('51', '56', '58', '50'):
         return '1'
+    # 沪债: 11xxxx → 上交所
+    if prefix2 == '11':
+        return '1'
+    # 深债: 12xxxx → 深交所
+    if prefix2 == '12':
+        return '0'
     # 其余归深交所: 00xxxx, 30xxxx, 15xxxx, 16xxxx, 18xxxx, 20xxxx 等
     return '0'
 

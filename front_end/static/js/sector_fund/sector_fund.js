@@ -157,8 +157,7 @@ function openStockDetail(code, market, name) {
 
 function openLeadStockKline(code, name) {
     if (typeof KlinePopup !== 'undefined' && KlinePopup.open) {
-        var market = code.startsWith('6') ? '1' : '0';
-        KlinePopup.open(code, market, name);
+        KlinePopup.open(code, guessMarket(code), name);
     }
 }
 
