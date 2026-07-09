@@ -145,8 +145,8 @@ function guessMarket(code) {
     const c = (code || '').toString();
     if (!c) return '0';
     const p2 = c.substring(0, 2);
-    // 北交所: 4xxxxx, 8xxxxx
-    if (c[0] === '4' || c[0] === '8') return '2';
+    // 北交所: 4xxxxx, 8xxxxx, 92xxxx
+    if (c[0] === '4' || c[0] === '8' || p2 === '92') return '2';
     // 上交所主板+科创板+沪ETF/LOF: 60xxxx, 68xxxx, 51xxxx, 56xxxx, 58xxxx, 50xxxx
     if (c[0] === '6' || p2 === '51' || p2 === '56' || p2 === '58' || p2 === '50') return '1';
     // 沪债: 11xxxx → 上交所

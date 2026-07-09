@@ -893,10 +893,13 @@ var KlinePopup = (function() {
             var bizComp = results[4];
             var concepts = results[5];
 
-            // 显示概念题材（取前2个）
+            // 显示行业 + 概念题材（取前2个）
             var ce = document.getElementById('klConcept');
-            if (ce && concepts && concepts.length > 0) {
-                ce.textContent = concepts.slice(0, 2).join(' | ');
+            if (ce) {
+                var parts = [];
+                if (quote.industry && quote.industry !== '-') { parts.push(quote.industry); }
+                if (concepts && concepts.length > 0) { parts = parts.concat(concepts.slice(0, 2)); }
+                ce.textContent = parts.join(' | ');
             }
             if (goodwill) quote.goodwill = goodwill;
             if (extra) { quote.volume_ratio = extra.volume_ratio; quote.bid_ratio = extra.bid_ratio; }

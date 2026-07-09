@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, time
 SINA_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj', '90': 'sz'}
 
 # 东方财富 F10 前缀（概念题材/主营业务 API）
-EM_F10_PREFIX = {'0': 'SZ', '1': 'SH', '2': 'SH', '90': 'SZ'}
+EM_F10_PREFIX = {'0': 'SZ', '1': 'SH', '2': 'BJ', '90': 'SZ'}
 
 # 同花顺 K线 API 前缀
 THS_PREFIX = {'0': 'sz', '1': 'sh', '2': 'sh', '90': 'sh'}
@@ -165,14 +165,14 @@ def guess_market(code):
     """根据股票代码推断市场。
     0=深交所 (00xxxx, 30xxxx, 15xxxx, 16xxxx 等)
     1=上交所 (60xxxx, 68xxxx, 51xxxx, 56xxxx, 58xxxx, 50xxxx 等)
-    2=北交所 (4xxxxx, 8xxxxx)
+    2=北交所 (4xxxxx, 8xxxxx, 92xxxx)
     """
     c = str(code) if code else ''
     if not c: return '0'
     prefix2 = c[:2]
     prefix3 = c[:3]
-    # 北交所: 40xxxx, 43xxxx, 83xxxx, 87xxxx 等
-    if c[0] in ('4', '8'): return '2'
+    # 北交所: 40xxxx, 43xxxx, 83xxxx, 87xxxx, 92xxxx 等
+    if c[0] in ('4', '8') or prefix2 == '92': return '2'
     # 上交所主板+科创板+沪ETF/LOF: 60xxxx, 68xxxx, 51xxxx, 56xxxx, 58xxxx, 50xxxx
     if c[0] == '6' or prefix2 in ('51', '56', '58', '50'):
         return '1'
@@ -184,6 +184,11 @@ def guess_market(code):
         return '0'
     # 其余归深交所: 00xxxx, 30xxxx, 15xxxx, 16xxxx, 18xxxx, 20xxxx 等
     return '0'
+
+
+def to_em_market(market):
+    """东方财富数据源将北交所（market=2）归为 market=0"""
+    return '0' if str(market) == '2' else str(market)
 
 
 def is_etf(code, market):

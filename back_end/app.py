@@ -5,7 +5,7 @@ import requests
 
 from common import REQUEST_PROXIES
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market, \
-    is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX
+    is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX, to_em_market
 from common.finance import get_goodwill
 from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
 from money_flow.fund_flow import get_market_fund_flow
@@ -290,6 +290,21 @@ def stock_quotes():
     if not secids:
         return jsonify({'success': False, 'data': {}})
     try:
+        # 东方财富把北交所归为 market=0，请求时映射，但返回 key 用原始 market
+        _code_orig_market = {}
+        _mapped = []
+        for s in secids.split(','):
+            s = s.strip()
+            if not s:
+                continue
+            parts = s.split('.', 1)
+            if len(parts) == 2:
+                _code_orig_market[parts[1]] = parts[0]
+                if parts[0] == '2':
+                    _mapped.append(f"0.{parts[1]}")
+                else:
+                    _mapped.append(s)
+        secids = ','.join(_mapped)
         url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
         params = {
             'fltt': 2, 'invt': 2,
@@ -306,35 +321,38 @@ def stock_quotes():
         diff = (r.json().get('data') or {}).get('diff') or []
         result = {}
         for row in diff:
-            key = f"{row.get('f13', '')}.{row.get('f12', '')}"
-            if row.get('f12'):
-                # ETF 价格/涨跌额显示三位小数
-                etf = is_etf(row.get('f12'), row.get('f13'))
-                # 只取滚动市盈率TTM(f115)，没有则显示-
-                pe = row.get('f115')
-                result[key] = {
-                    'name': row.get('f14', ''),
-                    'price': fmt(row.get('f2'), etf),
-                    'pct': fmt_pct(row.get('f3')),
-                    'change': fmt(row.get('f4'), etf),
-                    'volume': fmt_volume(row.get('f5'), row.get('f13')),
-                    'amount': fmt_amount(row.get('f6')),
-                    'amount_raw': row.get('f6'),
-                    'amplitude': fmt_pct(row.get('f7')),
-                    'turnover': fmt_pct(row.get('f8')),
-                    'turnover_raw': row.get('f8'),
-                    'pe': fmt(pe),
-                    'pb': fmt(row.get('f23')),
-                    'high': fmt(row.get('f15'), etf),
-                    'low': fmt(row.get('f16'), etf),
-                    'open': fmt(row.get('f17'), etf),
-                    'pre_close': fmt(row.get('f18'), etf),
-                    'total_cap': fmt_cap(row.get('f20')),
-                    'float_cap': fmt_cap(row.get('f21')),
-                    'total_shares': fmt_cap(row.get('f38')),
-                    'float_shares': fmt_cap(row.get('f39')),
-                    'industry': row.get('f100', '').replace('、', '·') if row.get('f100') else '',
-                }
+            code = row.get('f12', '')
+            if not code:
+                continue
+            orig_mkt = _code_orig_market.get(code, str(row.get('f13', '')))
+            key = f"{orig_mkt}.{code}"
+            # ETF 价格/涨跌额显示三位小数
+            etf = is_etf(code, orig_mkt)
+            # 只取滚动市盈率TTM(f115)，没有则显示-
+            pe = row.get('f115')
+            result[key] = {
+                'name': row.get('f14', ''),
+                'price': fmt(row.get('f2'), etf),
+                'pct': fmt_pct(row.get('f3')),
+                'change': fmt(row.get('f4'), etf),
+                'volume': fmt_volume(row.get('f5'), orig_mkt),
+                'amount': fmt_amount(row.get('f6')),
+                'amount_raw': row.get('f6'),
+                'amplitude': fmt_pct(row.get('f7')),
+                'turnover': fmt_pct(row.get('f8')),
+                'turnover_raw': row.get('f8'),
+                'pe': fmt(pe),
+                'pb': fmt(row.get('f23')),
+                'high': fmt(row.get('f15'), etf),
+                'low': fmt(row.get('f16'), etf),
+                'open': fmt(row.get('f17'), etf),
+                'pre_close': fmt(row.get('f18'), etf),
+                'total_cap': fmt_cap(row.get('f20')),
+                'float_cap': fmt_cap(row.get('f21')),
+                'total_shares': fmt_cap(row.get('f38')),
+                'float_shares': fmt_cap(row.get('f39')),
+                'industry': row.get('f100', '').replace('、', '·') if row.get('f100') else '',
+            }
         return jsonify({'success': True, 'data': result})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'data': {}})
@@ -350,7 +368,7 @@ def stock_extra():
     try:
         url = "https://push2delay.eastmoney.com/api/qt/stock/get"
         params = {
-            'secid': f"{market}.{code}",
+            'secid': f"{to_em_market(market)}.{code}",
             'fields': 'f50,f191',
             'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
         }
@@ -481,7 +499,7 @@ def stock_minute():
             # 单日：东财 push2delay trends2
             url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get"
             params = {
-                'secid': f"{market}.{code}",
+                'secid': f"{to_em_market(market)}.{code}",
                 'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
                 'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
                 'ndays': 1,
@@ -680,7 +698,7 @@ def stock_kline():
             if is_a_share(market) and period == '1min':
                 url = "https://push2delay.eastmoney.com/api/qt/stock/kline/get"
                 params = {
-                    'secid': f"{market}.{code}",
+                    'secid': f"{to_em_market(market)}.{code}",
                     'klt': '1',
                     'fqt': '1', 'beg': '0', 'end': '20500101', 'lmt': '240',
                     'fields1': 'f1,f2,f3,f4,f5,f6',
@@ -839,6 +857,39 @@ def stock_kline():
             _SINA_SCALE_BOND = {'day': 240, 'week': 1200, 'month': 6000}
             sina_scale = _SINA_SCALE_BOND.get(period, 240)
             sina_prefix = SINA_PREFIX.get(str(market), 'sz')
+            sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale={sina_scale}&ma=no&datalen=800"
+            r_sina = requests.get(sina_url,
+                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
+                timeout=10, proxies=REQUEST_PROXIES)
+            d_sina = r_sina.json()
+            if d_sina and isinstance(d_sina, list):
+                for bar in d_sina:
+                    dt_str = bar.get('day', '')
+                    if not dt_str:
+                        continue
+                    o = float(bar.get('open') or 0)
+                    c = float(bar.get('close') or 0)
+                    h = float(bar.get('high') or 0)
+                    l = float(bar.get('low') or 0)
+                    vol = int(float(bar.get('volume') or 0))
+                    if c <= 0:
+                        continue
+                    if o <= 0: o = c
+                    if h <= 0: h = c
+                    if l <= 0: l = c
+                    rows.append({
+                        'time': dt_str,
+                        'open': o, 'close': c,
+                        'high': h, 'low': l,
+                        'volume': vol,
+                        'amount': 0,
+                    })
+            rows.sort(key=lambda r: r['time'])
+        elif str(market) == '2':
+            # 北交所 K 线：同花顺不支持，走新浪
+            _SINA_SCALE = {'day': 240, 'week': 1200, 'month': 6000}
+            sina_scale = _SINA_SCALE.get(period, 240)
+            sina_prefix = SINA_PREFIX.get('2', 'bj')
             sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale={sina_scale}&ma=no&datalen=800"
             r_sina = requests.get(sina_url,
                 headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
