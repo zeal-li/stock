@@ -1,9 +1,19 @@
-"""市场资讯 - 东方财富全球财经资讯"""
+"""市场资讯 - 东方财富全球财经资讯（带缓存）"""
+import time
 import akshare as ak
+
+# 缓存：{data, timestamp}
+_cache = None
 
 
 def get_hot_list():
-    """获取东方财富全球财经资讯（最新200条）"""
+    """获取东方财富全球财经资讯（缓存30分钟）"""
+    global _cache
+
+    now = time.time()
+    if _cache is not None and (now - _cache['timestamp']) < 1800:
+        return _cache['data']
+
     try:
         df = ak.stock_info_global_em()
         if df is None or df.empty:
@@ -18,7 +28,9 @@ def get_hot_list():
                 'url': str(row.get('链接', '')),
             })
 
-        return {'success': True, 'data': result}
+        data = {'success': True, 'data': result}
+        _cache = {'data': data, 'timestamp': now}
+        return data
 
     except Exception as e:
         return {'success': False, 'error': str(e)}
