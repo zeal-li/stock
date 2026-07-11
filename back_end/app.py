@@ -25,6 +25,7 @@ import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock
+from market_news.service import get_hot_list
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -82,6 +83,11 @@ def risk_index():
 @app.route('/api/margin-trading')
 def margin_trading():
     return jsonify(get_margin_trading())
+
+
+@app.route('/api/market-news')
+def market_news():
+    return jsonify(get_hot_list())
 
 
 @app.route('/api/longhu-bang')

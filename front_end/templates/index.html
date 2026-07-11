@@ -269,11 +269,10 @@
             <div id="page-market-news" style="display:none;">
                 <div class="page-header">
                     <h1 class="page-title">📰 市场资讯</h1>
+                    <span style="color:#8b8b9e;font-size:12px;margin-left:12px;">东方财富全球财经</span>
                 </div>
-                <div class="index-card" style="padding:30px;">
-                    <div id="marketNewsContent" style="text-align:center;color:#8b8b9e;padding:40px 0;">
-                        内容待定
-                    </div>
+                <div class="index-card" style="padding:15px;">
+                    <div id="marketNewsContent"></div>
                 </div>
             </div>
 
@@ -428,6 +427,7 @@
                 if (page === 'global-market') { loadGlobalCommodities(); loadGlobalForex(); }
                 if (page === 'longhu') loadLonghuBang();
 
+                if (page === 'market-news') loadMarketNews();
                 if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }
                 if (page === 'earnings') { populateStockFilters(); loadEarningsList(); }
                 if (page === 'announce') { populateStockFilters(); loadAnnounceList(); }
