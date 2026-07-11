@@ -46,6 +46,10 @@
                     <span class="nav-icon">📊</span>
                     <span>技术选股</span>
                 </div>
+                <div class="nav-item" data-page="market-news">
+                    <span class="nav-icon">📰</span>
+                    <span>市场资讯</span>
+                </div>
                 <div class="nav-item" data-page="unlock-list">
                     <span class="nav-icon">🔓</span>
                     <span>解禁列表</span>
@@ -261,6 +265,18 @@
                 </div>
             </div>
 
+            <!-- 市场资讯页面 -->
+            <div id="page-market-news" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">📰 市场资讯</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div id="marketNewsContent" style="text-align:center;color:#8b8b9e;padding:40px 0;">
+                        内容待定
+                    </div>
+                </div>
+            </div>
+
             <!-- 解禁列表页面 -->
             <div id="page-unlock-list" style="display:none;">
                 <div class="page-header">
@@ -402,6 +418,7 @@
                 document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
                 document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
                 document.getElementById('page-tech-pick').style.display = page === 'tech-pick' ? 'block' : 'none';
+                document.getElementById('page-market-news').style.display = page === 'market-news' ? 'block' : 'none';
                 document.getElementById('page-unlock-list').style.display = page === 'unlock-list' ? 'block' : 'none';
                 document.getElementById('page-earnings').style.display = page === 'earnings' ? 'block' : 'none';
                 document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
@@ -438,6 +455,7 @@
     <script src="/static/js/kline/popup.js"></script>
     <script src="/static/js/money_flow/refresh.js"></script>
     <script src="/static/js/technical_screen/page.js"></script>
+    <script src="/static/js/market-news/service.js"></script>
     <script src="/static/js/unlock-list/service.js"></script>
     <script src="/static/js/announce/service.js"></script>
     <script src="/static/js/earnings/service.js"></script>
