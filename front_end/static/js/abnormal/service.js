@@ -3,6 +3,16 @@ var abnormalCurrentTab = 'prediction';
 var abnormalCalcHistory = [];
 var abnormalCalcActiveRequestId = 0;
 
+// 外部数据源 unusual_type 到可读描述的映射
+var UNUSUAL_TYPE_MAP = {
+    '规则7': '连续30日内收盘价偏离累计达-70%'
+};
+
+function formatUnusualType(raw) {
+    if (!raw) return '';
+    return UNUSUAL_TYPE_MAP[raw] || raw;
+}
+
 // ===== 页面入口 =====
 function loadAbnormalCenter() {
     loadAbnormalTabs();
@@ -85,7 +95,7 @@ function loadPrediction() {
                         '<td class="' + (item.change_rate > 0 ? 'change-up' : 'change-down') + '">' + (item.change_rate > 0 ? '+' : '') + (item.change_rate != null ? item.change_rate.toFixed(2) + '%' : '-') + '</td>' +
                         '<td>' + (item.deviation_value != null ? item.deviation_value.toFixed(2) + '%' : '-') + '</td>' +
                         '<td class="' + (item.change_rate_target != null && item.change_rate_target < 3 ? 'change-up' : '') + '">' + (item.change_rate_target != null ? item.change_rate_target.toFixed(2) + '%' : '-') + '</td>' +
-                        '<td style="font-size:11px;color:#888;">' + (item.unusual_type || '') + '</td>' +
+                        '<td style="font-size:11px;color:#888;">' + formatUnusualType(item.unusual_type) + '</td>' +
                         '<td>' + (item.max_days || '-') + '天</td>' +
                         '<td class="' + statusClass + '">' + statusText + '</td>' +
                         '</tr>';
