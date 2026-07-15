@@ -343,6 +343,72 @@ var KlineMinute = {
         });
         canvases.forEach(function(c) { observer.observe(c); });
 
+        // ---- updateData：定时刷新后更新所有闭包变量，确保游标能命中新数据点 ----
+        function updateData(newTimes, newPrices, newVolumes, newAmounts, newPreClose) {
+            // 重算 allT / allP / allV / allA
+            var isUS2 = stockMarket === '106', isHK2 = stockMarket === '116';
+            var today2 = new Date(); var base2 = new Date(today2.getFullYear(), today2.getMonth(), today2.getDate()).getTime() / 1000;
+            var rawTs = newTimes.map(function(t) {
+                if (isUS2) return new Date(t).getTime() / 1000;
+                var pp = t.split(':'); return base2 + parseInt(pp[0]) * 3600 + parseInt(pp[1]) * 60;
+            });
+            var pcts2 = newPrices.map(function(p) { return newPreClose ? ((p - newPreClose) / newPreClose * 100) : p; });
+
+            var newAllT = [], newAllP = [], newAllV = [], newAllA = [], di2 = 0;
+            for (var t2 = minuteFrom; t2 <= minuteTo; t2 += 60) {
+                if (!isUS2 && ((!isHK2 && t2 >= lunchAStart && t2 <= lunchAEnd) || (isHK2 && t2 >= lunchHKStart && t2 <= lunchHKEnd))) continue;
+                newAllT.push(t2);
+                if (di2 < rawTs.length && rawTs[di2] >= t2 - 30 && rawTs[di2] <= t2 + 30) {
+                    newAllP.push(pcts2[di2] != null ? pcts2[di2] : null);
+                    newAllV.push(newVolumes[di2] != null ? newVolumes[di2] : 0);
+                    newAllA.push(newAmounts[di2] != null ? newAmounts[di2] : 0);
+                    di2++;
+                } else { newAllP.push(null); newAllV.push(null); newAllA.push(null); }
+            }
+            // 更新闭包引用
+            allT = newAllT; allP = newAllP; allV = newAllV; allA = newAllA;
+            prices = newPrices; volumes = newVolumes; amounts = newAmounts; preClose = newPreClose;
+
+            // 更新 lineData（十字线同步用）
+            lineData = [];
+            var lvi2 = -1;
+            for (var vi3 = allP.length - 1; vi3 >= 0; vi3--) { if (allP[vi3] != null) { lvi2 = vi3; break; } }
+            for (var ii = 0; ii <= lvi2; ii++) lineData.push({ time: allT[ii], value: allP[ii] });
+
+            // 更新 vd（十字线同步用）
+            vd = [];
+            for (var ii2 = 0; ii2 < allT.length; ii2++) {
+                if (allP[ii2] == null) continue;
+                var up = (ii2 > 0 && allP[ii2] != null && allP[ii2-1] != null) ? allP[ii2] >= allP[ii2-1] : true;
+                vd.push({ time: allT[ii2], value: allV[ii2], color: up ? 'rgba(239,83,80,0.4)' : 'rgba(38,166,154,0.4)' });
+            }
+
+            // 更新 avgData
+            avgData = []; var as2 = 0, an2 = 0;
+            for (var ii3 = 0; ii3 <= lvi2; ii3++) {
+                if (allP[ii3] != null) { as2 += prices[Math.min(an2, prices.length - 1)]; an2++; }
+                avgData.push({ time: allT[ii3], value: allP[ii3] != null ? (an2 > 0 ? (preClose ? ((as2 / an2 - preClose) / preClose * 100) : (as2 / an2)) : null) : null });
+            }
+
+            // 更新 volMA5 / volMA10
+            var vd2 = [];
+            for (var ii4 = 0; ii4 < allT.length; ii4++) { if (allV[ii4] != null) vd2.push({ time: allT[ii4], close: allV[ii4] }); }
+            volMA5 = KlineChartUtils.calcSMA(vd2, 5);
+            volMA10 = KlineChartUtils.calcSMA(vd2, 10);
+
+            // 更新 macd
+            var mi = _buildMacdInput(allT, allP, prices);
+            macd = KlineChartUtils.calcMACD(mi, 12, 26, 9);
+
+            // 更新底部统计
+            var lp2 = prices[prices.length - 1], lav2 = null;
+            for (var ai2 = avgData.length - 1; ai2 >= 0; ai2--) { if (avgData[ai2].value != null) { lav2 = avgData[ai2].value; break; } }
+            var lChg2 = preClose ? lp2 - preClose : 0, lChgPct2 = preClose ? lChg2 / preClose * 100 : 0;
+            var ls2 = lChg2 >= 0 ? '+' : '', lc2 = lChg2 >= 0 ? '#ef5350' : '#26a69a';
+            var mv2 = document.getElementById('klMinuteVals');
+            if (mv2) mv2.innerHTML = '<span style="color:#fbbf24;">均价:'+(preClose ? (lav2*preClose/100+preClose).toFixed(priceDec):'--')+'</span> <span style="color:#3b82f6;">最新:'+lp2.toFixed(priceDec)+'</span> <span style="color:'+lc2+';">'+ls2+lChg2.toFixed(priceDec)+'</span> <span style="color:'+lc2+';">'+ls2+lChgPct2.toFixed(2)+'%</span>';
+        }
+
         return {
             chart: mainChart, charts: charts,
             series: series, avgLine: avgLine, volSeries: volSeries,
@@ -354,6 +420,7 @@ var KlineMinute = {
             observer: observer,
             _buildMacdInput: _buildMacdInput,
             priceDec: priceDec,
+            updateData: updateData,
         };
     }
 };

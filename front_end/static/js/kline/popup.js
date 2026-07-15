@@ -20,6 +20,7 @@ var KlinePopup = (function() {
     var _minuteMacdLines = null; // MACD 系列引用
     var _minuteMacd = null;      // MACD 数据
     var _minuteBuildMacdInput = null; // MACD 输入构建函数
+    var _minuteUpdateData = null;     // 更新闭包变量的函数（游标同步用）
     var _minutePreClose = 0;
     var _minuteFrom = 0, _minuteTo = 0;  // 分时窗口固定范围
     var _fiveDayAreaSeries = null;   // 五日面积线
@@ -464,6 +465,7 @@ var KlinePopup = (function() {
         _minuteMacdLines = result.macdLines;
         _minuteMacd = result.macd;
         _minuteBuildMacdInput = result._buildMacdInput;
+        _minuteUpdateData = result.updateData;
         _minuteFrom = result.minuteFrom;
         _minuteTo = result.minuteTo;
         _observer = result.observer;
@@ -534,6 +536,10 @@ var KlinePopup = (function() {
                     _minuteMacdLines.filter(function(x) { return x.k === 'dif'; })[0].s.setData(newMacd.dif);
                     _minuteMacdLines.filter(function(x) { return x.k === 'dea'; })[0].s.setData(newMacd.dea);
                     _minuteMacdLines.filter(function(x) { return x.k === 'macd'; })[0].s.setData(newMacd.macd.map(function(v) { return { time: v.time, value: v.value, color: v.value >= 0 ? '#ef5350' : '#26a69a' }; }));
+                }
+                // 更新闭包变量，让游标能命中新数据点
+                if (_minuteUpdateData) {
+                    _minuteUpdateData(times, prices, volumes, amounts, preClose);
                 }
             })
             .catch(function() {});
