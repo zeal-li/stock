@@ -591,7 +591,7 @@ var KlinePopup = (function() {
         function _volStr(v) {
             var lots = v / 100;  // 股 → 手
             if (lots >= 1e4) return (lots / 1e4).toFixed(2) + '万';
-            return lots.toFixed(2);
+            return Math.round(lots) + '';
         }
 
         var priceDec = isETF(_stockCode, _stockMarket) ? 3 : 2;
@@ -658,6 +658,7 @@ var KlinePopup = (function() {
         if (!el) return;
         var maxShow = 15;
         var showItems = _tradeExpanded ? _tradeAll : _tradeAll.slice(0, maxShow);
+        var tradePriceDec = isETF(_stockCode, _stockMarket) ? 3 : 2;
         var html = '';
         for (var i = 0; i < showItems.length; i++) {
             var t = showItems[i];
@@ -667,7 +668,7 @@ var KlinePopup = (function() {
             html += '<div style="display:flex;justify-content:space-between;padding:0 2px;">' +
                 '<span style="color:#666;width:42px;">' + t.time.slice(0, 5) + '</span>' +
                 '<span style="color:' + color + ';">' + sideMark + '</span>' +
-                '<span style="color:#ccc;width:44px;text-align:right;">' + t.price.toFixed(2) + '</span>' +
+                '<span style="color:#ccc;width:44px;text-align:right;">' + t.price.toFixed(tradePriceDec) + '</span>' +
                 '<span style="color:#888;width:38px;text-align:right;">' + vol + '</span>' +
                 '</div>';
         }
