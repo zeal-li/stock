@@ -451,6 +451,46 @@ def stock_depth():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/stock-trade-detail')
+def stock_trade_detail():
+    """逐笔成交明细（仅A股，数据源：东方财富）"""
+    code = request.args.get('code', '')
+    market = request.args.get('market', '')
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    if not is_a_share(market):
+        return jsonify({'success': False, 'error': '仅支持A股'})
+    try:
+        url = "https://push2delay.eastmoney.com/api/qt/stock/details/get"
+        params = {
+            'secid': f"{to_em_market(market)}.{code}",
+            'fields1': 'f1,f2,f3,f4',
+            'fields2': 'f51,f52,f53,f54,f55',
+            'pos': '-0',
+            'wbp2u': '|0|0|0|web',
+            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
+        }
+        r = requests.get(url, params=params, headers={
+            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/',
+        }, timeout=8, proxies=REQUEST_PROXIES)
+        details = (r.json().get('data') or {}).get('details') or []
+        trades = []
+        for item in details:
+            parts = item.split(',')
+            if len(parts) < 5:
+                continue
+            side = int(parts[4]) if parts[4].isdigit() else 0
+            trades.append({
+                'time': parts[0],
+                'price': float(parts[1]),
+                'volume': int(float(parts[2])),
+                'side': side,
+            })
+        return jsonify({'success': True, 'data': trades})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 # ==================== 概念题材 ====================
 
 @app.route('/api/stock-concepts')

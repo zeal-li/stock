@@ -481,6 +481,7 @@ var KlinePopup = (function() {
         var depthEl = document.getElementById('klDepth');
         if (depthEl) depthEl.style.display = 'flex';
         _loadDepthData();
+        _loadTradeDetail();
         if (_minuteTimer) clearInterval(_minuteTimer);
         _minuteTimer = setInterval(_refreshMinuteData, 60000);
     }
@@ -553,8 +554,9 @@ var KlinePopup = (function() {
                 if (_minuteUpdateData) {
                     _minuteUpdateData(times, prices, volumes, amounts, preClose);
                 }
-                // 同步刷新五档数据
+                // 同步刷新五档数据和成交明细
                 _loadDepthData();
+                _loadTradeDetail();
             })
             .catch(function() {});
     }
@@ -618,11 +620,46 @@ var KlinePopup = (function() {
         for (var i = 0; i < bids.length; i++) {
             html += _row('bid', bids[i].price, bids[i].volume, maxVol);
         }
-        // 底部委比/委差
-        html += '<div style="border-top:1px solid #2a2a4e;margin:4px 4px;padding-top:4px;text-align:center;color:#888;font-size:10px;">' +
-            '<span>五档挂单</span></div>';
+        // 成交明细区域
+        html += '<div style="border-top:1px solid #2a2a4e;margin:4px 4px;padding-top:2px;text-align:center;color:#888;font-size:10px;">成交明细</div>';
+        html += '<div id="klTradeList" style="flex:1;overflow-y:auto;font-size:10px;line-height:16px;margin:0 4px;"></div>';
 
         el.innerHTML = html;
+    }
+
+    // ---- 成交明细 ----
+    function _loadTradeDetail() {
+        if (!is_a_share_market(_stockMarket)) return;
+        fetch('/api/stock-trade-detail?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket))
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.success || !d.data) return;
+                _renderTradeDetail(d.data);
+            })
+            .catch(function() {});
+    }
+
+    function _renderTradeDetail(trades) {
+        var el = document.getElementById('klTradeList');
+        if (!el) return;
+        // 取最近 30 条，倒序（最新在前）
+        var items = trades.slice(-30).reverse();
+        var html = '';
+        for (var i = 0; i < items.length; i++) {
+            var t = items[i];
+            var color = t.side === 1 ? '#ef5350' : t.side === 2 ? '#26a69a' : '#8b8b9e';
+            var sideMark = t.side === 1 ? 'B' : t.side === 2 ? 'S' : '-';
+            var vol = t.volume >= 1e4 ? (t.volume / 1e4).toFixed(1) + '万' : t.volume;
+            html += '<div style="display:flex;justify-content:space-between;padding:0 2px;">' +
+                '<span style="color:#666;width:42px;">' + t.time.slice(0, 5) + '</span>' +
+                '<span style="color:' + color + ';">' + sideMark + '</span>' +
+                '<span style="color:#ccc;width:44px;text-align:right;">' + t.price.toFixed(2) + '</span>' +
+                '<span style="color:#888;width:38px;text-align:right;">' + vol + '</span>' +
+                '</div>';
+        }
+        el.innerHTML = html;
+        // 滚动到底部
+        el.scrollTop = el.scrollHeight;
     }
 
     // 定时刷新头部行情（最新价/涨跌幅/成交量等），所有模式共用
