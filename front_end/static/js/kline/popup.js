@@ -1097,7 +1097,9 @@ var KlinePopup = (function() {
         bar = document.getElementById('klPeriodBar');
         if (bar) bar.style.display = 'none';
         var depthBar = document.getElementById('klDepth');
-        if (depthBar) depthBar.style.display = 'none';
+        if (depthBar) { depthBar.style.display = 'none'; depthBar.innerHTML = ''; }
+        _tradeAll = [];
+        _tradeExpanded = false;
     }
 
     return { open: open, close: close, _switchIndicator: _switchIndicator, _toggleMinute: _toggleMinute, _switchPeriod: _switchPeriod, _toggleTradeExpand: _toggleTradeExpand, _toggleWatchlist: async function() { if (typeof watchlistStocks === 'undefined' || typeof watchlistPickStock !== 'function') return; var found = watchlistStocks.find(function(s) { return s.code === _stockCode; }); if (found) { watchlistRemoveStock(_stockCode, _stockMarket); } else { await watchlistPickStock(_stockCode, _stockMarket); } _updateWatchlistBtn(); }, _updateWatchlistBtn: _updateWatchlistBtn };
