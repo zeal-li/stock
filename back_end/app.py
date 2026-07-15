@@ -385,11 +385,66 @@ def stock_extra():
         vr = d.get('f50')
         br = d.get('f191')
         if not is_a_share(market): br = None
-        return jsonify({
-            'success': True,
+        return jsonify({'success': True,
             'data': {
                 'volume_ratio': round(float(vr) / 100, 2) if vr is not None and vr != '-' else '-',
                 'bid_ratio': (str(round(br / 100, 2)) + '%') if br is not None and br != '-' else '-',
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/stock-depth')
+def stock_depth():
+    """五档买卖挂单（仅A股，数据源：新浪财经）"""
+    code = request.args.get('code', '')
+    market = request.args.get('market', '')
+    if not code or not market:
+        return jsonify({'success': False, 'error': '缺少参数'})
+    if not is_a_share(market):
+        return jsonify({'success': False, 'error': '仅支持A股'})
+    try:
+        prefix = 'sh' if str(market) in ('1', '2') else 'sz'
+        url = f"https://hq.sinajs.cn/list={prefix}{code}"
+        r = requests.get(url, headers={
+            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/',
+        }, timeout=8, proxies=REQUEST_PROXIES)
+        r.encoding = 'gbk'
+        raw = r.text
+        if not raw or '=""' in raw:
+            return jsonify({'success': True, 'data': {'bids': [], 'asks': []}})
+        # 解析：字段 10-29 为买一量/买一价 ... 买五量/买五价, 卖一量/卖一价 ... 卖五量/卖五价
+        parts = raw.split('"')[1].split(',')
+        def _p(idx):
+            v = parts[idx] if idx < len(parts) else ''
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                return None
+        def _v(idx):
+            v = parts[idx] if idx < len(parts) else ''
+            try:
+                return int(float(v))
+            except (ValueError, TypeError):
+                return 0
+        return jsonify({
+            'success': True,
+            'data': {
+                'bids': [
+                    {'price': _p(11), 'volume': _v(10)},
+                    {'price': _p(13), 'volume': _v(12)},
+                    {'price': _p(15), 'volume': _v(14)},
+                    {'price': _p(17), 'volume': _v(16)},
+                    {'price': _p(19), 'volume': _v(18)},
+                ],
+                'asks': [
+                    {'price': _p(21), 'volume': _v(20)},
+                    {'price': _p(23), 'volume': _v(22)},
+                    {'price': _p(25), 'volume': _v(24)},
+                    {'price': _p(27), 'volume': _v(26)},
+                    {'price': _p(29), 'volume': _v(28)},
+                ],
             }
         })
     except Exception as e:

@@ -86,8 +86,11 @@ var KlinePopup = (function() {
                     '</select>' +
                     '<span id="klIndVals" style="font-size:11px;"></span>' +
                 '</div>' +
-                '<div id="klChart" style="flex:1;min-height:0;position:relative;overflow:hidden;">' +
-                    '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
+                '<div id="klChartWrap" style="flex:1;min-height:0;display:flex;overflow:hidden;">' +
+                    '<div id="klChart" style="flex:1;min-height:0;position:relative;overflow:hidden;">' +
+                        '<div id="klTooltip" style="display:none;position:absolute;z-index:10;pointer-events:none;background:rgba(26,26,46,0.95);border:1px solid #2a2a4e;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.7;color:#ccc;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.4);"></div>' +
+                    '</div>' +
+                    '<div id="klDepth" style="display:none;width:160px;min-width:160px;border-left:1px solid #2a2a4e;font-size:11px;overflow:hidden;flex-direction:column;background:#1a1a2e;"></div>' +
                 '</div>' +
             '</div>';
         document.body.appendChild(_overlay);
@@ -112,6 +115,8 @@ var KlinePopup = (function() {
             btn.style.background = '#1a1a2e'; btn.style.color = '#8b8b9e';
             indBar.style.display = 'flex';
             indBar.innerHTML = '<select id="klIndSelect" onchange="KlinePopup._switchIndicator(this.value)"><option value="ma">均线</option><option value="bb">布林线</option></select><span id="klIndVals" style="font-size:11px;"></span>';
+            var depthEl = document.getElementById('klDepth');
+            if (depthEl) depthEl.style.display = 'none';
             _loadKlineChart();
             if (_minuteTimer) { clearInterval(_minuteTimer); _minuteTimer = null; }
         }
@@ -124,6 +129,9 @@ var KlinePopup = (function() {
         _currentPeriod = p;
         document.getElementById('klBtnMinute').style.background = '#1a1a2e';
         document.getElementById('klBtnMinute').style.color = '#8b8b9e';
+        // 隐藏五档面板
+        var depthEl2 = document.getElementById('klDepth');
+        if (depthEl2) depthEl2.style.display = 'none';
         // 按钮样式
         var btns = document.querySelectorAll('#klPeriodBar button[data-p]');
         btns.forEach(function(b) {
@@ -469,6 +477,10 @@ var KlinePopup = (function() {
         _minuteFrom = result.minuteFrom;
         _minuteTo = result.minuteTo;
         _observer = result.observer;
+        // 显示五档面板并加载数据
+        var depthEl = document.getElementById('klDepth');
+        if (depthEl) depthEl.style.display = 'flex';
+        _loadDepthData();
         if (_minuteTimer) clearInterval(_minuteTimer);
         _minuteTimer = setInterval(_refreshMinuteData, 60000);
     }
@@ -541,8 +553,76 @@ var KlinePopup = (function() {
                 if (_minuteUpdateData) {
                     _minuteUpdateData(times, prices, volumes, amounts, preClose);
                 }
+                // 同步刷新五档数据
+                _loadDepthData();
             })
             .catch(function() {});
+    }
+
+    // ---- 五档买卖挂单 ----
+    function _loadDepthData() {
+        if (!is_a_share_market(_stockMarket)) return;
+        fetch('/api/stock-depth?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket))
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.success || !d.data) return;
+                _renderDepth(d.data);
+            })
+            .catch(function() {});
+    }
+
+    function is_a_share_market(m) {
+        return String(m) === '0' || String(m) === '1' || String(m) === '2' || String(m) === '90';
+    }
+
+    function _renderDepth(data) {
+        var el = document.getElementById('klDepth');
+        if (!el) return;
+        var bids = data.bids || [], asks = data.asks || [];
+
+        // 找最大挂单量做比例尺
+        var maxVol = 0;
+        bids.forEach(function(b) { if (b.volume > maxVol) maxVol = b.volume; });
+        asks.forEach(function(a) { if (a.volume > maxVol) maxVol = a.volume; });
+        maxVol = maxVol || 1;
+
+        function _volStr(v) {
+            var lots = v / 100;  // 股 → 手
+            if (lots >= 1e4) return (lots / 1e4).toFixed(2) + '万';
+            return lots.toFixed(2);
+        }
+
+        var priceDec = isETF(_stockCode, _stockMarket) ? 3 : 2;
+        function _row(dir, price, volume, maxV) {
+            var pct = Math.min((volume / maxV) * 100, 100);
+            var barColor = dir === 'ask' ? 'rgba(38,166,154,0.35)' : 'rgba(239,83,80,0.35)';
+            var priceColor = dir === 'ask' ? '#26a69a' : '#ef5350';
+            if (price == null) price = '--';
+            return '<div style="display:flex;align-items:center;height:20px;position:relative;margin:0 4px;">' +
+                '<div style="position:absolute;right:0;top:0;bottom:0;width:' + pct + '%;background:' + barColor + ';border-radius:2px;"></div>' +
+                '<span style="position:relative;z-index:1;color:' + priceColor + ';width:58px;text-align:right;padding-right:4px;">' + (typeof price === 'number' ? price.toFixed(priceDec) : price) + '</span>' +
+                '<span style="position:relative;z-index:1;color:#8b8b9e;flex:1;text-align:right;padding-right:4px;">' + (volume > 0 ? _volStr(volume) : '') + '</span>' +
+                '</div>';
+        }
+
+        var html = '';
+        // 卖五到卖一（倒序）
+        html += '<div style="flex-shrink:0;padding:4px 0 2px;text-align:center;color:#888;font-size:10px;">卖盘</div>';
+        for (var i = asks.length - 1; i >= 0; i--) {
+            html += _row('ask', asks[i].price, asks[i].volume, maxVol);
+        }
+        // 分隔线
+        html += '<div style="border-bottom:1px solid #2a2a4e;margin:4px 4px;"></div>';
+        // 买一到买五
+        html += '<div style="flex-shrink:0;padding:2px 0 2px;text-align:center;color:#888;font-size:10px;">买盘</div>';
+        for (var i = 0; i < bids.length; i++) {
+            html += _row('bid', bids[i].price, bids[i].volume, maxVol);
+        }
+        // 底部委比/委差
+        html += '<div style="border-top:1px solid #2a2a4e;margin:4px 4px;padding-top:4px;text-align:center;color:#888;font-size:10px;">' +
+            '<span>五档挂单</span></div>';
+
+        el.innerHTML = html;
     }
 
     // 定时刷新头部行情（最新价/涨跌幅/成交量等），所有模式共用
@@ -963,6 +1043,8 @@ var KlinePopup = (function() {
         if (bar) bar.style.display = 'none';
         bar = document.getElementById('klPeriodBar');
         if (bar) bar.style.display = 'none';
+        var depthBar = document.getElementById('klDepth');
+        if (depthBar) depthBar.style.display = 'none';
     }
 
     return { open: open, close: close, _switchIndicator: _switchIndicator, _toggleMinute: _toggleMinute, _switchPeriod: _switchPeriod, _toggleWatchlist: async function() { if (typeof watchlistStocks === 'undefined' || typeof watchlistPickStock !== 'function') return; var found = watchlistStocks.find(function(s) { return s.code === _stockCode; }); if (found) { watchlistRemoveStock(_stockCode, _stockMarket); } else { await watchlistPickStock(_stockCode, _stockMarket); } _updateWatchlistBtn(); }, _updateWatchlistBtn: _updateWatchlistBtn };
