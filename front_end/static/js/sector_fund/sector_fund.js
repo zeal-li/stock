@@ -1,6 +1,6 @@
 /** 板块资金流向 — 行业/概念板块主力流入/流出排行 + 板块成分股 */
 
-var _sectorFundType = 'concept';
+var _sectorFundType = 'industry';
 var _sectorFundPeriod = 'today';
 var _currentSectorCode = null;
 var _currentSectorName = null;
