@@ -2,14 +2,14 @@
 import os, json, threading, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .strategies.san_shang_you_ya import calc as san_shang_you_ya_calc
+from .strategies.rising_channel import calc as rising_channel_calc
 from .strategies.ml_score import calc as ml_score_calc
 
 # 策略注册表：{key: {name, calc, desc}}
 STRATEGIES = {
-    'san_shang_you_ya': {
-        'name': '三上悠亚',
-        'calc': san_shang_you_ya_calc,
+    'rising_channel': {
+        'name': '上升通道',
+        'calc': rising_channel_calc,
         'desc': '日K/周K/月K布林中上轨共振：三周期大部分时间运行在中轨到上轨之间，布林带温和向上倾斜，跌破中轨能快速修复视为强势，近期无极端涨跌',
     },
     'ml_score': {
