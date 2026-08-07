@@ -870,14 +870,14 @@ var KlinePopup = (function() {
             : cell('商誉率', gw.gw != null ? gw.gw.toFixed(2) + '%' : null);
 
         paramsEl.innerHTML =
-            '<div style="display:grid;grid-template-columns:repeat(10,auto);column-gap:12px;row-gap:2px;justify-content:start;">' +
+            '<div style="display:grid;grid-template-columns:repeat(' + (isEtf ? 9 : 10) + ',auto);column-gap:12px;row-gap:2px;justify-content:start;">' +
                 ohlcCell('高', quote.high) +
                 cell('涨停', limitUp ? '<span style="color:#ef5350;">' + limitUp + '</span>' : null) +
                 ohlcCell('今开', quote.open) +
                 cell('成交量', quote.volume) +
                 cell('换手', quote.turnover) +
                 cell('量比', (function(){ var v = parseFloat(quote.volume_ratio); if (isNaN(v)) return null; var c = v > 1 ? '#ef5350' : v < 1 ? '#26a69a' : '#ccc'; return '<span style="color:' + c + ';">' + v.toFixed(2) + '</span>'; })()) +
-                cell('市盈', quote.pe) +
+                (isEtf ? '' : cell('市盈', quote.pe)) +
                 cell('总股本', quote.total_shares) +
                 cell('总市值', quote.total_cap) +
                 pledgeCell +
@@ -887,7 +887,7 @@ var KlinePopup = (function() {
                 cell('成交额', quote.amount) +
                 cell('振幅', quote.amplitude) +
                 cell('委比', (function(){ var v = parseFloat(quote.bid_ratio); if (isNaN(v)) return null; var c = v > 0 ? '#ef5350' : v < 0 ? '#26a69a' : '#ccc'; return '<span style="color:' + c + ';">' + v.toFixed(2) + '%</span>'; })()) +
-                cell('市净', quote.pb) +
+                (isEtf ? '' : cell('市净', quote.pb)) +
                 cell('流通股', quote.float_shares) +
                 cell('流通值', quote.float_cap) +
                 goodwillCell +
