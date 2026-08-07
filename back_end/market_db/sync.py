@@ -188,13 +188,13 @@ def _fetch_stocks_by_segment(seg_key):
                 if seg_key in ('hs_etf',):
                     if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
                         continue
-                    # 过滤市值小于5亿的ETF
+                    # 过滤市值小于10亿的ETF
                     try:
                         cap = row.get('f20')
                         if cap is None or cap == '-' or str(cap).strip() == '':
                             filtered_by_cap += 1
                             continue
-                        if float(cap) < 500_000_000:
+                        if float(cap) < 1_000_000_000:
                             filtered_by_cap += 1
                             continue
                     except (ValueError, TypeError):
@@ -204,7 +204,7 @@ def _fetch_stocks_by_segment(seg_key):
         page += 1
         _time.sleep(0.1)
     if filtered_by_cap > 0 and seg_key == 'hs_etf':
-        print(f"[sync] {label}: {len(all_rows)} 只 (过滤掉市值<5亿: {filtered_by_cap} 只)")
+        print(f"[sync] {label}: {len(all_rows)} 只 (过滤掉市值<10亿: {filtered_by_cap} 只)")
     else:
         print(f"[sync] {label}: {len(all_rows)} 只")
     return all_rows
