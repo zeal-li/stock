@@ -6,9 +6,9 @@
 
 硬条件：
   1. 三周期波谷低点一底比一底高（至少 2 个周期，这是核心特征）
-  2. 三周期布林中轨向上倾斜，坡度不过陡（对中轨序列做线性回归）
-  3. 三周期大部分时间在中上轨（日 >= 40%，周 >= 40%，月 >= 35%）
-  4. 跌破中轨后能在合理时间内修复（日 <= 12天，周 <= 10周，月 <= 8月）
+  2. 三周期布林中轨向上倾斜，坡度不过陡（对中轨序列做线性回归），至少 2 个周期满足
+  3. 三周期大部分时间在中上轨（日 >= 40%，周 >= 40%，月 >= 35%），至少 2 个周期满足
+  4. 跌破中轨后能在合理时间内修复（日 <= 12天，周 <= 10周，月 <= 8月），至少 2 个周期满足
   5. 无跌停等极端下跌行情（单日跌幅 > 9.5% 视为极端，上涨方向不限制）
 """
 
@@ -35,6 +35,19 @@ def _calc_bb(klines, period=20):
     mid = ma
     lower = ma - 2 * std
     return {'upper': upper, 'mid': mid, 'lower': lower}
+
+
+def _calc_rolling_mids(klines, bb_period=20):
+    """计算每根K线对应时刻的布林中轨（滚动MA），返回与klines等长的中轨序列。
+    前 bb_period-1 根无法计算中轨，填充为 None。
+    """
+    closes = [k['close'] for k in klines]
+    n = len(closes)
+    mids = [None] * (bb_period - 1)
+    for i in range(bb_period - 1, n):
+        window = closes[i - bb_period + 1:i + 1]
+        mids.append(sum(window) / bb_period)
+    return mids
 
 
 def _find_valley_lows(klines, min_valley_count=3):
@@ -98,29 +111,42 @@ def _calc_mid_slope(klines, bb_period=20, mid_window=20):
 
 
 def _upper_half_analysis(klines, bb_period=20, ratio_period=20):
+    """分析布林带上半区特征，使用滚动中轨做动态判断。"""
     closes_all = [k['close'] for k in klines]
     bb = _calc_bb(klines, bb_period)
-    mid = bb['mid']
+    mid_latest = bb['mid']
     upper = bb['upper']
 
-    recent = closes_all[-ratio_period:]
-    in_upper = sum(1 for c in recent if c >= mid)
-    ratio = in_upper / len(recent)
+    # 使用滚动中轨计算上半区占比（每个时间点用各自的中轨）
+    rolling_mids = _calc_rolling_mids(klines, bb_period)
+    recent_closes = closes_all[-ratio_period:]
+    recent_mids = rolling_mids[-ratio_period:]
+    in_upper = sum(1 for c, m in zip(recent_closes, recent_mids) if m is not None and c >= m)
+    valid_count = sum(1 for m in recent_mids if m is not None)
+    ratio = in_upper / valid_count if valid_count > 0 else 0
 
-    # 修复检测窗口扩大，统计更长时间内的连续跌破
+    # 使用滚动中轨统计更长时间内的连续跌破
     below_window = closes_all[-max(ratio_period * 2, 40):]
+    below_mids = rolling_mids[-max(ratio_period * 2, 40):]
     max_consecutive_below = 0
     current_streak = 0
-    for c in below_window:
-        if c < mid:
+    for c, m in zip(below_window, below_mids):
+        if m is not None and c < m:
             current_streak += 1
             max_consecutive_below = max(max_consecutive_below, current_streak)
         else:
             current_streak = 0
 
-    recent5 = closes_all[-5:]
-    was_below = any(c < mid for c in recent5[:-1])
-    now_above = closes_all[-1] >= mid
+    # 修复检测
+    recent5_closes = closes_all[-5:]
+    recent5_mids = rolling_mids[-5:]
+    was_below = any(
+        m is not None and c < m
+        for c, m in zip(recent5_closes[:-1], recent5_mids[:-1])
+    )
+    now_above = (
+        recent5_mids[-1] is not None and recent5_closes[-1] >= recent5_mids[-1]
+    )
     recovering = was_below and now_above
 
     # 对中轨序列做线性回归，而非收盘价
@@ -130,7 +156,7 @@ def _upper_half_analysis(klines, bb_period=20, ratio_period=20):
         'ratio': ratio,
         'max_below_days': max_consecutive_below,
         'recovering': recovering,
-        'mid': mid,
+        'mid': mid_latest,
         'upper': upper,
         'slope': slope,
         'slope_pct': slope_pct,
@@ -151,32 +177,52 @@ def calc(daily_klines, weekly_klines=None, monthly_klines=None, lookback=60):
     ma = _upper_half_analysis(mk, bb_period=20, ratio_period=12)
 
     # ====== 硬条件0: 一底比一底高（波谷检测，核心特征，至少 2 个周期） ======
-    d_asc, d_lows = _find_valley_lows(dk[-60:], min_valley_count=3)
-    w_asc, w_lows = _find_valley_lows(wk[-20:], min_valley_count=3)
-    m_asc, m_lows = _find_valley_lows(mk[-12:], min_valley_count=2)
+    d_asc, d_lows = _find_valley_lows(dk[-120:], min_valley_count=3)
+    w_asc, w_lows = _find_valley_lows(wk, min_valley_count=3)
+    m_asc, m_lows = _find_valley_lows(mk[-24:], min_valley_count=2)
 
     asc_count = sum([d_asc, w_asc, m_asc])
     if asc_count < 2:
         return 0, {}
 
-    # ====== 硬条件1: 上半区占比达标 ======
-    if da['ratio'] < 0.40 or wa['ratio'] < 0.40 or ma['ratio'] < 0.35:
+    # ====== 硬条件1: 上半区占比达标（至少 2 个周期） ======
+    ratio_ok = (
+        (1 if da['ratio'] >= 0.40 else 0)
+        + (1 if wa['ratio'] >= 0.40 else 0)
+        + (1 if ma['ratio'] >= 0.35 else 0)
+    )
+    if ratio_ok < 2:
         return 0, {}
 
-    # ====== 硬条件2: 跌破后能修复 ======
-    if da['max_below_days'] > 12 or wa['max_below_days'] > 10 or ma['max_below_days'] > 8:
+    # ====== 硬条件2: 跌破后能修复（至少 2 个周期） ======
+    repair_ok = (
+        (1 if da['max_below_days'] <= 12 else 0)
+        + (1 if wa['max_below_days'] <= 10 else 0)
+        + (1 if ma['max_below_days'] <= 8 else 0)
+    )
+    if repair_ok < 2:
         return 0, {}
 
-    # ====== 硬条件3: 布林中轨向上 ======
-    if da['slope'] <= 0 or wa['slope'] <= 0 or ma['slope'] <= 0:
+    # ====== 硬条件3: 布林中轨向上（至少 2 个周期） ======
+    slope_up_ok = (
+        (1 if da['slope'] > 0 else 0)
+        + (1 if wa['slope'] > 0 else 0)
+        + (1 if ma['slope'] > 0 else 0)
+    )
+    if slope_up_ok < 2:
         return 0, {}
 
-    # ====== 硬条件4: 坡度不过陡 ======
+    # ====== 硬条件4: 坡度不过陡（至少 2 个周期） ======
     max_d = 0.03
     max_w = 0.05
     max_m = 0.08
 
-    if da['slope_pct'] > max_d or wa['slope_pct'] > max_w or ma['slope_pct'] > max_m:
+    slope_steep_ok = (
+        (1 if da['slope_pct'] <= max_d else 0)
+        + (1 if wa['slope_pct'] <= max_w else 0)
+        + (1 if ma['slope_pct'] <= max_m else 0)
+    )
+    if slope_steep_ok < 2:
         return 0, {}
 
     # ====== 硬条件5: 无极端下跌（跌停板附近） ======
