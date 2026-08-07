@@ -856,6 +856,19 @@ var KlinePopup = (function() {
             }
         }
 
+        // ETF：溢价率用净值计算；非ETF：显示质押率 + 商誉率
+        var premiumRate = (quote.premium_rate != null) ? quote.premium_rate.toFixed(2) + '%' : null;
+        var premiumColor = '#ccc';
+        if (quote.premium_rate != null) {
+            premiumColor = quote.premium_rate > 0 ? '#ef5350' : quote.premium_rate < 0 ? '#26a69a' : '#ccc';
+        }
+        var pledgeCell = isEtf
+            ? cell('溢价率', premiumRate != null ? '<span style="color:' + premiumColor + ';">' + premiumRate + '</span>' : null)
+            : cell('质押率', gw.pld != null ? gw.pld.toFixed(2) + '%' : null);
+        var goodwillCell = isEtf
+            ? ''
+            : cell('商誉率', gw.gw != null ? gw.gw.toFixed(2) + '%' : null);
+
         paramsEl.innerHTML =
             '<div style="display:grid;grid-template-columns:repeat(10,auto);column-gap:12px;row-gap:2px;justify-content:start;">' +
                 ohlcCell('高', quote.high) +
@@ -867,7 +880,7 @@ var KlinePopup = (function() {
                 cell('市盈', quote.pe) +
                 cell('总股本', quote.total_shares) +
                 cell('总市值', quote.total_cap) +
-                cell('质押率', gw.pld != null ? gw.pld.toFixed(2) + '%' : null) +
+                pledgeCell +
                 ohlcCell('低', quote.low) +
                 cell('跌停', limitDown ? '<span style="color:#26a69a;">' + limitDown + '</span>' : null) +
                 cell('昨收', quote.pre_close) +
@@ -877,7 +890,7 @@ var KlinePopup = (function() {
                 cell('市净', quote.pb) +
                 cell('流通股', quote.float_shares) +
                 cell('流通值', quote.float_cap) +
-                cell('商誉率', gw.gw != null ? gw.gw.toFixed(2) + '%' : null) +
+                goodwillCell +
             '</div>';
     }
 
@@ -970,10 +983,14 @@ var KlinePopup = (function() {
             pKline = _fetchKlineWithRetry(klineUrl, 3, 1500).then(function(r) { console.log('[弹窗] ' + code + ' stock-kline 耗时 ' + (Date.now() - _tKline) + 'ms'); return r; });
         }
 
+        // ETF/LOF/基金 没有商誉质押、主营构成和题材概念，直接返回空
+        var stockType = getStockType(code, market);
+        var isFund = stockType.indexOf('ETF') >= 0 || stockType.indexOf('基') >= 0;
+
         var _tGW = Date.now();
         var cachedGw = _getCachedGoodwill();
-        var pGoodwill = (cachedGw
-            ? Promise.resolve(cachedGw)
+        var pGoodwill = isFund ? Promise.resolve(null)
+            : (cachedGw ? Promise.resolve(cachedGw)
             : fetch('/api/goodwill?codes=' + encodeURIComponent(code))
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
@@ -982,7 +999,7 @@ var KlinePopup = (function() {
                     return gw;
                 })
                 .catch(function() { return null; }))
-            .then(function(r) { console.log('[弹窗] ' + code + ' goodwill 耗时 ' + (Date.now() - _tGW) + 'ms' + (cachedGw ? ' (缓存)' : '')); return r; });
+            .then(function(r) { console.log('[弹窗] ' + code + ' goodwill 耗时 ' + (Date.now() - _tGW) + 'ms' + (isFund ? ' (跳过)' : cachedGw ? ' (缓存)' : '')); return r; });
 
         var _tExtra = Date.now();
         var cachedEt = _getCachedExtra();
@@ -997,10 +1014,6 @@ var KlinePopup = (function() {
                 })
                 .catch(function() { return null; }))
             .then(function(r) { console.log('[弹窗] ' + code + ' stock-extra 耗时 ' + (Date.now() - _tExtra) + 'ms' + (cachedEt ? ' (缓存)' : '')); return r; });
-
-        // ETF/LOF/基金 没有主营构成和题材概念，直接返回空
-        var stockType = getStockType(code, market);
-        var isFund = stockType.indexOf('ETF') >= 0 || stockType.indexOf('基') >= 0;
 
         var _tBiz = Date.now();
         var cachedBiz = _getCachedBizComp();

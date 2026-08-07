@@ -2,6 +2,8 @@
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 import requests
+import json
+import re
 
 from common import REQUEST_PROXIES
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market, \
@@ -326,6 +328,8 @@ def stock_quotes():
         r = requests.get(url, params=params, headers=headers, timeout=8, proxies=REQUEST_PROXIES)
         diff = (r.json().get('data') or {}).get('diff') or []
         result = {}
+        # 收集所有 ETF 代码，用于批量获取溢价率
+        etf_codes = []
         for row in diff:
             code = row.get('f12', '')
             if not code:
@@ -358,7 +362,51 @@ def stock_quotes():
                 'total_shares': fmt_cap(row.get('f38')),
                 'float_shares': fmt_cap(row.get('f39')),
                 'industry': row.get('f100', '').replace('、', '·') if row.get('f100') else '',
+                # ETF 价格原始值，用于后续溢价率计算
+                '_price_raw': float(row.get('f2')) if etf and row.get('f2') not in (None, '-', '') else None,
             }
+            if etf and row.get('f2') not in (None, '-', ''):
+                etf_codes.append((key, code))
+        # 为 ETF 并发获取最新净值，计算溢价率
+        if etf_codes:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            def _fetch_etf_nav(etf_code):
+                try:
+                    r_nav = requests.get(
+                        'https://api.fund.eastmoney.com/f10/lsjz',
+                        params={'callback': 'jQuery', 'fundCode': etf_code, 'pageIndex': 1, 'pageSize': 1},
+                        headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://fundf10.eastmoney.com/'},
+                        timeout=5
+                    )
+                    json_str = re.sub(r'^jQuery\(|\)$', '', r_nav.text)
+                    data = json.loads(json_str)
+                    nav_list = (data.get('Data') or {}).get('LSJZList') or []
+                    if nav_list:
+                        return float(nav_list[0]['DWJZ'])
+                except Exception:
+                    pass
+                return None
+            nav_map = {}
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(_fetch_etf_nav, c): k for k, c in etf_codes}
+                for future in as_completed(futures):
+                    k = futures[future]
+                    nav = future.result()
+                    if nav is not None:
+                        nav_map[k] = nav
+            # 计算溢价率: (最新价 / 单位净值 - 1) * 100
+            for key, price_raw in [(k, result[k]['_price_raw']) for k in result if result[k].get('_price_raw') is not None]:
+                nav = nav_map.get(key)
+                if nav and nav > 0:
+                    result[key]['premium_rate'] = round((price_raw / nav - 1) * 100, 2)
+                else:
+                    result[key]['premium_rate'] = None
+            # 清理内部字段
+            for k in result:
+                result[k].pop('_price_raw', None)
+        else:
+            for k in result:
+                result[k].pop('_price_raw', None)
         return jsonify({'success': True, 'data': result})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'data': {}})
