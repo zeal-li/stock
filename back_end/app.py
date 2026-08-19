@@ -1068,11 +1068,13 @@ def stock_kline():
                     })
             rows.sort(key=lambda r: r['time'])
         elif is_a_share(market):
-            # A 股用同花顺 K 线 API（v4 并发拉取 10 年）
-            from concurrent.futures import ThreadPoolExecutor, as_completed
+            # A 股用同花顺 K 线 API（v4 串行拉取 10 年）。
+            # 同花顺对同一股票短时间内的并发/连续请求会限流（随机 502/504），
+            # 故改为串行 + 请求间隔，避免触发限流。
+            import time as _time
             ths_period_code = {'day': '01', 'week': '11', 'month': '21'}.get(tx_period, '01')
             current_year = _dt.datetime.now().year
-            years = range(current_year, current_year - 10, -1)
+            years = list(range(current_year, current_year - 10, -1))
             ths_headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://www.10jqka.com.cn/',
@@ -1080,23 +1082,43 @@ def stock_kline():
 
             ths_prefix = THS_PREFIX.get(str(market), 'sh')
 
-            def _fetch_year(y):
+            # 单年份拉取：失败重试（同一数据源，非多源兜底）。
+            # 返回 None 表示请求失败（需重试）；返回 '' 表示该年份确实无数据（正常跳过）。
+            # 404 也视为该年无数据（如 ETF 上市前的年份），返回 ''。
+            def _fetch_year(y, retries=3):
                 url = f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{code}/{ths_period_code}/{y}.js"
-                r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
-                if r.status_code != 200:
-                    return None
-                text = r.text
-                s = text.find('(') + 1; e = text.rfind(')')
-                jd = json.loads(text[s:e])
-                return jd.get('data', '')
+                last_err = None
+                for attempt in range(retries + 1):
+                    try:
+                        r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
+                        if r.status_code == 404:
+                            return ''
+                        if r.status_code == 200:
+                            text = r.text
+                            s = text.find('(') + 1; e = text.rfind(')')
+                            if s > 0 and e > s:
+                                jd = json.loads(text[s:e])
+                                return jd.get('data', '')
+                            last_err = '响应格式异常'
+                        else:
+                            last_err = f'HTTP {r.status_code}'
+                    except Exception as ex:
+                        last_err = str(ex)
+                    # 失败统一退避后再重试（502/504/格式异常/网络异常都走这里）
+                    if attempt < retries:
+                        _time.sleep(0.3)
+                print(f'[stock-kline] {code} {period} 年份 {y} 拉取失败: {last_err}')
+                return None
 
             year_results = {}
-            with ThreadPoolExecutor(max_workers=10) as pool:
-                futs = {pool.submit(_fetch_year, y): y for y in years}
-                for fut in as_completed(futs):
-                    raw = fut.result()
-                    if raw:
-                        year_results[futs[fut]] = raw
+            for y in years:
+                raw = _fetch_year(y)
+                if raw is None:
+                    # 该年份请求失败（重试耗尽），数据已不完整，整体返回失败，避免把残缺K线给前端
+                    return jsonify({'success': False, 'error': f'年份 {y} K线拉取失败，请稍后重试'})
+                if raw:
+                    year_results[y] = raw
+                _time.sleep(0.1)  # 串行间隔，避免同花顺限流
 
             all_lines = []
             for y in sorted(year_results.keys()):
