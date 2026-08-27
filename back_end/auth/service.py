@@ -32,6 +32,38 @@ def _hash_password(password, salt):
     return hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
 
 
+def _get_or_create_secret_key():
+    """从 user.db 读取持久化的 secret_key，不存在则随机生成并写入。
+
+    用于 Flask session 签名，保证服务重启后已登录用户不失效，
+    同时避免密钥硬编码在源码里。
+    """
+    conn = _ensure_db()
+    conn.execute(
+        'CREATE TABLE IF NOT EXISTS app_config ('
+        'key TEXT PRIMARY KEY, '
+        'value TEXT NOT NULL'
+        ')'
+    )
+    row = conn.execute("SELECT value FROM app_config WHERE key = 'secret_key'").fetchone()
+    if row:
+        conn.close()
+        return row[0]
+    secret_key = os.urandom(32).hex()
+    conn.execute(
+        "INSERT INTO app_config (key, value) VALUES ('secret_key', ?)",
+        (secret_key,)
+    )
+    conn.commit()
+    conn.close()
+    return secret_key
+
+
+def get_secret_key():
+    """获取（必要时生成）Flask session 签名密钥"""
+    return _get_or_create_secret_key()
+
+
 def register(username, password):
     """注册用户。返回 (success: bool, message: str)"""
     username = (username or '').strip()

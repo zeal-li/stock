@@ -37,7 +37,12 @@ if getattr(_sys, 'frozen', False):
 else:
     app = Flask(__name__, template_folder='../front_end/templates', static_folder='../front_end/static')
 CORS(app)
-app.secret_key = 'xinduoduo-stock-dashboard-secret'
+# session 签名密钥：从 user.db 持久化读取（不存在则自动生成），避免硬编码、重启后登录态不失效
+from auth.service import get_secret_key
+app.secret_key = get_secret_key()
+# 会话过期时间：30 天（浏览器关闭后 session cookie 仍保留，30 天内无需重新登录）
+from datetime import timedelta
+app.permanent_session_lifetime = timedelta(days=30)
 
 
 # ==================== 页面 ====================
@@ -92,6 +97,7 @@ def auth_login():
     success, message = login(username, password)
     if success:
         session['user'] = username
+        session.permanent = True
         return jsonify({'success': True, 'message': message, 'username': username})
     return jsonify({'success': False, 'error': message})
 
