@@ -138,6 +138,10 @@
             document.getElementById('authSwitch').innerHTML = isRegisterMode
                 ? '已有账户？<a onclick="toggleMode()">返回登录</a>'
                 : '还没有账户？<a onclick="toggleMode()">立即注册</a>';
+            // 切换登录/注册时清空输入框
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+            document.getElementById('confirmPassword').value = '';
             document.getElementById('authMsg').innerHTML = '';
             document.getElementById('authMsg').className = 'auth-msg';
         }
