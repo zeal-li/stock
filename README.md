@@ -28,7 +28,7 @@ stock/
 │   │   ├── stock_lib.db               # 市场 + 股票列表 + K线 + 股票元信息（合并单库）
 │   │   ├── money_flow.db              # 资金流向 + 融资融券历史数据
 │   │   ├── watchlist.db               # 自选股 + 场内ETF + 持仓股持久化
-│   │   ├── user.db                    # 用户账户
+│   │   ├── login.db                   # 用户账户
 │   │   ├── config.db                  # 应用配置（secret_key 等）
 │   │   ├── longhu_bang.db             # 龙虎榜每日明细（SQLite 缓存，90 天自动清理）
 │   │   └── sector_fund.db             # 板块资金流向缓存（60s TTL）
@@ -207,7 +207,7 @@ CREATE TABLE stock_info (
 
 > `daily_ts` / `weekly_ts` / `monthly_ts`：三个周期独立记录最后更新时间戳。增量更新时各周期独立判断是否需要拉取。
 
-### data/user.db — 用户账户
+### data/login.db — 用户账户
 
 ```sql
 CREATE TABLE users (
@@ -268,7 +268,7 @@ CREATE TABLE holdings (
 );
 ```
 
-> 三张表均以 `user_id` 关联 `user.db` 的 `users.id`，实现按用户隔离数据；`sort_order` 支持拖拽排序，后端 `reorder` 接口批量更新。
+> 三张表均以 `user_id` 关联 `login.db` 的 `users.id`，实现按用户隔离数据；`sort_order` 支持拖拽排序，后端 `reorder` 接口批量更新。
 
 ### data/money_flow.db — 资金流向数据快照
 

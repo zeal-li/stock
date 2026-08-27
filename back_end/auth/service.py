@@ -12,7 +12,7 @@ if getattr(_sys, 'frozen', False):
 else:
     _DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
 
-DB_PATH = os.path.join(_DATA_DIR, 'user.db')
+DB_PATH = os.path.join(_DATA_DIR, 'login.db')
 CONFIG_DB_PATH = os.path.join(_DATA_DIR, 'config.db')
 
 
