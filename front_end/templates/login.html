@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - 鑫多多</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .auth-wrap {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #1a1a2e;
+        }
+        .auth-card {
+            width: 360px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 12px;
+            padding: 40px 36px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+        }
+        .auth-logo {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .auth-logo h1 {
+            font-size: 28px;
+            color: #e94560;
+            font-weight: bold;
+        }
+        .auth-logo p {
+            color: #8b8b9e;
+            font-size: 13px;
+            margin-top: 6px;
+        }
+        .auth-field {
+            margin-bottom: 16px;
+        }
+        .auth-field label {
+            display: block;
+            font-size: 13px;
+            color: #8b8b9e;
+            margin-bottom: 6px;
+        }
+        .auth-field input {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid #2a2a4e;
+            border-radius: 8px;
+            background: #1a1a2e;
+            color: #fff;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .auth-field input:focus {
+            border-color: #e94560;
+        }
+        .auth-btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background: #e94560;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .auth-btn:hover {
+            background: #d63850;
+        }
+        .auth-switch {
+            text-align: center;
+            margin-top: 18px;
+            font-size: 13px;
+            color: #8b8b9e;
+        }
+        .auth-switch a {
+            color: #e94560;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .auth-switch a:hover {
+            text-decoration: underline;
+        }
+        .auth-msg {
+            min-height: 20px;
+            font-size: 13px;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        .auth-msg.error { color: #e94560; }
+        .auth-msg.success { color: #00b894; }
+    </style>
+</head>
+<body>
+    <div class="auth-wrap">
+        <div class="auth-card">
+            <div class="auth-logo">
+                <h1>鑫多多</h1>
+                <p id="authTitle">登录账户</p>
+            </div>
+            <div class="auth-msg" id="authMsg"></div>
+            <div class="auth-field">
+                <label>用户名</label>
+                <input type="text" id="username" placeholder="请输入用户名" autocomplete="username">
+            </div>
+            <div class="auth-field">
+                <label>密码</label>
+                <input type="password" id="password" placeholder="请输入密码" autocomplete="current-password">
+            </div>
+            <div class="auth-field" id="confirmField" style="display:none;">
+                <label>确认密码</label>
+                <input type="password" id="confirmPassword" placeholder="请再次输入密码" autocomplete="new-password">
+            </div>
+            <button class="auth-btn" id="authBtn" onclick="submitAuth()">登 录</button>
+            <div class="auth-switch" id="authSwitch">
+                还没有账户？<a onclick="toggleMode()">立即注册</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var isRegisterMode = false;
+
+        function toggleMode() {
+            isRegisterMode = !isRegisterMode;
+            document.getElementById('authTitle').innerText = isRegisterMode ? '注册账户' : '登录账户';
+            document.getElementById('authBtn').innerText = isRegisterMode ? '注 册' : '登 录';
+            document.getElementById('confirmField').style.display = isRegisterMode ? 'block' : 'none';
+            document.getElementById('authSwitch').innerHTML = isRegisterMode
+                ? '已有账户？<a onclick="toggleMode()">返回登录</a>'
+                : '还没有账户？<a onclick="toggleMode()">立即注册</a>';
+            document.getElementById('authMsg').innerHTML = '';
+            document.getElementById('authMsg').className = 'auth-msg';
+        }
+
+        function submitAuth() {
+            var username = document.getElementById('username').value.trim();
+            var password = document.getElementById('password').value;
+            var msgEl = document.getElementById('authMsg');
+
+            if (!username || !password) {
+                showMsg('用户名和密码不能为空', 'error');
+                return;
+            }
+            if (isRegisterMode) {
+                var confirm = document.getElementById('confirmPassword').value;
+                if (password !== confirm) {
+                    showMsg('两次输入的密码不一致', 'error');
+                    return;
+                }
+            }
+
+            var url = isRegisterMode ? '/api/auth/register' : '/api/auth/login';
+            var body = new URLSearchParams();
+            body.append('username', username);
+            body.append('password', password);
+
+            fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    if (isRegisterMode) {
+                        showMsg('注册成功，请登录', 'success');
+                        toggleMode();
+                    } else {
+                        window.location.href = '/';
+                    }
+                } else {
+                    showMsg(data.error || '操作失败', 'error');
+                }
+            })
+            .catch(function() {
+                showMsg('网络错误，请稍后重试', 'error');
+            });
+        }
+
+        function showMsg(text, type) {
+            var msgEl = document.getElementById('authMsg');
+            msgEl.innerText = text;
+            msgEl.className = 'auth-msg ' + type;
+        }
+
+        // 回车提交
+        document.getElementById('password').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') submitAuth();
+        });
+        document.getElementById('confirmPassword').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') submitAuth();
+        });
+    </script>
+</body>
+</html>

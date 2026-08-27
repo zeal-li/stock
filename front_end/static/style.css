@@ -37,6 +37,37 @@ body {
     font-weight: bold;
 }
 
+.user-bar {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #8b8b9e;
+}
+
+.user-name {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.logout-btn {
+    color: #e94560;
+    cursor: pointer;
+    padding: 2px 8px;
+    border: 1px solid #e94560;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.logout-btn:hover {
+    background: #e94560;
+    color: #fff;
+}
+
 .nav-section {
     margin-bottom: 10px;
 }

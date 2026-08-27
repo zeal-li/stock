@@ -16,6 +16,10 @@
         <div class="sidebar">
             <div class="logo">
                 <h1>鑫多多</h1>
+                <div class="user-bar">
+                    <span class="user-name" id="userName">用户</span>
+                    <span class="logout-btn" onclick="doLogout()">退出</span>
+                </div>
             </div>
             <div class="nav-section">
                 <div class="nav-item active" data-page="money-flow">
@@ -468,6 +472,26 @@
 
     <!-- 启动（所有 JS 加载完毕后执行） -->
     <script>
+        // 会话检查 + 用户名显示
+        fetch('/api/auth/session')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.logged_in && data.username) {
+                    document.getElementById('userName').innerText = data.username;
+                } else {
+                    window.location.href = '/login';
+                }
+            })
+            .catch(function() {
+                window.location.href = '/login';
+            });
+
+        function doLogout() {
+            fetch('/api/auth/logout', { method: 'POST' })
+                .then(function() { window.location.href = '/login'; })
+                .catch(function() { window.location.href = '/login'; });
+        }
+
         initTradingDayCache();
         loadAllData();
         loadPickedStocks();

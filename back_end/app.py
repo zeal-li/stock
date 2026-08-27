@@ -1,5 +1,5 @@
 """鑫多多 - 股票行情仪表盘"""
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, session
 from flask_cors import CORS
 import requests
 import json
@@ -37,6 +37,7 @@ if getattr(_sys, 'frozen', False):
 else:
     app = Flask(__name__, template_folder='../front_end/templates', static_folder='../front_end/static')
 CORS(app)
+app.secret_key = 'xinduoduo-stock-dashboard-secret'
 
 
 # ==================== 页面 ====================
@@ -44,6 +45,69 @@ CORS(app)
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+# ==================== 认证 ====================
+
+@app.before_request
+def _require_login():
+    """除认证接口和静态资源外，所有请求需先登录"""
+    from flask import g
+    g.user = session.get('user')
+    if g.user:
+        return
+    path = request.path
+    # 放行登录页、注册/登录/会话接口
+    if path in ('/', '/login', '/api/auth/register', '/api/auth/login', '/api/auth/session'):
+        return
+    if path.startswith('/static/'):
+        return
+    # 未登录：页面请求返回登录页，API 请求返回 401
+    if path.startswith('/api/'):
+        return jsonify({'success': False, 'error': '未登录', 'code': 401}), 401
+    return render_template('login.html')
+
+
+@app.route('/login')
+def login_page():
+    return render_template('login.html')
+
+
+@app.route('/api/auth/register', methods=['POST'])
+def auth_register():
+    from auth.service import register
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    success, message = register(username, password)
+    if success:
+        return jsonify({'success': True, 'message': message})
+    return jsonify({'success': False, 'error': message})
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    from auth.service import login
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '')
+    success, message = login(username, password)
+    if success:
+        session['user'] = username
+        return jsonify({'success': True, 'message': message, 'username': username})
+    return jsonify({'success': False, 'error': message})
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    session.pop('user', None)
+    return jsonify({'success': True})
+
+
+@app.route('/api/auth/session')
+def auth_session():
+    user = session.get('user')
+    if user:
+        return jsonify({'success': True, 'logged_in': True, 'username': user})
+    return jsonify({'success': True, 'logged_in': False})
 
 
 # ==================== 行情数据 ====================
