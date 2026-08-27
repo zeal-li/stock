@@ -1,5 +1,17 @@
 // ==================== 公共接口 ====================
 
+// 用户类型枚举映射：0 普通用户 / 1 管理员 / 101 root
+var USER_TYPE_MAP = {
+    0: '普通用户',
+    1: '管理员',
+    101: 'root'
+};
+
+// 根据用户类型数字返回展示名称，未知类型返回空字符串
+function getUserTypeName(userType) {
+    return USER_TYPE_MAP[userType] || '';
+}
+
 // 判断是否为场内基金（ETF+LOF），价格显示3位小数
 function isETF(code, market) {
     var type = getStockType(code, market);

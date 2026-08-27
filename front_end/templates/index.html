@@ -18,6 +18,7 @@
                 <h1>鑫多多</h1>
                 <div class="user-bar">
                     <span class="user-name" id="userName">用户</span>
+                    <span class="user-type" id="userType"></span>
                     <span class="logout-btn" onclick="doLogout()">退出</span>
                 </div>
             </div>
@@ -478,6 +479,7 @@
             .then(function(data) {
                 if (data.logged_in && data.username) {
                     document.getElementById('userName').innerText = data.username;
+                    document.getElementById('userType').innerText = getUserTypeName(data.user_type);
                 } else {
                     window.location.href = '/login';
                 }

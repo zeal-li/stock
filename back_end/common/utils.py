@@ -251,3 +251,23 @@ def fmt_cap(v):
         if v >= 1e8: return f"{v/1e8:.2f}亿"
         return f"{v/1e4:.2f}万"
     except: return str(v)
+
+
+# ========================= 用户类型 =========================
+
+# 用户类型枚举：0 普通用户 / 1 管理员 / 101 root
+USER_TYPE_NORMAL = 0
+USER_TYPE_ADMIN = 1
+USER_TYPE_ROOT = 101
+
+# 用户类型 -> 展示名称 映射
+USER_TYPE_MAP = {
+    USER_TYPE_NORMAL: '普通用户',
+    USER_TYPE_ADMIN: '管理员',
+    USER_TYPE_ROOT: 'root',
+}
+
+
+def get_usertype_name(user_type):
+    """根据用户类型数字返回展示名称，未知类型返回空字符串"""
+    return USER_TYPE_MAP.get(user_type, '')

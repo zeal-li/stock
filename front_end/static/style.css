@@ -54,6 +54,15 @@ body {
     white-space: nowrap;
 }
 
+.user-type {
+    font-size: 11px;
+    color: #00b894;
+    padding: 1px 6px;
+    border: 1px solid #00b894;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
 .logout-btn {
     color: #e94560;
     cursor: pointer;

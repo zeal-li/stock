@@ -28,6 +28,8 @@ stock/
 │   │   ├── stock_lib.db               # 市场 + 股票列表 + K线 + 股票元信息（合并单库）
 │   │   ├── money_flow.db              # 资金流向 + 融资融券历史数据
 │   │   ├── watchlist.db               # 自选股 + 场内ETF + 持仓股持久化
+│   │   ├── user.db                    # 用户账户
+│   │   ├── config.db                  # 应用配置（secret_key 等）
 │   │   ├── longhu_bang.db             # 龙虎榜每日明细（SQLite 缓存，90 天自动清理）
 │   │   └── sector_fund.db             # 板块资金流向缓存（60s TTL）
 │   │
@@ -204,6 +206,38 @@ CREATE TABLE stock_info (
 ```
 
 > `daily_ts` / `weekly_ts` / `monthly_ts`：三个周期独立记录最后更新时间戳。增量更新时各周期独立判断是否需要拉取。
+
+### data/user.db — 用户账户
+
+```sql
+CREATE TABLE users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE,   -- 用户名（登录账号）
+    password_hash TEXT NOT NULL,          -- 加盐密码哈希 sha256(salt + password)
+    salt          TEXT NOT NULL,          -- 每个用户独立的随机盐
+    create_time   INTEGER NOT NULL,       -- 注册时间（Unix 时间戳，秒）
+    user_type     INTEGER NOT NULL DEFAULT 0  -- 用户类型
+);
+```
+
+用户类型 `user_type` 取值：
+
+| 值 | 含义 |
+|----|------|
+| 0 | 普通用户（注册默认） |
+| 1 | 管理员 |
+| 101 | root |
+
+### data/config.db — 应用配置
+
+```sql
+CREATE TABLE app_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+```
+
+> `app_config` 表用于持久化 `secret_key`（Flask session 签名密钥），首次启动时随机生成并写入，后续启动读取同一密钥，保证重启后登录态不失效。
 
 ### data/watchlist.db — 自选股 + 场内ETF + 持仓股
 

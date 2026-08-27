@@ -94,11 +94,13 @@ def auth_login():
     from auth.service import login
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '')
-    success, message = login(username, password)
+    success, message, user_type = login(username, password)
     if success:
         session['user'] = username
+        session['user_type'] = user_type
         session.permanent = True
-        return jsonify({'success': True, 'message': message, 'username': username})
+        return jsonify({'success': True, 'message': message, 'username': username,
+                        'user_type': user_type})
     return jsonify({'success': False, 'error': message})
 
 
@@ -112,7 +114,9 @@ def auth_logout():
 def auth_session():
     user = session.get('user')
     if user:
-        return jsonify({'success': True, 'logged_in': True, 'username': user})
+        user_type = session.get('user_type', 0)
+        return jsonify({'success': True, 'logged_in': True, 'username': user,
+                        'user_type': user_type})
     return jsonify({'success': True, 'logged_in': False})
 
 
