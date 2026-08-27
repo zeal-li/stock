@@ -1,5 +1,6 @@
 """用户认证：注册 / 登录 / 用户信息 SQLite 持久化"""
 import os
+import re
 import sys as _sys
 import hashlib
 import sqlite3
@@ -78,16 +79,42 @@ def init_secret_key():
     return secret_key
 
 
+def validate_username(username):
+    """校验用户名合法性。返回错误提示字符串；合法时返回空字符串 ''。"""
+    username = (username or '').strip()
+    if not username:
+        return '用户名不能为空'
+    if len(username) < 3:
+        return '用户名至少 3 个字符'
+    if len(username) > 32:
+        return '用户名过长'
+    if not re.fullmatch(r'[A-Za-z0-9_]+', username):
+        return '用户名只能包含英文字母、数字和下划线'
+    return ''
+
+
+def validate_password(password):
+    """校验密码合法性。返回错误提示字符串；合法时返回空字符串 ''。"""
+    password = password or ''
+    if not password:
+        return '密码不能为空'
+    if len(password) < 6:
+        return '密码至少 6 位'
+    if len(password) > 64:
+        return '密码不能超过 64 位'
+    return ''
+
+
 def register(username, password):
     """注册用户。返回 (success: bool, message: str)"""
     username = (username or '').strip()
     password = password or ''
-    if not username or not password:
-        return False, '用户名和密码不能为空'
-    if len(username) > 32:
-        return False, '用户名过长'
-    if len(password) < 6:
-        return False, '密码至少 6 位'
+    error = validate_username(username)
+    if error:
+        return False, error
+    error = validate_password(password)
+    if error:
+        return False, error
 
     conn = _ensure_db()
     exists = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
@@ -110,8 +137,12 @@ def login(username, password):
     """登录校验。返回 (success: bool, message: str, user_type: int)"""
     username = (username or '').strip()
     password = password or ''
-    if not username or not password:
-        return False, '用户名和密码不能为空', USER_TYPE_NORMAL
+    error = validate_username(username)
+    if error:
+        return False, error, USER_TYPE_NORMAL
+    error = validate_password(password)
+    if error:
+        return False, error, USER_TYPE_NORMAL
 
     conn = _ensure_db()
     row = conn.execute(

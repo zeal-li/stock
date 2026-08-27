@@ -126,6 +126,7 @@
         </div>
     </div>
 
+    <script src="/static/js/common.js"></script>
     <script>
         var isRegisterMode = false;
 
@@ -146,8 +147,15 @@
             var password = document.getElementById('password').value;
             var msgEl = document.getElementById('authMsg');
 
-            if (!username || !password) {
-                showMsg('用户名和密码不能为空', 'error');
+            // 合法性校验（注册/登录一致），不过则直接提示、不发请求
+            var error = validateUsername(username);
+            if (error) {
+                showMsg(error, 'error');
+                return;
+            }
+            error = validatePassword(password);
+            if (error) {
+                showMsg(error, 'error');
                 return;
             }
             if (isRegisterMode) {

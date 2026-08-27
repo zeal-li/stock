@@ -1,5 +1,40 @@
 // ==================== 公共接口 ====================
 
+// ---- 用户名合法性校验（与后端 auth/service.py validate_username 对齐） ----
+// 校验通过返回空字符串 ''，否则返回错误提示
+function validateUsername(username) {
+    var u = (username || '').trim();
+    if (!u) {
+        return '用户名不能为空';
+    }
+    if (u.length < 3) {
+        return '用户名至少 3 个字符';
+    }
+    if (u.length > 32) {
+        return '用户名过长';
+    }
+    if (!/^[A-Za-z0-9_]+$/.test(u)) {
+        return '用户名只能包含英文字母、数字和下划线';
+    }
+    return '';
+}
+
+// ---- 密码合法性校验（与后端 auth/service.py validate_password 对齐） ----
+// 校验通过返回空字符串 ''，否则返回错误提示
+function validatePassword(password) {
+    var p = password || '';
+    if (!p) {
+        return '密码不能为空';
+    }
+    if (p.length < 6) {
+        return '密码至少 6 位';
+    }
+    if (p.length > 64) {
+        return '密码不能超过 64 位';
+    }
+    return '';
+}
+
 // 用户类型枚举映射：0 普通用户 / 1 管理员 / 101 root
 var USER_TYPE_MAP = {
     0: '普通用户',
