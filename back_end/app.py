@@ -1,5 +1,5 @@
 """鑫多多 - 股票行情仪表盘"""
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, render_template, request, session, g
 from flask_cors import CORS
 import requests
 import json
@@ -57,8 +57,8 @@ def index():
 @app.before_request
 def _require_login():
     """除认证接口和静态资源外，所有请求需先登录"""
-    from flask import g
     g.user = session.get('user')
+    g.user_id = session.get('user_id')
     if g.user:
         return
     path = request.path
@@ -91,13 +91,14 @@ def auth_register():
 
 @app.route('/api/auth/login', methods=['POST'])
 def auth_login():
-    from auth.service import login
+    from auth.service import login, get_user_id
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '')
     success, message, user_type = login(username, password)
     if success:
         session['user'] = username
         session['user_type'] = user_type
+        session['user_id'] = get_user_id(username)
         session.permanent = True
         return jsonify({'success': True, 'message': message, 'username': username,
                         'user_type': user_type})
@@ -227,7 +228,7 @@ def search_stock():
 
 @app.route('/api/watchlist', methods=['GET'])
 def watchlist_get():
-    rows = get_all()
+    rows = get_all(g.user_id)
     return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2], 'added_price': r[3]} for r in rows]})
 
 @app.route('/api/watchlist', methods=['POST'])
@@ -237,7 +238,7 @@ def watchlist_add():
     added_price = request.form.get('added_price', '').strip()
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
-    add(code, market, added_price)
+    add(g.user_id, code, market, added_price)
     return jsonify({'success': True})
 
 @app.route('/api/watchlist/<code>', methods=['DELETE'])
@@ -245,7 +246,7 @@ def watchlist_remove(code):
     market = request.args.get('market', '')
     if not market:
         return jsonify({'success': False, 'error': '缺少 market 参数'})
-    wl_remove(code, market)
+    wl_remove(g.user_id, code, market)
     return jsonify({'success': True})
 
 @app.route('/api/watchlist/<code>', methods=['PUT'])
@@ -254,7 +255,7 @@ def watchlist_update(code):
     added_price = request.form.get('added_price', '').strip()
     if not market:
         return jsonify({'success': False, 'error': '缺少 market 参数'})
-    update_price(code, market, added_price)
+    update_price(g.user_id, code, market, added_price)
     return jsonify({'success': True})
 
 
@@ -267,7 +268,7 @@ def watchlist_reorder_route():
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
         items = _json.loads(items_raw)
-        reorder(items)
+        reorder(g.user_id, items)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -277,7 +278,7 @@ def watchlist_reorder_route():
 
 @app.route('/api/etf', methods=['GET'])
 def etf_get():
-    rows = etf_get_all()
+    rows = etf_get_all(g.user_id)
     return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2]} for r in rows]})
 
 @app.route('/api/etf', methods=['POST'])
@@ -286,7 +287,7 @@ def etf_add_route():
     market = request.form.get('market', '').strip()
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
-    etf_add(code, market)
+    etf_add(g.user_id, code, market)
     return jsonify({'success': True})
 
 @app.route('/api/etf/<code>', methods=['DELETE'])
@@ -294,7 +295,7 @@ def etf_remove_route(code):
     market = request.args.get('market', '')
     if not market:
         return jsonify({'success': False, 'error': '缺少 market 参数'})
-    etf_remove(code, market)
+    etf_remove(g.user_id, code, market)
     return jsonify({'success': True})
 
 
@@ -308,7 +309,7 @@ def etf_reorder_route():
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
         items = _json.loads(items_raw)
-        etf_reorder(items)
+        etf_reorder(g.user_id, items)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -318,7 +319,7 @@ def etf_reorder_route():
 
 @app.route('/api/holdings', methods=['GET'])
 def holdings_get():
-    rows = holdings_get_all()
+    rows = holdings_get_all(g.user_id)
     return jsonify({'success': True, 'data': [{'code': r[0], 'market': r[1], 'created_at': r[2], 'hold_price': r[3], 'hold_qty': r[4]} for r in rows]})
 
 @app.route('/api/holdings', methods=['POST'])
@@ -329,7 +330,7 @@ def holdings_add_route():
     hold_qty = request.form.get('hold_qty', '').strip()
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
-    holdings_add(code, market, hold_price, hold_qty)
+    holdings_add(g.user_id, code, market, hold_price, hold_qty)
     return jsonify({'success': True})
 
 @app.route('/api/holdings/<code>', methods=['DELETE'])
@@ -337,7 +338,7 @@ def holdings_remove_route(code):
     market = request.args.get('market', '')
     if not market:
         return jsonify({'success': False, 'error': '缺少 market 参数'})
-    holdings_remove(code, market)
+    holdings_remove(g.user_id, code, market)
     return jsonify({'success': True})
 
 @app.route('/api/holdings/<code>', methods=['PUT'])
@@ -347,7 +348,7 @@ def holdings_update_route(code):
     hold_qty = request.form.get('hold_qty')
     if not market:
         return jsonify({'success': False, 'error': '缺少 market 参数'})
-    holdings_update(code, market, hold_price, hold_qty)
+    holdings_update(g.user_id, code, market, hold_price, hold_qty)
     return jsonify({'success': True})
 
 
@@ -360,7 +361,7 @@ def holdings_reorder_route():
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
         items = _json.loads(items_raw)
-        holdings_reorder(items)
+        holdings_reorder(g.user_id, items)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -1390,9 +1391,9 @@ def trading_days():
 
 def _collect_target_codes():
     """收集自选股+持仓股+选股代码"""
-    wl_rows = get_all()
+    wl_rows = get_all(g.user_id)
     wl_codes = {r[0] for r in wl_rows}
-    holdings_rows = holdings_get_all()
+    holdings_rows = holdings_get_all(g.user_id)
     holdings_codes = {r[0] for r in holdings_rows}
     pick_codes_raw = request.args.get('codes', '').split(',')
     pick_codes = {c.strip() for c in pick_codes_raw if c.strip()}

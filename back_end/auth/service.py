@@ -139,3 +139,16 @@ def get_user(username):
     if not row:
         return None
     return {'username': row[0], 'user_type': row[1], 'create_time': row[2]}
+
+
+def get_user_id(username):
+    """根据用户名查询用户 id。返回 int 或 None"""
+    username = (username or '').strip()
+    if not username:
+        return None
+    conn = _ensure_db()
+    row = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return row[0]

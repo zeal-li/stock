@@ -239,33 +239,36 @@ CREATE TABLE app_config (
 
 > `app_config` 表用于持久化 `secret_key`（Flask session 签名密钥），首次启动时随机生成并写入，后续启动读取同一密钥，保证重启后登录态不失效。
 
-### data/watchlist.db — 自选股 + 场内ETF + 持仓股
+### data/watchlist.db — 自选股 + 场内ETF + 持仓股（按用户隔离）
 
 ```sql
 CREATE TABLE watchlist (
+    user_id INTEGER,                   -- 关联 users.id，按用户隔离
     code TEXT, market TEXT,
     created_at TEXT, added_price TEXT,
     sort_order INTEGER DEFAULT 0,
-    PRIMARY KEY (code, market)
+    PRIMARY KEY (user_id, code, market)
 );
 
 CREATE TABLE etf (
+    user_id INTEGER,
     code TEXT, market TEXT,
     created_at TEXT, added_price TEXT,
     sort_order INTEGER DEFAULT 0,
-    PRIMARY KEY (code, market)
+    PRIMARY KEY (user_id, code, market)
 );
 
 CREATE TABLE holdings (
+    user_id INTEGER,
     code TEXT, market TEXT,
     created_at TEXT,
     hold_price TEXT DEFAULT '', hold_qty TEXT DEFAULT '',
     sort_order INTEGER DEFAULT 0,
-    PRIMARY KEY (code, market)
+    PRIMARY KEY (user_id, code, market)
 );
 ```
 
-> 三张表均支持 `sort_order`，前端支持拖拽排序，后端 `reorder` 接口批量更新。
+> 三张表均以 `user_id` 关联 `user.db` 的 `users.id`，实现按用户隔离数据；`sort_order` 支持拖拽排序，后端 `reorder` 接口批量更新。
 
 ### data/money_flow.db — 资金流向数据快照
 
