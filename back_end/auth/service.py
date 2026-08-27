@@ -32,11 +32,13 @@ def _hash_password(password, salt):
     return hashlib.sha256((salt + password).encode('utf-8')).hexdigest()
 
 
-def _get_or_create_secret_key():
-    """从 user.db 读取持久化的 secret_key，不存在则随机生成并写入。
+def init_secret_key():
+    """服务器启动时调用：确保 user.db 及 app_config 表就绪，并准备 secret_key。
 
-    用于 Flask session 签名，保证服务重启后已登录用户不失效，
-    同时避免密钥硬编码在源码里。
+    secret_key 用于 Flask session 签名：
+    - 已存在则直接读取（保证重启后登录态不失效）
+    - 不存在则随机生成并持久化（避免硬编码泄露在源码里）
+    返回准备好的 secret_key。
     """
     conn = _ensure_db()
     conn.execute(
@@ -57,11 +59,6 @@ def _get_or_create_secret_key():
     conn.commit()
     conn.close()
     return secret_key
-
-
-def get_secret_key():
-    """获取（必要时生成）Flask session 签名密钥"""
-    return _get_or_create_secret_key()
 
 
 def register(username, password):
