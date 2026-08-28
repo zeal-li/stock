@@ -168,6 +168,25 @@ body {
     flex: 1;
     padding: 30px;
     overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #3b4a6b transparent;
+}
+
+.main-content::-webkit-scrollbar {
+    width: 4px;
+}
+
+.main-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.main-content::-webkit-scrollbar-thumb {
+    background: #3b4a6b;
+    border-radius: 4px;
+}
+
+.main-content::-webkit-scrollbar-thumb:hover {
+    background: #4a5a7f;
 }
 
 .page-header {
