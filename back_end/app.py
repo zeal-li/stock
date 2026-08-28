@@ -60,7 +60,14 @@ def _require_login():
     g.user = session.get('user')
     g.user_id = session.get('user_id')
     if g.user:
-        return
+        # 校验会话版本号：密码修改后版本 +1，旧登录态立即失效
+        from auth.service import get_session_version
+        current_version = get_session_version(g.user)
+        if current_version is not None and session.get('session_version') == current_version:
+            return
+        session.clear()
+        g.user = None
+        g.user_id = None
     path = request.path
     # 放行登录页、注册/登录/会话接口
     if path in ('/', '/login', '/api/auth/register', '/api/auth/login', '/api/auth/session'):
@@ -94,11 +101,12 @@ def auth_login():
     from auth.service import login, get_user_id
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '')
-    success, message, user_type = login(username, password)
+    success, message, user_type, session_version = login(username, password)
     if success:
         session['user'] = username
         session['user_type'] = user_type
         session['user_id'] = get_user_id(username)
+        session['session_version'] = session_version
         session.permanent = True
         return jsonify({'success': True, 'message': message, 'username': username,
                         'user_type': user_type})
@@ -121,6 +129,7 @@ def auth_change_password():
     new_password = request.form.get('new_password', '')
     success, message = change_password(username, old_password, new_password)
     if success:
+        session.clear()
         return jsonify({'success': True, 'message': message})
     return jsonify({'success': False, 'error': message})
 

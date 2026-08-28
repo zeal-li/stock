@@ -27,9 +27,14 @@ def _ensure_db():
         'password_hash TEXT NOT NULL, '
         'salt TEXT NOT NULL, '
         'create_time INTEGER NOT NULL, '
-        'user_type INTEGER NOT NULL DEFAULT 0'
+        'user_type INTEGER NOT NULL DEFAULT 0, '
+        'session_version INTEGER NOT NULL DEFAULT 0'
         ')'
     )
+    # 已有库升级：补充 session_version 列（密码修改后 +1，使旧登录态失效）
+    cols = [row[1] for row in conn.execute('PRAGMA table_info(users)')]
+    if 'session_version' not in cols:
+        conn.execute('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0')
     conn.commit()
     # 建表时顺带创建默认 admin 用户（不存在才创建）
     exists = conn.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()
@@ -134,27 +139,27 @@ def register(username, password):
 
 
 def login(username, password):
-    """登录校验。返回 (success: bool, message: str, user_type: int)"""
+    """登录校验。返回 (success: bool, message: str, user_type: int, session_version: int)"""
     username = (username or '').strip()
     password = password or ''
     error = validate_username(username)
     if error:
-        return False, error, USER_TYPE_NORMAL
+        return False, error, USER_TYPE_NORMAL, 0
     error = validate_password(password)
     if error:
-        return False, error, USER_TYPE_NORMAL
+        return False, error, USER_TYPE_NORMAL, 0
 
     conn = _ensure_db()
     row = conn.execute(
-        'SELECT password_hash, salt, user_type FROM users WHERE username = ?', (username,)
+        'SELECT password_hash, salt, user_type, session_version FROM users WHERE username = ?', (username,)
     ).fetchone()
     conn.close()
     if not row:
-        return False, '用户名或密码错误', USER_TYPE_NORMAL
-    password_hash, salt, user_type = row
+        return False, '用户名或密码错误', USER_TYPE_NORMAL, 0
+    password_hash, salt, user_type, session_version = row
     if _hash_password(password, salt) != password_hash:
-        return False, '用户名或密码错误', USER_TYPE_NORMAL
-    return True, '登录成功', user_type
+        return False, '用户名或密码错误', USER_TYPE_NORMAL, 0
+    return True, '登录成功', user_type, session_version
 
 
 def get_user(username):
@@ -210,9 +215,22 @@ def change_password(username, old_password, new_password):
         return False, '原密码错误'
     new_password_hash = _hash_password(new_password, salt)
     conn.execute(
-        'UPDATE users SET password_hash = ? WHERE username = ?',
+        'UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE username = ?',
         (new_password_hash, username)
     )
     conn.commit()
     conn.close()
     return True, '密码修改成功'
+
+
+def get_session_version(username):
+    """查询用户当前会话版本号。返回 int；用户不存在返回 None"""
+    username = (username or '').strip()
+    if not username:
+        return None
+    conn = _ensure_db()
+    row = conn.execute('SELECT session_version FROM users WHERE username = ?', (username,)).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return row[0]
