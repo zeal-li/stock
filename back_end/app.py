@@ -144,6 +144,12 @@ def auth_session():
     return jsonify({'success': True, 'logged_in': False})
 
 
+@app.route('/api/auth/users')
+def auth_users():
+    from auth.service import get_all_users
+    return jsonify({'success': True, 'data': get_all_users()})
+
+
 # ==================== 行情数据 ====================
 
 @app.route('/api/major-indices')

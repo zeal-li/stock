@@ -177,6 +177,19 @@ def get_user(username):
     return {'username': row[0], 'user_type': row[1], 'create_time': row[2]}
 
 
+def get_all_users():
+    """查询所有用户。返回用户列表（不含密码等敏感信息）"""
+    conn = _ensure_db()
+    rows = conn.execute(
+        'SELECT id, username, user_type, create_time FROM users ORDER BY create_time DESC'
+    ).fetchall()
+    conn.close()
+    return [
+        {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3]}
+        for row in rows
+    ]
+
+
 def get_user_id(username):
     """根据用户名查询用户 id。返回 int 或 None"""
     username = (username or '').strip()

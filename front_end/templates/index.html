@@ -76,6 +76,14 @@
                     <span class="nav-icon">⚡</span>
                     <span>异动中心</span>
                 </div>
+                <div class="nav-item" data-page="user-manage">
+                    <span class="nav-icon">👥</span>
+                    <span>用户管理</span>
+                </div>
+                <div class="nav-item" data-page="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span>设置</span>
+                </div>
             </div>
         </div>
         <div class="main-content">
@@ -331,6 +339,26 @@
                 <div id="abnormal-main"></div>
             </div>
 
+            <!-- 用户管理页面 -->
+            <div id="page-user-manage" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">👥 用户管理</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div id="userManageContent"></div>
+                </div>
+            </div>
+
+            <!-- 设置页面 -->
+            <div id="page-settings" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">⚙️ 设置</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div style="text-align:center;color:#888;padding:40px;">功能建设中...</div>
+                </div>
+            </div>
+
             <!-- 选股页面 -->
             <div id="page-stock-pick" style="display:none;">
                 <div class="page-header">
@@ -431,6 +459,8 @@
                 document.getElementById('page-unlock-list').style.display = page === 'unlock-list' ? 'block' : 'none';
                 document.getElementById('page-earnings').style.display = page === 'earnings' ? 'block' : 'none';
                 document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
+                document.getElementById('page-user-manage').style.display = page === 'user-manage' ? 'block' : 'none';
+                document.getElementById('page-settings').style.display = page === 'settings' ? 'block' : 'none';
                 document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
                 if (page === 'sector-fund') loadSectorFund();
@@ -441,6 +471,7 @@
                 if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }
                 if (page === 'earnings') { populateStockFilters(); loadEarningsList(); }
                 if (page === 'announce') { populateStockFilters(); loadAnnounceList(); }
+                if (page === 'user-manage') loadUserManageList();
                 if (page === 'abnormal') loadAbnormalCenter();
                 // 移动端点击导航后自动收回侧边栏
                 var sidebar = document.querySelector('.sidebar');
@@ -468,6 +499,7 @@
     <script src="/static/js/market-news/service.js"></script>
     <script src="/static/js/unlock-list/service.js"></script>
     <script src="/static/js/announce/service.js"></script>
+    <script src="/static/js/user_manage/service.js"></script>
     <script src="/static/js/earnings/service.js"></script>
     <script src="/static/js/abnormal/service.js"></script>
     <script src="/static/js/longhu/service.js"></script>
