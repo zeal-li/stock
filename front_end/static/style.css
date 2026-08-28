@@ -52,7 +52,7 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 14px;
+    font-size: 12px;
     color: #ddd;
 }
 
@@ -63,7 +63,7 @@ body {
 }
 
 .user-type {
-    font-size: 11px;
+    font-size: 12px;
     color: #00b894;
     padding: 1px 6px;
     border: 1px solid #00b894;
