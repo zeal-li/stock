@@ -111,6 +111,20 @@ def auth_logout():
     return jsonify({'success': True})
 
 
+@app.route('/api/auth/change-password', methods=['POST'])
+def auth_change_password():
+    from auth.service import change_password
+    username = session.get('user')
+    if not username:
+        return jsonify({'success': False, 'error': '未登录', 'code': 401}), 401
+    old_password = request.form.get('old_password', '')
+    new_password = request.form.get('new_password', '')
+    success, message = change_password(username, old_password, new_password)
+    if success:
+        return jsonify({'success': True, 'message': message})
+    return jsonify({'success': False, 'error': message})
+
+
 @app.route('/api/auth/session')
 def auth_session():
     user = session.get('user')

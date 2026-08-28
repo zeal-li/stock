@@ -85,6 +85,27 @@ body {
     color: #fff;
 }
 
+.user-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pwd-btn {
+    color: #4d9fff;
+    cursor: pointer;
+    padding: 2px 8px;
+    border: 1px solid #4d9fff;
+    border-radius: 4px;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.pwd-btn:hover {
+    background: #4d9fff;
+    color: #fff;
+}
+
 .nav-section {
     margin-bottom: 10px;
 }
@@ -1179,4 +1200,101 @@ body {
     line-height: 28px;
     font-size: 12px;
     color: #8b8b9e;
+}
+
+/* 修改密码弹窗 */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-card {
+    width: 340px;
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+
+.modal-card h3 {
+    text-align: center;
+    color: #ddd;
+    margin-bottom: 18px;
+    font-size: 16px;
+}
+
+.modal-field {
+    margin-bottom: 12px;
+}
+
+.modal-field label {
+    display: block;
+    font-size: 12px;
+    color: #8b8b9e;
+    margin-bottom: 4px;
+}
+
+.modal-field input {
+    width: 100%;
+    padding: 9px 10px;
+    background: #1a1a36;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    color: #e0e0e8;
+    font-size: 14px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.modal-field input:focus {
+    border-color: #4d9fff;
+}
+
+.pwd-msg {
+    min-height: 18px;
+    font-size: 12px;
+    text-align: center;
+    color: #e94560;
+    margin-bottom: 8px;
+}
+
+.pwd-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.pwd-actions .modal-btn {
+    flex: 1;
+    padding: 9px 0;
+    font-size: 14px;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    background: #1a1a36;
+    color: #8b8b9e;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.pwd-actions .modal-btn.primary {
+    background: #e94560;
+    border-color: #e94560;
+    color: #fff;
+}
+
+.pwd-actions .modal-btn.primary:hover {
+    background: #d63850;
+}
+
+.pwd-actions .modal-btn:not(.primary):hover {
+    background: #0f3460;
+    color: #fff;
 }

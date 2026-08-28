@@ -17,9 +17,12 @@
             <div class="logo">
                 <h1>鑫多多</h1>
                 <div class="user-bar">
-                    <div class="user-name" id="userName">用户</div>
                     <div class="user-meta">
                         <span class="user-type" id="userType"></span>
+                        <span class="user-name" id="userName">用户</span>
+                    </div>
+                    <div class="user-actions">
+                        <span class="pwd-btn" onclick="showChangePwd()">修改密码</span>
                         <span class="logout-btn" onclick="doLogout()">退出</span>
                     </div>
                 </div>
@@ -496,6 +499,53 @@
                 .catch(function() { window.location.href = '/login'; });
         }
 
+        // ---- 修改密码 ----
+        function showChangePwd() {
+            document.getElementById('oldPassword').value = '';
+            document.getElementById('newPassword').value = '';
+            document.getElementById('confirmNewPassword').value = '';
+            document.getElementById('pwdMsg').innerText = '';
+            document.getElementById('pwdModal').style.display = 'flex';
+            document.getElementById('oldPassword').focus();
+        }
+
+        function closePwdModal() {
+            document.getElementById('pwdModal').style.display = 'none';
+        }
+
+        function submitChangePwd() {
+            var oldPwd = document.getElementById('oldPassword').value;
+            var newPwd = document.getElementById('newPassword').value;
+            var confirmPwd = document.getElementById('confirmNewPassword').value;
+            var msgEl = document.getElementById('pwdMsg');
+            var error = validatePassword(oldPwd);
+            if (error) { msgEl.innerText = '原' + error; return; }
+            error = validatePassword(newPwd);
+            if (error) { msgEl.innerText = error; return; }
+            if (newPwd !== confirmPwd) { msgEl.innerText = '两次输入的新密码不一致'; return; }
+
+            var body = new URLSearchParams();
+            body.append('old_password', oldPwd);
+            body.append('new_password', newPwd);
+            fetch('/api/auth/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString()
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    closePwdModal();
+                    alert('密码修改成功');
+                } else {
+                    msgEl.innerText = data.error || '修改失败';
+                }
+            })
+            .catch(function() {
+                msgEl.innerText = '网络错误，请稍后重试';
+            });
+        }
+
         initTradingDayCache();
         loadAllData();
         loadPickedStocks();
@@ -504,5 +554,29 @@
         loadHoldingsStocks();
         setInterval(refreshRealtimeData, 10000);
     </script>
+
+    <!-- 修改密码弹窗 -->
+    <div class="modal-overlay" id="pwdModal" style="display:none;" onclick="closePwdModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <h3>修改密码</h3>
+            <div class="modal-field">
+                <label>原密码</label>
+                <input type="password" id="oldPassword" autocomplete="current-password">
+            </div>
+            <div class="modal-field">
+                <label>新密码</label>
+                <input type="password" id="newPassword" autocomplete="new-password">
+            </div>
+            <div class="modal-field">
+                <label>确认新密码</label>
+                <input type="password" id="confirmNewPassword" autocomplete="new-password">
+            </div>
+            <div class="pwd-msg" id="pwdMsg"></div>
+            <div class="pwd-actions">
+                <button class="modal-btn primary" onclick="submitChangePwd()">确认修改</button>
+                <button class="modal-btn" onclick="closePwdModal()">取消</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

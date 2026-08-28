@@ -183,3 +183,36 @@ def get_user_id(username):
     if not row:
         return None
     return row[0]
+
+
+def change_password(username, old_password, new_password):
+    """修改密码。返回 (success: bool, message: str)"""
+    username = (username or '').strip()
+    old_password = old_password or ''
+    new_password = new_password or ''
+    error = validate_password(old_password)
+    if error:
+        return False, error
+    error = validate_password(new_password)
+    if error:
+        return False, error
+
+    conn = _ensure_db()
+    row = conn.execute(
+        'SELECT password_hash, salt FROM users WHERE username = ?', (username,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return False, '用户不存在'
+    password_hash, salt = row
+    if _hash_password(old_password, salt) != password_hash:
+        conn.close()
+        return False, '原密码错误'
+    new_password_hash = _hash_password(new_password, salt)
+    conn.execute(
+        'UPDATE users SET password_hash = ? WHERE username = ?',
+        (new_password_hash, username)
+    )
+    conn.commit()
+    conn.close()
+    return True, '密码修改成功'
