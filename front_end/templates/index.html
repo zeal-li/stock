@@ -76,7 +76,7 @@
                     <span class="nav-icon">⚡</span>
                     <span>异动中心</span>
                 </div>
-                <div class="nav-item" data-page="user-manage">
+                <div class="nav-item" data-page="user-manage" data-min-user-type="1">
                     <span class="nav-icon">👥</span>
                     <span>用户管理</span>
                 </div>
@@ -84,7 +84,7 @@
                     <span class="nav-icon">⚙️</span>
                     <span>账户设置</span>
                 </div>
-                <div class="nav-item" data-page="system-settings">
+                <div class="nav-item" data-page="system-settings" data-min-user-type="101">
                     <span class="nav-icon">🖥️</span>
                     <span>系统设置</span>
                 </div>
@@ -535,6 +535,13 @@
                     CURRENT_USER_TYPE = data.user_type;
                     document.getElementById('userName').innerText = data.username;
                     document.getElementById('userType').innerText = getUserTypeName(data.user_type);
+                    // 按用户类型隐藏无权限的导航页签
+                    var navItems = document.querySelectorAll('.nav-item[data-min-user-type]');
+                    for (var i = 0; i < navItems.length; i++) {
+                        if (CURRENT_USER_TYPE < parseInt(navItems[i].getAttribute('data-min-user-type'))) {
+                            navItems[i].style.display = 'none';
+                        }
+                    }
                 } else {
                     window.location.href = '/login';
                 }
