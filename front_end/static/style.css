@@ -461,6 +461,83 @@ body {
     gap: 20px;
 }
 
+/* 账户设置 */
+.settings-card {
+    padding: 24px;
+    margin-bottom: 20px;
+}
+
+.settings-header {
+    margin-bottom: 20px;
+}
+
+.settings-title {
+    font-size: 16px;
+    color: #fff;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.settings-subtitle {
+    font-size: 13px;
+    color: #888;
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    padding: 16px 0;
+    border-bottom: 1px solid #0f3460;
+}
+
+.settings-row:last-child {
+    border-bottom: none;
+}
+
+.settings-label {
+    width: 100px;
+    color: #888;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.settings-value {
+    flex: 1;
+    color: #fff;
+    font-size: 14px;
+    word-break: break-all;
+}
+
+.settings-danger {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+}
+
+.btn-danger {
+    background: rgba(233, 69, 96, 0.15);
+    color: #e94560;
+    border: 1px solid rgba(233, 69, 96, 0.4);
+    padding: 8px 24px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.btn-danger:hover {
+    background: rgba(233, 69, 96, 0.3);
+}
+
+.btn-danger:disabled {
+    background: rgba(255, 255, 255, 0.06);
+    color: #666;
+    border-color: rgba(255, 255, 255, 0.1);
+    cursor: not-allowed;
+}
+
 /* 资金流向页面三栏布局 */
 .money-flow-row {
     display: flex;

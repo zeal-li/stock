@@ -84,6 +84,42 @@ def init_secret_key():
     return secret_key
 
 
+def reset_secret_key():
+    """重置 secret_key：随机生成新值并持久化，返回新密钥。"""
+    os.makedirs(os.path.dirname(CONFIG_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(CONFIG_DB_PATH)
+    conn.execute(
+        'CREATE TABLE IF NOT EXISTS app_config ('
+        'key TEXT PRIMARY KEY, '
+        'value TEXT NOT NULL'
+        ')'
+    )
+    secret_key = os.urandom(32).hex()
+    conn.execute(
+        "INSERT INTO app_config (key, value) VALUES ('secret_key', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (secret_key,)
+    )
+    conn.commit()
+    conn.close()
+    return secret_key
+
+
+def get_app_config():
+    """读取 config.db 中 app_config 表的所有配置项。返回 dict，键为配置 key，值为 value。"""
+    os.makedirs(os.path.dirname(CONFIG_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(CONFIG_DB_PATH)
+    conn.execute(
+        'CREATE TABLE IF NOT EXISTS app_config ('
+        'key TEXT PRIMARY KEY, '
+        'value TEXT NOT NULL'
+        ')'
+    )
+    rows = conn.execute('SELECT key, value FROM app_config').fetchall()
+    conn.close()
+    return {row[0]: row[1] for row in rows}
+
+
 def validate_username(username):
     """校验用户名合法性。返回错误提示字符串；合法时返回空字符串 ''。"""
     username = (username or '').strip()
@@ -169,12 +205,12 @@ def get_user(username):
         return None
     conn = _ensure_db()
     row = conn.execute(
-        'SELECT username, user_type, create_time FROM users WHERE username = ?', (username,)
+        'SELECT id, username, user_type, create_time FROM users WHERE username = ?', (username,)
     ).fetchone()
     conn.close()
     if not row:
         return None
-    return {'username': row[0], 'user_type': row[1], 'create_time': row[2]}
+    return {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3]}
 
 
 def get_all_users():

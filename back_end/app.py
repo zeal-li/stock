@@ -144,6 +144,57 @@ def auth_session():
     return jsonify({'success': True, 'logged_in': False})
 
 
+@app.route('/api/auth/me')
+def auth_me():
+    from auth.service import get_user
+    username = session.get('user')
+    if not username:
+        return jsonify({'success': False, 'error': '未登录', 'code': 401}), 401
+    user = get_user(username)
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'})
+    return jsonify({'success': True, 'data': user})
+
+
+@app.route('/api/auth/delete-account', methods=['POST'])
+def auth_delete_account():
+    from auth.service import get_user, get_user_id, delete_user
+    username = session.get('user')
+    if not username:
+        return jsonify({'success': False, 'error': '未登录', 'code': 401}), 401
+    user = get_user(username)
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'})
+    # root 为系统用户，不允许注销
+    if user['user_type'] == 101:
+        return jsonify({'success': False, 'error': 'root 为系统用户，不允许注销'})
+    user_id = get_user_id(username)
+    if not user_id:
+        return jsonify({'success': False, 'error': '用户不存在'})
+    success, message = delete_user(user_id)
+    if success:
+        session.clear()
+        return jsonify({'success': True, 'message': message})
+    return jsonify({'success': False, 'error': message})
+
+
+@app.route('/api/system/config')
+def system_config():
+    """系统设置：返回 config.db 中的配置项（当前为 secret_key）"""
+    from auth.service import get_app_config
+    return jsonify({'success': True, 'data': get_app_config()})
+
+
+@app.route('/api/system/secret-key/reset', methods=['POST'])
+def system_secret_key_reset():
+    """重置 secret_key：生成新密钥，所有已登录用户将失效需重新登录"""
+    from auth.service import reset_secret_key
+    new_key = reset_secret_key()
+    app.secret_key = new_key
+    session.clear()
+    return jsonify({'success': True, 'data': {'secret_key': new_key}})
+
+
 @app.route('/api/auth/users')
 def auth_users():
     from auth.service import get_all_users

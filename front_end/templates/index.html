@@ -360,8 +360,35 @@
                 <div class="page-header">
                     <h1 class="page-title">⚙️ 账户设置</h1>
                 </div>
-                <div class="index-card" style="padding:30px;">
-                    <div style="text-align:center;color:#888;padding:40px;">功能建设中...</div>
+                <div class="index-card settings-card">
+                    <div class="settings-header">
+                        <div class="settings-title">账户信息</div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">User ID</div>
+                        <div class="settings-value" id="settingUserId">-</div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">账号名称</div>
+                        <div class="settings-value" id="settingUserName">-</div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">用户类型</div>
+                        <div class="settings-value" id="settingUserType">-</div>
+                    </div>
+                    <div class="settings-row">
+                        <div class="settings-label">注册时间</div>
+                        <div class="settings-value" id="settingCreateTime">-</div>
+                    </div>
+                </div>
+                <div class="index-card settings-card">
+                    <div class="settings-danger">
+                        <div>
+                            <div class="settings-title">注销账号</div>
+                            <div class="settings-subtitle">永久删除您的账号及所有相关数据</div>
+                        </div>
+                        <button class="btn-danger" id="btnDeleteAccount" onclick="deleteAccount()">注销</button>
+                    </div>
                 </div>
             </div>
 
@@ -370,8 +397,15 @@
                 <div class="page-header">
                     <h1 class="page-title">🖥️ 系统设置</h1>
                 </div>
-                <div class="index-card" style="padding:30px;">
-                    <div style="text-align:center;color:#888;padding:40px;">功能建设中...</div>
+                <div class="index-card settings-card">
+                    <div class="settings-header" style="margin-bottom:5px;">
+                        <div class="settings-title">secret_key</div>
+                        <div class="settings-subtitle">该密钥用于对登录会话（session）进行签名，保证登录状态在服务重启后不失效。重置后所有已登录用户需重新登录。</div>
+                    </div>
+                    <div class="settings-row" style="padding-bottom:0;">
+                        <div class="settings-value" id="settingSecretKey">-</div>
+                        <button class="btn-danger" onclick="showResetSecretKeyModal()">重置</button>
+                    </div>
                 </div>
             </div>
 
@@ -489,6 +523,8 @@
                 if (page === 'earnings') { populateStockFilters(); loadEarningsList(); }
                 if (page === 'announce') { populateStockFilters(); loadAnnounceList(); }
                 if (page === 'user-manage') loadUserManageList();
+                if (page === 'settings') loadAccountInfo();
+                if (page === 'system-settings') loadSystemConfig();
                 if (page === 'abnormal') loadAbnormalCenter();
                 // 移动端点击导航后自动收回侧边栏
                 var sidebar = document.querySelector('.sidebar');
@@ -554,6 +590,108 @@
             fetch('/api/auth/logout', { method: 'POST' })
                 .then(function() { window.location.href = '/login'; })
                 .catch(function() { window.location.href = '/login'; });
+        }
+
+        // ---- 账户设置 ----
+        function loadAccountInfo() {
+            fetch('/api/auth/me')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success && data.data) {
+                        var user = data.data;
+                        document.getElementById('settingUserId').innerText = user.id || '-';
+                        document.getElementById('settingUserName').innerText = user.username || '-';
+                        document.getElementById('settingUserType').innerText = getUserTypeName(user.user_type);
+                        // root 是系统用户，不允许注销，注销按钮置灰
+                        var btnDelete = document.getElementById('btnDeleteAccount');
+                        if (user.user_type === 101) {
+                            btnDelete.disabled = true;
+                            btnDelete.setAttribute('title', 'root 为系统用户，不允许注销');
+                        } else {
+                            btnDelete.disabled = false;
+                            btnDelete.removeAttribute('title');
+                        }
+                        var createTime = user.create_time;
+                        if (createTime) {
+                            var d = new Date(createTime * 1000);
+                            document.getElementById('settingCreateTime').innerText =
+                                d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                                String(d.getDate()).padStart(2, '0') + ' ' +
+                                String(d.getHours()).padStart(2, '0') + ':' +
+                                String(d.getMinutes()).padStart(2, '0');
+                        } else {
+                            document.getElementById('settingCreateTime').innerText = '-';
+                        }
+                    }
+                })
+                .catch(function() {
+                    document.getElementById('settingUserId').innerText = '-';
+                    document.getElementById('settingUserName').innerText = '-';
+                    document.getElementById('settingUserType').innerText = '-';
+                    document.getElementById('settingCreateTime').innerText = '-';
+                });
+        }
+
+        // ---- 系统设置 ----
+        function loadSystemConfig() {
+            fetch('/api/system/config')
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var el = document.getElementById('settingSecretKey');
+                    if (data.success && data.data && data.data.secret_key) {
+                        el.innerText = data.data.secret_key;
+                    } else {
+                        el.innerText = '-';
+                    }
+                })
+                .catch(function() {
+                    document.getElementById('settingSecretKey').innerText = '-';
+                });
+        }
+
+        function showResetSecretKeyModal() {
+            document.getElementById('resetSecretKeyModal').style.display = 'flex';
+        }
+
+        function closeResetSecretKeyModal() {
+            document.getElementById('resetSecretKeyModal').style.display = 'none';
+        }
+
+        function submitResetSecretKey() {
+            fetch('/api/system/secret-key/reset', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        closeResetSecretKeyModal();
+                        document.getElementById('settingSecretKey').innerText = data.data.secret_key;
+                        alert('secret_key 已重置，所有用户需重新登录');
+                        window.location.href = '/login';
+                    } else {
+                        alert(data.error || '重置失败');
+                    }
+                })
+                .catch(function() {
+                    alert('重置请求失败');
+                });
+        }
+
+        function deleteAccount() {
+            if (!confirm('确定要永久注销当前账号吗？此操作不可恢复。')) {
+                return;
+            }
+            fetch('/api/auth/delete-account', { method: 'POST' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        alert('账号已注销');
+                        window.location.href = '/login';
+                    } else {
+                        alert(data.error || '注销失败');
+                    }
+                })
+                .catch(function() {
+                    alert('注销请求失败');
+                });
         }
 
         // ---- 修改密码 ----
@@ -669,6 +807,25 @@
             <div class="pwd-actions">
                 <button class="modal-btn primary" onclick="submitUserType()">确认修改</button>
                 <button class="modal-btn" onclick="closeUserTypeModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重置 secret_key 确认弹窗 -->
+    <div class="modal-overlay" id="resetSecretKeyModal" style="display:none;" onclick="closeResetSecretKeyModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <h3>重置 secret_key</h3>
+            <div style="font-size:13px;color:#ccc;line-height:1.6;margin-bottom:16px;">
+                重置后，当前签名密钥将被替换为新的随机密钥，可能导致以下后果：
+                <ul style="margin:8px 0 0 18px;color:#e94560;">
+                    <li>所有已登录用户将失效，需要重新登录</li>
+                    <li>现有的会话（session）立即失效</li>
+                </ul>
+                是否确认继续？
+            </div>
+            <div class="pwd-actions">
+                <button class="modal-btn primary" onclick="submitResetSecretKey()">确认重置</button>
+                <button class="modal-btn" onclick="closeResetSecretKeyModal()">取消</button>
             </div>
         </div>
     </div>
