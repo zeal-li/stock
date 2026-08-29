@@ -1147,3 +1147,161 @@ function holdingsUpdatePrices() {
     });
     _holdingsUpdateSummary();
 }
+
+
+// ==================== 导入导出 ====================
+
+function openWatchlistExportModal() {
+    document.getElementById('watchlistExportMsg').textContent = '';
+    document.getElementById('watchlistExportModal').style.display = 'flex';
+}
+
+function closeWatchlistExportModal() {
+    document.getElementById('watchlistExportModal').style.display = 'none';
+}
+
+async function doWatchlistExport() {
+    var types = [];
+    document.querySelectorAll('.wl-export-check:checked').forEach(function(c) { types.push(c.value); });
+    var msgEl = document.getElementById('watchlistExportMsg');
+    if (types.length === 0) {
+        msgEl.textContent = '请至少勾选一项';
+        return;
+    }
+    var lines = [];
+    if (types.indexOf('watchlist') >= 0) {
+        lines.push('[自选股]');
+        watchlistStocks.forEach(function(s) { lines.push(s.code + ',' + s.market + ',' + (s.addedPrice || '')); });
+    }
+    if (types.indexOf('etf') >= 0) {
+        lines.push('[场内ETF]');
+        etfStocks.forEach(function(s) { lines.push(s.code + ',' + s.market); });
+    }
+    if (types.indexOf('holdings') >= 0) {
+        lines.push('[持仓股]');
+        holdingsStocks.forEach(function(s) { lines.push(s.code + ',' + s.market + ',' + (s.holdPrice || '') + ',' + (s.holdQty || '')); });
+    }
+    var content = lines.join('\n');
+    var blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    var d = new Date();
+    var pad = function(n) { return String(n).padStart(2, '0'); };
+    var ts = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+    var filename = '自选股_' + ts + '.txt';
+
+    // 弹系统"另存为"对话框，由用户选择目录和文件名
+    if (window.showSaveFilePicker) {
+        try {
+            var handle = await window.showSaveFilePicker({
+                suggestedName: filename,
+                types: [{ description: '文本文件', accept: { 'text/plain': ['.txt'] } }]
+            });
+            var writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+        } catch (e) {
+            if (e && e.name === 'AbortError') return; // 用户取消
+            msgEl.textContent = '导出失败：' + (e && e.message ? e.message : e);
+            return;
+        }
+        closeWatchlistExportModal();
+        return;
+    }
+
+    // 浏览器不支持时退回默认下载
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    closeWatchlistExportModal();
+}
+
+function openWatchlistImportModal() {
+    document.getElementById('watchlistImportMsg').textContent = '';
+    document.getElementById('watchlistImportFile').value = '';
+    document.getElementById('watchlistImportModal').style.display = 'flex';
+}
+
+function closeWatchlistImportModal() {
+    document.getElementById('watchlistImportModal').style.display = 'none';
+}
+
+async function doWatchlistImport() {
+    var types = [];
+    document.querySelectorAll('.wl-import-check:checked').forEach(function(c) { types.push(c.value); });
+    var msgEl = document.getElementById('watchlistImportMsg');
+    if (types.length === 0) {
+        msgEl.textContent = '请至少勾选一项';
+        return;
+    }
+    var fileInput = document.getElementById('watchlistImportFile');
+    if (!fileInput.files || fileInput.files.length === 0) {
+        msgEl.textContent = '请选择 txt 文件';
+        return;
+    }
+    var file = fileInput.files[0];
+    var content = await new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function() { resolve(reader.result); };
+        reader.onerror = function() { reject(new Error('读取文件失败')); };
+        reader.readAsText(file, 'utf-8');
+    });
+
+    // 解析 txt，按勾选分组收集
+    var items = { watchlist: [], etf: [], holdings: [] };
+    var section = null;
+    content.split(/\r?\n/).forEach(function(rawLine) {
+        var line = rawLine.trim();
+        if (!line) return;
+        if (line === '[自选股]') { section = 'watchlist'; return; }
+        if (line === '[场内ETF]') { section = 'etf'; return; }
+        if (line === '[持仓股]') { section = 'holdings'; return; }
+        if (!section || types.indexOf(section) < 0) return;
+        var parts = line.split(',').map(function(p) { return p.trim(); });
+        if (parts.length < 2 || !parts[0] || !parts[1]) return;
+        if (section === 'watchlist') items.watchlist.push({ code: parts[0], market: parts[1], added_price: parts[2] || '' });
+        else if (section === 'etf') items.etf.push({ code: parts[0], market: parts[1] });
+        else if (section === 'holdings') items.holdings.push({ code: parts[0], market: parts[1], hold_price: parts[2] || '', hold_qty: parts[3] || '' });
+    });
+
+    var cnt = { watchlist: 0, etf: 0, holdings: 0 };
+    msgEl.textContent = '导入中...';
+    try {
+        var post = function(url, body) {
+            return fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body
+            });
+        };
+        for (var i = 0; i < items.watchlist.length; i++) {
+            var w = items.watchlist[i];
+            await post('/api/watchlist', 'code=' + encodeURIComponent(w.code) + '&market=' + encodeURIComponent(w.market) + '&added_price=' + encodeURIComponent(w.added_price));
+            cnt.watchlist++;
+        }
+        for (var j = 0; j < items.etf.length; j++) {
+            var etfItem = items.etf[j];
+            await post('/api/etf', 'code=' + encodeURIComponent(etfItem.code) + '&market=' + encodeURIComponent(etfItem.market));
+            cnt.etf++;
+        }
+        for (var k = 0; k < items.holdings.length; k++) {
+            var h = items.holdings[k];
+            await post('/api/holdings', 'code=' + encodeURIComponent(h.code) + '&market=' + encodeURIComponent(h.market) + '&hold_price=' + encodeURIComponent(h.hold_price) + '&hold_qty=' + encodeURIComponent(h.hold_qty));
+            cnt.holdings++;
+        }
+
+        var parts = [];
+        if (types.indexOf('watchlist') >= 0) parts.push('自选股 ' + cnt.watchlist + ' 条');
+        if (types.indexOf('etf') >= 0) parts.push('场内ETF ' + cnt.etf + ' 条');
+        if (types.indexOf('holdings') >= 0) parts.push('持仓股 ' + cnt.holdings + ' 条');
+        msgEl.textContent = '导入完成：' + parts.join('，');
+        if (types.indexOf('watchlist') >= 0) loadWatchlistStocks();
+        if (types.indexOf('etf') >= 0) loadEtfStocks();
+        if (types.indexOf('holdings') >= 0) loadHoldingsStocks();
+    } catch (e) {
+        msgEl.textContent = '导入失败：' + e.message;
+    }
+}

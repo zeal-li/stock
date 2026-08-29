@@ -207,7 +207,7 @@
                         <span class="sector-tab" data-tab="etf" onclick="switchWatchlistTab('etf')">场内ETF</span>
                         <span class="sector-tab" data-tab="holdings" onclick="switchWatchlistTab('holdings')">持仓股</span>
                     </div>
-                    <div id="holdingsSummary" style="display:none;margin-left:auto;flex-wrap:wrap;gap:20px;">
+                    <div id="holdingsSummary" style="display:none;margin-left:16px;flex-wrap:wrap;gap:20px;">
                         <div class="holdings-summary-item">
                             <span style="color:#8b8b9e;font-size:13px;">持仓市值</span>
                             <span id="holdingsCapSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
@@ -224,6 +224,10 @@
                             <span style="color:#8b8b9e;font-size:13px;">总收益</span>
                             <span id="holdingsTotalSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
                         </div>
+                    </div>
+                    <div style="margin-left:auto;display:flex;gap:8px;">
+                        <button class="refresh-btn" style="padding:6px 14px;font-size:13px;" onclick="openWatchlistImportModal()">导入</button>
+                        <button class="refresh-btn" style="padding:6px 14px;font-size:13px;" onclick="openWatchlistExportModal()">导出</button>
                     </div>
                 </div>
                 <div id="watchlist-tab-watchlist" class="watchlist-tab-content active">
@@ -874,6 +878,44 @@
             <div class="pwd-actions">
                 <button class="modal-btn primary" onclick="submitResetSecretKey()">确认重置</button>
                 <button class="modal-btn" onclick="closeResetSecretKeyModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 自选股导出弹窗 -->
+    <div class="modal-overlay" id="watchlistExportModal" style="display:none;" onclick="closeWatchlistExportModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <h3>导出自选股</h3>
+            <div class="wl-check-group">
+                <label><input type="checkbox" class="wl-export-check" value="watchlist" checked> 自选股</label>
+                <label><input type="checkbox" class="wl-export-check" value="etf" checked> 场内ETF</label>
+                <label><input type="checkbox" class="wl-export-check" value="holdings" checked> 持仓股</label>
+            </div>
+            <div class="pwd-msg" id="watchlistExportMsg"></div>
+            <div class="pwd-actions">
+                <button class="modal-btn primary" onclick="doWatchlistExport()">确定导出</button>
+                <button class="modal-btn" onclick="closeWatchlistExportModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 自选股导入弹窗 -->
+    <div class="modal-overlay" id="watchlistImportModal" style="display:none;" onclick="closeWatchlistImportModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <h3>导入自选股</h3>
+            <div class="wl-check-group">
+                <label><input type="checkbox" class="wl-import-check" value="watchlist" checked> 自选股</label>
+                <label><input type="checkbox" class="wl-import-check" value="etf" checked> 场内ETF</label>
+                <label><input type="checkbox" class="wl-import-check" value="holdings" checked> 持仓股</label>
+            </div>
+            <div class="modal-field" style="margin-top:12px;">
+                <label>选择 txt 文件</label>
+                <input type="file" id="watchlistImportFile" accept=".txt">
+            </div>
+            <div class="pwd-msg" id="watchlistImportMsg"></div>
+            <div class="pwd-actions">
+                <button class="modal-btn primary" onclick="doWatchlistImport()">确定导入</button>
+                <button class="modal-btn" onclick="closeWatchlistImportModal()">取消</button>
             </div>
         </div>
     </div>

@@ -1456,3 +1456,27 @@ body {
     background: #0f3460;
     color: #fff;
 }
+
+/* 自选股导入导出弹窗 */
+.wl-check-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.wl-check-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #ccc;
+    cursor: pointer;
+}
+
+.wl-check-group input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: #e94560;
+}
