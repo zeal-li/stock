@@ -516,6 +516,7 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.logged_in && data.username) {
+                    CURRENT_USER_TYPE = data.user_type;
                     document.getElementById('userName').innerText = data.username;
                     document.getElementById('userType').innerText = getUserTypeName(data.user_type);
                 } else {

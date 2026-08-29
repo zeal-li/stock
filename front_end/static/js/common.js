@@ -1,5 +1,9 @@
 // ==================== 公共接口 ====================
 
+// 当前登录用户的权限类型（0 普通用户 / 1 管理员 / 101 root）。
+// 登录后由 index.html 会话检查时从 /api/auth/session 写入，供各功能做权限判断。
+var CURRENT_USER_TYPE = null;
+
 // ---- 用户名合法性校验（与后端 auth/service.py validate_username 对齐） ----
 // 校验通过返回空字符串 ''，否则返回错误提示
 function validateUsername(username) {

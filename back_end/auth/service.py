@@ -227,12 +227,13 @@ def reset_password(user_id, new_password):
 def update_user_type(user_id, new_user_type):
     """修改指定用户的用户类型。返回 (success: bool, message: str)"""
     conn = _ensure_db()
-    row = conn.execute('SELECT id FROM users WHERE id = ?', (user_id,)).fetchone()
+    row = conn.execute('SELECT id, user_type FROM users WHERE id = ?', (user_id,)).fetchone()
     if not row:
         conn.close()
         return False, '用户不存在'
-    conn.execute('UPDATE users SET user_type = ? WHERE id = ?', (new_user_type, user_id))
-    conn.commit()
+    if row[1] != new_user_type:
+        conn.execute('UPDATE users SET user_type = ? WHERE id = ?', (new_user_type, user_id))
+        conn.commit()
     conn.close()
     return True, '权限修改成功'
 

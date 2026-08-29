@@ -147,8 +147,7 @@ def auth_session():
 @app.route('/api/auth/users')
 def auth_users():
     from auth.service import get_all_users
-    return jsonify({'success': True, 'data': get_all_users(),
-                    'current_user_type': session.get('user_type', 0)})
+    return jsonify({'success': True, 'data': get_all_users()})
 
 
 @app.route('/api/auth/users/<int:user_id>/password', methods=['POST'])

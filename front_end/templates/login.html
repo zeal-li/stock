@@ -187,6 +187,7 @@
                         showMsg('注册成功，请登录', 'success');
                         toggleMode();
                     } else {
+                        CURRENT_USER_TYPE = data.user_type;
                         window.location.href = '/';
                     }
                 } else {

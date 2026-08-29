@@ -28,7 +28,7 @@ function loadUserManageList() {
             if (data.success) {
                 var filter = document.getElementById('userTypeFilter');
                 var filterType = filter ? filter.value : '';
-                renderUserManageList(data.data, data.current_user_type, filterType);
+                renderUserManageList(data.data, CURRENT_USER_TYPE, filterType);
             } else {
                 container.innerHTML = '<div style="text-align:center;color:#e94560;padding:40px;">' + (data.error || '获取失败') + '</div>';
             }
