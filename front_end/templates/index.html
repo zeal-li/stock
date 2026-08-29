@@ -411,6 +411,19 @@
                         <button class="btn-danger" onclick="showResetSecretKeyModal()">重置</button>
                     </div>
                 </div>
+                <div class="index-card settings-card" style="margin-top:15px;">
+                    <div class="settings-header" style="margin-bottom:5px;">
+                        <div class="settings-title">新用户注册</div>
+                        <div class="settings-subtitle">开启后允许新用户注册；关闭后注册接口将拒绝新用户。</div>
+                    </div>
+                    <div class="settings-row" style="padding-bottom:0;">
+                        <div class="settings-value" id="settingRegisterEnabled">-</div>
+                        <label class="switch" title="点击切换">
+                            <input type="checkbox" id="btnToggleRegister" onchange="toggleRegisterEnabled()">
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
             </div>
 
             <!-- 选股页面 -->
@@ -648,9 +661,39 @@
                     } else {
                         el.innerText = '-';
                     }
+                    var regEl = document.getElementById('settingRegisterEnabled');
+                    var regSwitch = document.getElementById('btnToggleRegister');
+                    if (regEl) {
+                        var registerEnabled = !(data.data && data.data.register_enabled === '0');
+                        regEl.innerText = registerEnabled ? '开放' : '关闭';
+                        regSwitch.checked = registerEnabled;
+                    }
                 })
                 .catch(function() {
                     document.getElementById('settingSecretKey').innerText = '-';
+                });
+        }
+
+        function toggleRegisterEnabled() {
+            var regSwitch = document.getElementById('btnToggleRegister');
+            var enabled = regSwitch.checked ? '1' : '0';
+            fetch('/api/system/register-toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'enabled=' + enabled
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) {
+                        loadSystemConfig();
+                    } else {
+                        alert(data.error || '操作失败');
+                        loadSystemConfig();
+                    }
+                })
+                .catch(function() {
+                    alert('切换注册开关请求失败');
+                    loadSystemConfig();
                 });
         }
 

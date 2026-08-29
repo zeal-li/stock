@@ -180,19 +180,39 @@ def auth_delete_account():
 
 @app.route('/api/system/config')
 def system_config():
-    """系统设置：返回 config.db 中的配置项（当前为 secret_key）"""
+    """系统设置：返回 config.db 中的配置项（当前为 secret_key），仅 root 可访问"""
+    from common.utils import USER_TYPE_ROOT
+    if session.get('user_type') != USER_TYPE_ROOT:
+        return jsonify({'success': False, 'error': '权限不足', 'code': 403}), 403
     from auth.service import get_app_config
     return jsonify({'success': True, 'data': get_app_config()})
 
 
 @app.route('/api/system/secret-key/reset', methods=['POST'])
 def system_secret_key_reset():
-    """重置 secret_key：生成新密钥，所有已登录用户将失效需重新登录"""
+    """重置 secret_key：生成新密钥，所有已登录用户将失效需重新登录，仅 root 可操作"""
+    from common.utils import USER_TYPE_ROOT
+    if session.get('user_type') != USER_TYPE_ROOT:
+        return jsonify({'success': False, 'error': '权限不足', 'code': 403}), 403
     from auth.service import reset_secret_key
     new_key = reset_secret_key()
     app.secret_key = new_key
     session.clear()
     return jsonify({'success': True, 'data': {'secret_key': new_key}})
+
+
+@app.route('/api/system/register-toggle', methods=['POST'])
+def system_register_toggle():
+    """切换新用户注册开关，仅 root 可操作"""
+    from common.utils import USER_TYPE_ROOT
+    if session.get('user_type') != USER_TYPE_ROOT:
+        return jsonify({'success': False, 'error': '权限不足', 'code': 403}), 403
+    enabled = request.form.get('enabled', '')
+    if enabled not in ('0', '1'):
+        return jsonify({'success': False, 'error': '参数不合法'})
+    from auth.service import set_register_enabled
+    set_register_enabled(enabled == '1')
+    return jsonify({'success': True, 'data': {'register_enabled': enabled == '1'}})
 
 
 @app.route('/api/auth/users')

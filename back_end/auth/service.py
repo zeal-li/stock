@@ -147,8 +147,44 @@ def validate_password(password):
     return ''
 
 
+def get_register_enabled():
+    """读取注册开关配置。返回 True 表示开放新用户注册，False 表示关闭。未配置时默认开放。"""
+    os.makedirs(os.path.dirname(CONFIG_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(CONFIG_DB_PATH)
+    conn.execute(
+        'CREATE TABLE IF NOT EXISTS app_config ('
+        'key TEXT PRIMARY KEY, '
+        'value TEXT NOT NULL'
+        ')'
+    )
+    row = conn.execute("SELECT value FROM app_config WHERE key = 'register_enabled'").fetchone()
+    conn.close()
+    return True if not row else row[0] == '1'
+
+
+def set_register_enabled(enabled):
+    """写入注册开关配置。enabled 为 True 表示开放新用户注册。"""
+    os.makedirs(os.path.dirname(CONFIG_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(CONFIG_DB_PATH)
+    conn.execute(
+        'CREATE TABLE IF NOT EXISTS app_config ('
+        'key TEXT PRIMARY KEY, '
+        'value TEXT NOT NULL'
+        ')'
+    )
+    conn.execute(
+        "INSERT INTO app_config (key, value) VALUES ('register_enabled', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        ('1' if enabled else '0',)
+    )
+    conn.commit()
+    conn.close()
+
+
 def register(username, password):
     """注册用户。返回 (success: bool, message: str)"""
+    if not get_register_enabled():
+        return False, '管理员未开放新用户注册'
     username = (username or '').strip()
     password = password or ''
     error = validate_username(username)
