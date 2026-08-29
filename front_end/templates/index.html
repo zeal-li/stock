@@ -380,6 +380,10 @@
                         <div class="settings-label">注册时间</div>
                         <div class="settings-value" id="settingCreateTime">-</div>
                     </div>
+                    <div class="settings-row">
+                        <div class="settings-label">最后登录</div>
+                        <div class="settings-value" id="settingLastLoginTime">-</div>
+                    </div>
                 </div>
                 <div class="index-card settings-card">
                     <div class="settings-danger">
@@ -611,17 +615,8 @@
                             btnDelete.disabled = false;
                             btnDelete.removeAttribute('title');
                         }
-                        var createTime = user.create_time;
-                        if (createTime) {
-                            var d = new Date(createTime * 1000);
-                            document.getElementById('settingCreateTime').innerText =
-                                d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
-                                String(d.getDate()).padStart(2, '0') + ' ' +
-                                String(d.getHours()).padStart(2, '0') + ':' +
-                                String(d.getMinutes()).padStart(2, '0');
-                        } else {
-                            document.getElementById('settingCreateTime').innerText = '-';
-                        }
+                        document.getElementById('settingCreateTime').innerText = _fmtDateTime(user.create_time);
+                        document.getElementById('settingLastLoginTime').innerText = _fmtDateTime(user.last_login_time);
                     }
                 })
                 .catch(function() {
@@ -629,7 +624,17 @@
                     document.getElementById('settingUserName').innerText = '-';
                     document.getElementById('settingUserType').innerText = '-';
                     document.getElementById('settingCreateTime').innerText = '-';
+                    document.getElementById('settingLastLoginTime').innerText = '-';
                 });
+        }
+
+        function _fmtDateTime(ts) {
+            if (!ts) return '-';
+            var d = new Date(ts * 1000);
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                String(d.getDate()).padStart(2, '0') + ' ' +
+                String(d.getHours()).padStart(2, '0') + ':' +
+                String(d.getMinutes()).padStart(2, '0');
         }
 
         // ---- 系统设置 ----

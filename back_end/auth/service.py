@@ -28,7 +28,8 @@ def _ensure_db():
         'salt TEXT NOT NULL, '
         'create_time INTEGER NOT NULL, '
         'user_type INTEGER NOT NULL DEFAULT 0, '
-        'session_version INTEGER NOT NULL DEFAULT 0'
+        'session_version INTEGER NOT NULL DEFAULT 0, '
+        'last_login_time INTEGER'
         ')'
     )
     # 已有库升级：补充 session_version 列（密码修改后 +1，使旧登录态失效）
@@ -189,12 +190,19 @@ def login(username, password):
     row = conn.execute(
         'SELECT password_hash, salt, user_type, session_version FROM users WHERE username = ?', (username,)
     ).fetchone()
-    conn.close()
     if not row:
+        conn.close()
         return False, '用户名或密码错误', USER_TYPE_NORMAL, 0
     password_hash, salt, user_type, session_version = row
     if _hash_password(password, salt) != password_hash:
+        conn.close()
         return False, '用户名或密码错误', USER_TYPE_NORMAL, 0
+    conn.execute(
+        'UPDATE users SET last_login_time = ? WHERE username = ?',
+        (int(time.time()), username)
+    )
+    conn.commit()
+    conn.close()
     return True, '登录成功', user_type, session_version
 
 
@@ -205,23 +213,23 @@ def get_user(username):
         return None
     conn = _ensure_db()
     row = conn.execute(
-        'SELECT id, username, user_type, create_time FROM users WHERE username = ?', (username,)
+        'SELECT id, username, user_type, create_time, last_login_time FROM users WHERE username = ?', (username,)
     ).fetchone()
     conn.close()
     if not row:
         return None
-    return {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3]}
+    return {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3], 'last_login_time': row[4]}
 
 
 def get_all_users():
     """查询所有用户。返回用户列表（不含密码等敏感信息）"""
     conn = _ensure_db()
     rows = conn.execute(
-        'SELECT id, username, user_type, create_time FROM users ORDER BY id ASC'
+        'SELECT id, username, user_type, create_time, last_login_time FROM users ORDER BY id ASC'
     ).fetchall()
     conn.close()
     return [
-        {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3]}
+        {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3], 'last_login_time': row[4]}
         for row in rows
     ]
 
@@ -230,12 +238,12 @@ def get_user_by_id(user_id):
     """根据用户 id 查询用户信息。返回 dict 或 None"""
     conn = _ensure_db()
     row = conn.execute(
-        'SELECT id, username, user_type, create_time FROM users WHERE id = ?', (user_id,)
+        'SELECT id, username, user_type, create_time, last_login_time FROM users WHERE id = ?', (user_id,)
     ).fetchone()
     conn.close()
     if not row:
         return None
-    return {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3]}
+    return {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3], 'last_login_time': row[4]}
 
 
 def reset_password(user_id, new_password):

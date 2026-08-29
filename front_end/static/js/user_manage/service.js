@@ -79,7 +79,7 @@ function renderUserManageList() {
     }
 
     var html = '<div class="data-table"><table><thead><tr>' +
-        '<th>ID</th><th>用户名</th><th>用户类型</th><th>创建时间</th><th>操作</th>' +
+        '<th>ID</th><th>用户名</th><th>用户类型</th><th>创建时间</th><th>最后登录</th><th>操作</th>' +
         '</tr></thead><tbody>';
 
     for (var i = 0; i < users.length; i++) {
@@ -91,6 +91,7 @@ function renderUserManageList() {
             '<td>' + u.username + '</td>' +
             '<td>' + (typeName || u.user_type) + '</td>' +
             '<td style="white-space:nowrap;color:#888;">' + _formatTime(u.create_time) + '</td>' +
+            '<td style="white-space:nowrap;color:#888;">' + _formatTime(u.last_login_time) + '</td>' +
             '<td style="white-space:nowrap;">' +
             _userActionLink(canOperate, '修改权限', "showUserTypeModal(" + u.id + ",'" + u.username + "'," + currentUserType + ")") +
             _userActionLink(canOperate, '重置密码', "showResetPwdModal(" + u.id + ",'" + u.username + "')") +
