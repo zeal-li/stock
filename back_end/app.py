@@ -69,8 +69,8 @@ def _require_login():
         g.user = None
         g.user_id = None
     path = request.path
-    # 放行登录页、注册/登录/会话接口
-    if path in ('/', '/login', '/api/auth/register', '/api/auth/login', '/api/auth/session'):
+    # 放行登录页、注册/登录/会话接口（注意：/ 不放行，未登录访问首页应直接返回登录页，避免先闪主界面）
+    if path in ('/login', '/api/auth/register', '/api/auth/login', '/api/auth/session'):
         return
     if path.startswith('/static/'):
         return
