@@ -1222,7 +1222,13 @@ async function doWatchlistExport() {
 function openWatchlistImportModal() {
     document.getElementById('watchlistImportMsg').textContent = '';
     document.getElementById('watchlistImportFile').value = '';
+    document.getElementById('watchlistImportFileName').textContent = '未选择任何文件';
     document.getElementById('watchlistImportModal').style.display = 'flex';
+}
+
+function onWatchlistFileChange(input) {
+    var nameEl = document.getElementById('watchlistImportFileName');
+    nameEl.textContent = (input.files && input.files.length > 0) ? input.files[0].name : '未选择任何文件';
 }
 
 function closeWatchlistImportModal() {

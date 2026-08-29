@@ -910,7 +910,11 @@
             </div>
             <div class="modal-field" style="margin-top:12px;">
                 <label>选择 txt 文件</label>
-                <input type="file" id="watchlistImportFile" accept=".txt">
+                <div class="wl-file-select">
+                    <input type="file" id="watchlistImportFile" accept=".txt" onchange="onWatchlistFileChange(this)">
+                    <button type="button" class="wl-file-btn" onclick="document.getElementById('watchlistImportFile').click()">浏览文件</button>
+                    <span class="wl-file-name" id="watchlistImportFileName">未选择任何文件</span>
+                </div>
             </div>
             <div class="pwd-msg" id="watchlistImportMsg"></div>
             <div class="pwd-actions">

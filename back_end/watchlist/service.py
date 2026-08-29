@@ -151,3 +151,13 @@ def holdings_reorder(user_id, items):
         conn.execute('UPDATE holdings SET sort_order = ? WHERE user_id = ? AND code = ? AND market = ?', (sort_order, user_id, code, market))
     conn.commit()
     conn.close()
+
+
+def delete_user_data(user_id):
+    """删除指定用户的全部自选股、场内ETF、持仓股数据"""
+    conn = _ensure_db()
+    conn.execute('DELETE FROM watchlist WHERE user_id = ?', (user_id,))
+    conn.execute('DELETE FROM etf WHERE user_id = ?', (user_id,))
+    conn.execute('DELETE FROM holdings WHERE user_id = ?', (user_id,))
+    conn.commit()
+    conn.close()

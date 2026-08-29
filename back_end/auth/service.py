@@ -322,7 +322,7 @@ def update_user_type(user_id, new_user_type):
 
 
 def delete_user(user_id):
-    """删除指定用户。返回 (success: bool, message: str)"""
+    """删除指定用户及其关联数据。返回 (success: bool, message: str)"""
     conn = _ensure_db()
     row = conn.execute('SELECT id FROM users WHERE id = ?', (user_id,)).fetchone()
     if not row:
@@ -331,6 +331,9 @@ def delete_user(user_id):
     conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
     conn.commit()
     conn.close()
+    # 同步删除该用户的自选股、场内ETF、持仓股数据
+    from watchlist.service import delete_user_data
+    delete_user_data(user_id)
     return True, '删除成功'
 
 
