@@ -1,6 +1,7 @@
 // ==================== 用户管理 ====================
 
 var _userTypeFilterInited = false;
+var _userManageData = null; // 缓存用户列表数据，供类型筛选与用户名搜索复用
 
 // 用 USER_TYPE_MAP 通用定义动态生成筛选下拉框选项，只初始化一次（避免重建导致选中值丢失）
 function initUserTypeFilter() {
@@ -26,9 +27,8 @@ function loadUserManageList() {
         .then(function(res) { return res.json(); })
         .then(function(data) {
             if (data.success) {
-                var filter = document.getElementById('userTypeFilter');
-                var filterType = filter ? filter.value : '';
-                renderUserManageList(data.data, CURRENT_USER_TYPE, filterType);
+                _userManageData = { users: data.data, currentUserType: CURRENT_USER_TYPE };
+                renderUserManageList();
             } else {
                 container.innerHTML = '<div style="text-align:center;color:#e94560;padding:40px;">' + (data.error || '获取失败') + '</div>';
             }
@@ -54,15 +54,26 @@ function _userActionLink(canOperate, text, onclick) {
     return '<span style="color:#555;cursor:not-allowed;margin-right:14px;" title="权限不足">' + text + '</span>';
 }
 
-function renderUserManageList(users, currentUserType, filterType) {
+function renderUserManageList() {
     var container = document.getElementById('userManageContent');
-    if (!container) return;
+    if (!container || !_userManageData) return;
 
+    var users = _userManageData.users || [];
+    var currentUserType = _userManageData.currentUserType;
+
+    var filter = document.getElementById('userTypeFilter');
+    var filterType = filter ? filter.value : '';
     if (filterType !== '') {
         users = users.filter(function(u) { return String(u.user_type) === filterType; });
     }
 
-    if (!users || users.length === 0) {
+    var searchEl = document.getElementById('userNameSearch');
+    var keyword = searchEl ? searchEl.value.trim() : '';
+    if (keyword !== '') {
+        users = users.filter(function(u) { return u.username.indexOf(keyword) >= 0; });
+    }
+
+    if (users.length === 0) {
         container.innerHTML = '<div style="text-align:center;color:#888;padding:40px;">暂无用户</div>';
         return;
     }

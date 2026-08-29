@@ -341,9 +341,10 @@
 
             <!-- 用户管理页面 -->
             <div id="page-user-manage" style="display:none;">
-                <div class="page-header">
-                    <h1 class="page-title">👥 用户管理</h1>
-                    <select id="userTypeFilter" onchange="loadUserManageList()" style="font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;margin-left:12px;"></select>
+                <div class="page-header" style="justify-content:flex-start;">
+                    <h1 class="page-title" style="margin-right:12px;">👥 用户管理</h1>
+                    <input type="text" id="userNameSearch" placeholder="搜索用户名..." oninput="renderUserManageList()" style="background:#1a1a2e;border:1px solid #0f3460;color:#fff;padding:6px 12px;border-radius:6px;font-size:13px;width:180px;outline:none;">
+                    <select id="userTypeFilter" onchange="renderUserManageList()" style="font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;margin-left:12px;"></select>
                 </div>
                 <div class="index-card" style="padding:30px;">
                     <div id="userManageContent"></div>
