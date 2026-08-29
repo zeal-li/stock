@@ -1,6 +1,6 @@
 # 鑫多多
 
-A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股/场内ETF/持仓股（SQLite 持久化）、K 线弹窗（日/周/月 + 分钟K线）、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告、异动中心、市场资讯、龙虎榜、全球行情（指数/大宗商品/外汇）、板块资金流向、ML 训练（XGBoost）。
+A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股/场内ETF/持仓股（SQLite 持久化）、K 线弹窗（日/周/月 + 分钟K线 + 五档盘口 + 逐笔成交）、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告、异动中心、市场资讯、龙虎榜、全球行情（指数/大宗商品/外汇）、板块资金流向、ML 训练（XGBoost）。内置用户账户体系（注册/登录 + 普通用户/管理员/root 三级权限）与用户管理、系统设置。
 
 ## 目录结构
 
@@ -11,13 +11,16 @@ stock/
 ├── note.md / note2.md
 ├── strategie.md                       # 技术选股策略文档
 ├── build_exe.py                       # PyInstaller 打包入口
-├── 鑫多多.spec                         # PyInstaller spec 文件
 ├── gitpush.bat
 │
 ├── back_end/                          # 后端（Flask）
 │   ├── app.py                         # 主入口：路由 + 启动
 │   ├── requirements.txt
 │   ├── start.bat / stop.bat / restart.bat / train_ml.bat
+│   │
+│   ├── auth/                          # 用户账户模块
+│   │   ├── __init__.py
+│   │   └── service.py                 # 注册/登录/密码哈希/用户类型/会话版本/最后登录时间
 │   │
 │   ├── common/                        # 公共模块
 │   │   ├── __init__.py
@@ -97,11 +100,12 @@ stock/
 │
 ├── front_end/                         # 前端（原生 HTML/CSS/JS）
 │   ├── templates/
-│   │   └── index.html                 # 主页面：导航 + 各模块初始化
+│   │   ├── index.html                 # 主页面：导航 + 各模块初始化
+│   │   └── login.html                 # 登录/注册页面
 │   └── static/
 │       ├── style.css
 │       └── js/
-│           ├── common.js              # 公共工具：交易时间判断 / 缓存清理
+│           ├── common.js              # 公共工具：用户类型/权限校验 + 交易时间判断 / 缓存清理
 │           ├── kline/                 # K线图表模块
 │           │   ├── popup.js           # K线弹窗主逻辑
 │           │   ├── chart.js           # 日K/周K/月K + 分钟K线（Lightweight Charts）
@@ -132,6 +136,8 @@ stock/
 │           │   └── service.js         # 东方财富资讯获取 + 分页渲染
 │           ├── stock_pick/            # 选股前端
 │           │   └── service.js         # 搜索 + 缓存 + 渲染
+│           ├── user_manage/           # 用户管理前端
+│           │   └── service.js         # 用户列表 + 类型筛选/搜索 + 改权限/重置密码/删除
 │           └── watchlist/             # 自选股前端
 │               └── service.js         # 自选股/场内ETF/持仓股 三Tab + 刷新 + 拖拽排序
 │
@@ -148,7 +154,7 @@ stock/
 | 自选股 | 自选列表 + 场内ETF + 持仓股 三Tab，加/删/拖拽排序，批量行情（PE/PB/市值/行业），商誉率、量比/委比 |
 | 选股 | 多市场股票搜索（A股/港股/美股）、实时行情查询 |
 | 技术选股 | 按市场分段异步加载K线、双策略扫描（上升通道 + ML量化打分），支持 pipeline 串联 |
-| K 线弹窗 | LightweightCharts 蜡烛图，日K/周K/月K + 分钟K线（1/5/15/30/60/120min），分时图、五日分时、MA/布林线 |
+| K 线弹窗 | LightweightCharts 蜡烛图，日K/周K/月K + 分钟K线（1/5/15/30/60/120min），分时图、五日分时、MA/布林线、五档买卖盘口、逐笔成交明细（仅A股） |
 | 解禁列表 | 限售股解禁信息（近一月），支持股票筛选 |
 | 业绩报告 | 业绩预告 + 业绩快报 + 业绩报表（近三年），按年报/半年报/季报细分，支持股票筛选 |
 | 公司公告 | 上市公司公告信息（最近 15 天），按重要性颜色标记，支持股票筛选 |
@@ -157,6 +163,10 @@ stock/
 | 龙虎榜 | 每日龙虎榜明细（同花顺数据源），日期选择器 + 分类标签（全部/机构/游资/机构+游资）+ 席位明细展开 |
 | 全球行情 | 全球指数（A股8大 + 海外7大）+ 大宗商品（贵金属/有色/能化/黑色/农产品）+ 外汇汇率 |
 | 板块资金 | 行业/概念板块主力资金流入/流出排行（今日/5日/10日），板块成分股弹窗 + ETF成分股弹窗 |
+| 登录/注册 | 用户名密码登录 / 注册账户（用户名 3-32 位字母数字下划线，密码 6-64 位），未登录访问自动跳转登录页 |
+| 账户设置 | 查看账户信息（用户ID/用户名/类型/注册时间/最后登录时间）、修改密码（成功后需重新登录）、注销账户（root 除外） |
+| 用户管理 | 管理员及以上权限：用户列表（创建时间/最后登录时间）、按类型筛选 + 用户名搜索、修改权限、重置密码、删除用户（仅能操作权限低于自己的用户，root 不可被操作） |
+| 系统设置 | root 专属：查看/重置 secret_key，重置后所有已登录用户会话失效需重新登录 |
 
 ## SQLite 数据库表结构
 
@@ -211,12 +221,14 @@ CREATE TABLE stock_info (
 
 ```sql
 CREATE TABLE users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    username      TEXT NOT NULL UNIQUE,   -- 用户名（登录账号）
-    password_hash TEXT NOT NULL,          -- 加盐密码哈希 sha256(salt + password)
-    salt          TEXT NOT NULL,          -- 每个用户独立的随机盐
-    create_time   INTEGER NOT NULL,       -- 注册时间（Unix 时间戳，秒）
-    user_type     INTEGER NOT NULL DEFAULT 0  -- 用户类型
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    username         TEXT NOT NULL UNIQUE,   -- 用户名（登录账号）
+    password_hash    TEXT NOT NULL,          -- 加盐密码哈希 sha256(salt + password)
+    salt             TEXT NOT NULL,          -- 每个用户独立的随机盐
+    create_time      INTEGER NOT NULL,       -- 注册时间（Unix 时间戳，秒）
+    user_type        INTEGER NOT NULL DEFAULT 0,  -- 用户类型
+    session_version  INTEGER NOT NULL DEFAULT 0,  -- 会话版本（修改密码/重置密码后 +1，旧登录态失效）
+    last_login_time  INTEGER                 -- 最后登录时间（Unix 时间戳，秒，每次登录刷新）
 );
 ```
 
@@ -227,6 +239,8 @@ CREATE TABLE users (
 | 0 | 普通用户（注册默认） |
 | 1 | 管理员 |
 | 101 | root |
+
+> 首次启动自动创建 root 账户：用户名 `admin`，初始密码 `123456`。root 为系统用户，不允许删除/注销，且不可被其他用户修改权限。
 
 ### data/config.db — 应用配置
 
@@ -382,6 +396,29 @@ update_market(seg_key)
 
 ## API 路由
 
+### 认证与账户
+
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/api/auth/register` | POST | 注册账户（用户名 3-32 位字母数字下划线，密码 6-64 位） |
+| `/api/auth/login` | POST | 登录（成功后刷新该用户最后登录时间） |
+| `/api/auth/logout` | POST | 退出登录 |
+| `/api/auth/session` | GET | 获取当前登录态（用户名/用户类型） |
+| `/api/auth/me` | GET | 获取当前账户信息（含注册时间/最后登录时间） |
+| `/api/auth/change-password` | POST | 修改密码（成功后清空会话，需重新登录） |
+| `/api/auth/delete-account` | POST | 注销账户（root 不允许注销） |
+| `/api/auth/users` | GET | 用户列表（含创建时间/最后登录时间） |
+| `/api/auth/users/<id>/password` | POST | 重置指定用户密码（仅管理员及以上，且权限高于目标用户） |
+| `/api/auth/users/<id>/delete` | POST | 删除指定用户（仅管理员及以上，且权限高于目标用户） |
+| `/api/auth/users/<id>/user-type` | POST | 修改指定用户类型（仅管理员及以上，且权限高于目标用户） |
+
+### 系统设置
+
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/api/system/config` | GET | 获取应用配置（secret_key） |
+| `/api/system/secret-key/reset` | POST | 重置 secret_key，所有已登录用户会话失效需重新登录 |
+
 ### 行情数据
 
 | 路由 | 方法 | 说明 |
@@ -403,6 +440,8 @@ update_market(seg_key)
 | `/api/stock-extra` | GET | 单只股票量比/委比 |
 | `/api/stock-minute` | GET | 个股分时走势（支持多日） |
 | `/api/stock-kline` | GET | 个股K线（日/周/月 + 分钟K线 1/5/15/30/60/120min） |
+| `/api/stock-depth` | GET | 五档买卖盘口（仅A股，新浪财经数据源） |
+| `/api/stock-trade-detail` | GET | 逐笔成交明细（仅A股，东方财富数据源） |
 | `/api/stock-concepts` | GET | 股票核心概念题材 |
 | `/api/stock-biz-comp` | GET | 股票主营构成（按产品分类） |
 | `/api/goodwill` | GET | 批量商誉率 + 质押率（10线程并发） |
@@ -560,6 +599,7 @@ cd back_end
 | 单只股票量比/委比 | `push2delay.eastmoney.com/api/qt/stock/get` |
 | 上证指数/个股日内分时 | `push2delay.eastmoney.com/api/qt/stock/trends2/get` |
 | 1分钟K线 | `push2delay.eastmoney.com/api/qt/stock/kline/get` |
+| 逐笔成交明细 | `push2delay.eastmoney.com/api/qt/stock/details/get` |
 | 主力资金净流入分时 | `push2delay.eastmoney.com/api/qt/stock/fflow/kline/get` |
 | 股票列表/板块排行/成分股 | `push2delay.eastmoney.com/api/qt/clist/get` |
 | 股票搜索 | `searchapi.eastmoney.com/api/suggest/get` |
@@ -584,6 +624,7 @@ cd back_end
 |------|------|
 | A 股 5/15/30/60 分钟K线 | `money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData` |
 | 北交所/债券 日/周/月K线 | 同上（新浪 K线 API） |
+| A 股五档买卖盘口 | `hq.sinajs.cn/list=` |
 | 全球指数/大宗商品/外汇 | `hq.sinajs.cn/list=` |
 
 ### Yahoo Finance
@@ -613,6 +654,8 @@ pip install -r back_end\requirements.txt
 cd back_end
 python app.py
 # 浏览器访问 http://localhost:5000
+# 首次启动自动创建 root 账户：admin / 123456（登录后建议修改密码，root 可在"系统设置"查看/重置 secret_key）
+# 未登录访问任意页面会自动跳转到登录页，可自行注册普通账户
 ```
 
 或双击 `back_end\start.bat`。
