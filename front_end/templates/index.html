@@ -82,7 +82,11 @@
                 </div>
                 <div class="nav-item" data-page="settings">
                     <span class="nav-icon">⚙️</span>
-                    <span>设置</span>
+                    <span>账户设置</span>
+                </div>
+                <div class="nav-item" data-page="system-settings">
+                    <span class="nav-icon">🖥️</span>
+                    <span>系统设置</span>
                 </div>
             </div>
         </div>
@@ -351,10 +355,20 @@
                 </div>
             </div>
 
-            <!-- 设置页面 -->
+            <!-- 账户设置页面 -->
             <div id="page-settings" style="display:none;">
                 <div class="page-header">
-                    <h1 class="page-title">⚙️ 设置</h1>
+                    <h1 class="page-title">⚙️ 账户设置</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div style="text-align:center;color:#888;padding:40px;">功能建设中...</div>
+                </div>
+            </div>
+
+            <!-- 系统设置页面 -->
+            <div id="page-system-settings" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">🖥️ 系统设置</h1>
                 </div>
                 <div class="index-card" style="padding:30px;">
                     <div style="text-align:center;color:#888;padding:40px;">功能建设中...</div>
@@ -463,6 +477,7 @@
                 document.getElementById('page-announce').style.display = page === 'announce' ? 'block' : 'none';
                 document.getElementById('page-user-manage').style.display = page === 'user-manage' ? 'block' : 'none';
                 document.getElementById('page-settings').style.display = page === 'settings' ? 'block' : 'none';
+                document.getElementById('page-system-settings').style.display = page === 'system-settings' ? 'block' : 'none';
                 document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
                 if (page === 'sector-fund') loadSectorFund();
