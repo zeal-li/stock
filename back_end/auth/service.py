@@ -232,7 +232,10 @@ def update_user_type(user_id, new_user_type):
         conn.close()
         return False, '用户不存在'
     if row[1] != new_user_type:
-        conn.execute('UPDATE users SET user_type = ? WHERE id = ?', (new_user_type, user_id))
+        conn.execute(
+            'UPDATE users SET user_type = ?, session_version = session_version + 1 WHERE id = ?',
+            (new_user_type, user_id)
+        )
         conn.commit()
     conn.close()
     return True, '权限修改成功'
