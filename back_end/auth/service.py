@@ -181,7 +181,7 @@ def get_all_users():
     """查询所有用户。返回用户列表（不含密码等敏感信息）"""
     conn = _ensure_db()
     rows = conn.execute(
-        'SELECT id, username, user_type, create_time FROM users ORDER BY create_time DESC'
+        'SELECT id, username, user_type, create_time FROM users ORDER BY id ASC'
     ).fetchall()
     conn.close()
     return [
