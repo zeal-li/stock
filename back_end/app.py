@@ -147,7 +147,43 @@ def auth_session():
 @app.route('/api/auth/users')
 def auth_users():
     from auth.service import get_all_users
-    return jsonify({'success': True, 'data': get_all_users()})
+    return jsonify({'success': True, 'data': get_all_users(),
+                    'current_user_type': session.get('user_type', 0)})
+
+
+@app.route('/api/auth/users/<int:user_id>/password', methods=['POST'])
+def auth_user_reset_password(user_id):
+    from auth.service import get_user_by_id, reset_password
+    user = session.get('user')
+    if not user:
+        return jsonify({'success': False, 'error': '未登录', 'code': 401}), 401
+    target = get_user_by_id(user_id)
+    if not target:
+        return jsonify({'success': False, 'error': '用户不存在'})
+    if session.get('user_type', 0) <= target['user_type']:
+        return jsonify({'success': False, 'error': '权限不足'}), 403
+    new_password = request.form.get('new_password', '')
+    success, message = reset_password(user_id, new_password)
+    if success:
+        return jsonify({'success': True, 'message': message})
+    return jsonify({'success': False, 'error': message})
+
+
+@app.route('/api/auth/users/<int:user_id>/delete', methods=['POST'])
+def auth_user_delete(user_id):
+    from auth.service import get_user_by_id, delete_user
+    user = session.get('user')
+    if not user:
+        return jsonify({'success': False, 'error': '未登录', 'code': 401}), 401
+    target = get_user_by_id(user_id)
+    if not target:
+        return jsonify({'success': False, 'error': '用户不存在'})
+    if session.get('user_type', 0) <= target['user_type']:
+        return jsonify({'success': False, 'error': '权限不足'}), 403
+    success, message = delete_user(user_id)
+    if success:
+        return jsonify({'success': True, 'message': message})
+    return jsonify({'success': False, 'error': message})
 
 
 # ==================== 行情数据 ====================

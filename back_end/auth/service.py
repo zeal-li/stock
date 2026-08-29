@@ -190,6 +190,53 @@ def get_all_users():
     ]
 
 
+def get_user_by_id(user_id):
+    """根据用户 id 查询用户信息。返回 dict 或 None"""
+    conn = _ensure_db()
+    row = conn.execute(
+        'SELECT id, username, user_type, create_time FROM users WHERE id = ?', (user_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {'id': row[0], 'username': row[1], 'user_type': row[2], 'create_time': row[3]}
+
+
+def reset_password(user_id, new_password):
+    """管理员重置指定用户密码。返回 (success: bool, message: str)"""
+    new_password = new_password or ''
+    error = validate_password(new_password)
+    if error:
+        return False, error
+    conn = _ensure_db()
+    row = conn.execute('SELECT salt FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, '用户不存在'
+    salt = row[0]
+    new_password_hash = _hash_password(new_password, salt)
+    conn.execute(
+        'UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?',
+        (new_password_hash, user_id)
+    )
+    conn.commit()
+    conn.close()
+    return True, '密码修改成功'
+
+
+def delete_user(user_id):
+    """删除指定用户。返回 (success: bool, message: str)"""
+    conn = _ensure_db()
+    row = conn.execute('SELECT id FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not row:
+        conn.close()
+        return False, '用户不存在'
+    conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    return True, '删除成功'
+
+
 def get_user_id(username):
     """根据用户名查询用户 id。返回 int 或 None"""
     username = (username or '').strip()

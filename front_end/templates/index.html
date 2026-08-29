@@ -611,5 +611,25 @@
             </div>
         </div>
     </div>
+
+    <!-- 管理员重置用户密码弹窗 -->
+    <div class="modal-overlay" id="resetPwdModal" style="display:none;" onclick="closeResetPwdModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <h3>重置密码 - <span id="resetPwdTarget"></span></h3>
+            <div class="modal-field">
+                <label>新密码</label>
+                <input type="password" id="resetNewPassword" autocomplete="new-password">
+            </div>
+            <div class="modal-field">
+                <label>确认新密码</label>
+                <input type="password" id="resetConfirmPassword" autocomplete="new-password">
+            </div>
+            <div class="pwd-msg" id="resetPwdMsg"></div>
+            <div class="pwd-actions">
+                <button class="modal-btn primary" onclick="submitResetPwd()">确认重置</button>
+                <button class="modal-btn" onclick="closeResetPwdModal()">取消</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
