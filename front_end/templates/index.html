@@ -343,6 +343,7 @@
             <div id="page-user-manage" style="display:none;">
                 <div class="page-header">
                     <h1 class="page-title">👥 用户管理</h1>
+                    <select id="userTypeFilter" onchange="loadUserManageList()" style="font-size:12px;padding:3px 8px;border:1px solid #2a2a4e;border-radius:3px;background:#1a1a2e;color:#ccc;margin-left:12px;"></select>
                 </div>
                 <div class="index-card" style="padding:30px;">
                     <div id="userManageContent"></div>
@@ -628,6 +629,22 @@
             <div class="pwd-actions">
                 <button class="modal-btn primary" onclick="submitResetPwd()">确认重置</button>
                 <button class="modal-btn" onclick="closeResetPwdModal()">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 修改用户权限弹窗 -->
+    <div class="modal-overlay" id="userTypeModal" style="display:none;" onclick="closeUserTypeModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <h3>修改权限 - <span id="userTypeTarget"></span></h3>
+            <div class="modal-field">
+                <label>用户类型</label>
+                <select id="newUserType" style="width:100%;padding:9px;border:1px solid #0f3460;border-radius:6px;background:#1a1a2e;color:#ccc;font-size:14px;"></select>
+            </div>
+            <div class="pwd-msg" id="userTypeMsg"></div>
+            <div class="pwd-actions">
+                <button class="modal-btn primary" onclick="submitUserType()">确认修改</button>
+                <button class="modal-btn" onclick="closeUserTypeModal()">取消</button>
             </div>
         </div>
     </div>

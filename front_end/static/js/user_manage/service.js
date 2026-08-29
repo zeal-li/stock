@@ -1,8 +1,24 @@
 // ==================== 用户管理 ====================
 
+var _userTypeFilterInited = false;
+
+// 用 USER_TYPE_MAP 通用定义动态生成筛选下拉框选项，只初始化一次（避免重建导致选中值丢失）
+function initUserTypeFilter() {
+    var select = document.getElementById('userTypeFilter');
+    if (!select || _userTypeFilterInited) return;
+    _userTypeFilterInited = true;
+    var html = '<option value="">全部用户</option>';
+    for (var type in USER_TYPE_MAP) {
+        html += '<option value="' + type + '">' + USER_TYPE_MAP[type] + '</option>';
+    }
+    select.innerHTML = html;
+}
+
 function loadUserManageList() {
     var container = document.getElementById('userManageContent');
     if (!container) return;
+
+    initUserTypeFilter();
 
     container.innerHTML = '<div style="text-align:center;color:#888;padding:40px;">加载中...</div>';
 
@@ -10,7 +26,9 @@ function loadUserManageList() {
         .then(function(res) { return res.json(); })
         .then(function(data) {
             if (data.success) {
-                renderUserManageList(data.data, data.current_user_type);
+                var filter = document.getElementById('userTypeFilter');
+                var filterType = filter ? filter.value : '';
+                renderUserManageList(data.data, data.current_user_type, filterType);
             } else {
                 container.innerHTML = '<div style="text-align:center;color:#e94560;padding:40px;">' + (data.error || '获取失败') + '</div>';
             }
@@ -36,9 +54,13 @@ function _userActionLink(canOperate, text, onclick) {
     return '<span style="color:#555;cursor:not-allowed;margin-right:14px;" title="权限不足">' + text + '</span>';
 }
 
-function renderUserManageList(users, currentUserType) {
+function renderUserManageList(users, currentUserType, filterType) {
     var container = document.getElementById('userManageContent');
     if (!container) return;
+
+    if (filterType !== '') {
+        users = users.filter(function(u) { return String(u.user_type) === filterType; });
+    }
 
     if (!users || users.length === 0) {
         container.innerHTML = '<div style="text-align:center;color:#888;padding:40px;">暂无用户</div>';
@@ -59,7 +81,8 @@ function renderUserManageList(users, currentUserType) {
             '<td>' + (typeName || u.user_type) + '</td>' +
             '<td style="white-space:nowrap;color:#888;">' + _formatTime(u.create_time) + '</td>' +
             '<td style="white-space:nowrap;">' +
-            _userActionLink(canOperate, '修改密码', "showResetPwdModal(" + u.id + ",'" + u.username + "')") +
+            _userActionLink(canOperate, '修改权限', "showUserTypeModal(" + u.id + ",'" + u.username + "'," + currentUserType + ")") +
+            _userActionLink(canOperate, '重置密码', "showResetPwdModal(" + u.id + ",'" + u.username + "')") +
             _userActionLink(canOperate, '删除', "deleteUser(" + u.id + ",'" + u.username + "')") +
             '</td>' +
             '</tr>';
@@ -131,4 +154,58 @@ function deleteUser(userId, username) {
         .catch(function() {
             alert('网络错误，请稍后重试');
         });
+}
+
+// ---- 修改权限 ----
+var _userTypeTargetId = null;
+
+// 生成可选用户类型下拉选项：仅列出低于当前登录用户权限类型的类型
+function _userTypeOptions(currentUserType) {
+    var html = '';
+    for (var type in USER_TYPE_MAP) {
+        if (Number(type) < currentUserType) {
+            html += '<option value="' + type + '">' + USER_TYPE_MAP[type] + '</option>';
+        }
+    }
+    return html;
+}
+
+function showUserTypeModal(userId, username, currentUserType) {
+    _userTypeTargetId = userId;
+    document.getElementById('userTypeTarget').innerText = username;
+    document.getElementById('newUserType').innerHTML = _userTypeOptions(currentUserType);
+    document.getElementById('userTypeMsg').innerText = '';
+    document.getElementById('userTypeModal').style.display = 'flex';
+}
+
+function closeUserTypeModal() {
+    document.getElementById('userTypeModal').style.display = 'none';
+    _userTypeTargetId = null;
+}
+
+function submitUserType() {
+    var newType = document.getElementById('newUserType').value;
+    var msgEl = document.getElementById('userTypeMsg');
+    if (newType === '') { msgEl.innerText = '请选择用户类型'; return; }
+
+    var body = new URLSearchParams();
+    body.append('user_type', newType);
+    fetch('/api/auth/users/' + _userTypeTargetId + '/user-type', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (data.success) {
+            closeUserTypeModal();
+            alert(data.message || '权限修改成功');
+            loadUserManageList();
+        } else {
+            msgEl.innerText = data.error || '修改失败';
+        }
+    })
+    .catch(function() {
+        msgEl.innerText = '网络错误，请稍后重试';
+    });
 }

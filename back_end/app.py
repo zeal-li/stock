@@ -186,6 +186,32 @@ def auth_user_delete(user_id):
     return jsonify({'success': False, 'error': message})
 
 
+@app.route('/api/auth/users/<int:user_id>/user-type', methods=['POST'])
+def auth_user_update_type(user_id):
+    from auth.service import get_user_by_id, update_user_type
+    from common.utils import USER_TYPE_NORMAL, USER_TYPE_ADMIN, USER_TYPE_ROOT
+    user = session.get('user')
+    if not user:
+        return jsonify({'success': False, 'error': '未登录', 'code': 401}), 401
+    target = get_user_by_id(user_id)
+    if not target:
+        return jsonify({'success': False, 'error': '用户不存在'})
+    current_user_type = session.get('user_type', 0)
+    if current_user_type <= target['user_type']:
+        return jsonify({'success': False, 'error': '权限不足'}), 403
+    try:
+        new_user_type = int(request.form.get('user_type', ''))
+    except ValueError:
+        return jsonify({'success': False, 'error': '用户类型不合法'})
+    if new_user_type not in (USER_TYPE_NORMAL, USER_TYPE_ADMIN, USER_TYPE_ROOT) \
+            or new_user_type >= current_user_type:
+        return jsonify({'success': False, 'error': '权限不足'}), 403
+    success, message = update_user_type(user_id, new_user_type)
+    if success:
+        return jsonify({'success': True, 'message': message})
+    return jsonify({'success': False, 'error': message})
+
+
 # ==================== 行情数据 ====================
 
 @app.route('/api/major-indices')
