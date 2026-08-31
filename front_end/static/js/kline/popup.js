@@ -340,27 +340,30 @@ var KlinePopup = (function() {
     }
 
     // K线请求，失败自动重试（最多 attempts 次，每次间隔 delayMs）
-    function _fetchKlineWithRetry(url, attempts, delayMs) {
+    // period：发起请求时的周期，缓存必须按它写入，避免请求返回时 _currentPeriod 已切换到其它周期导致缓存串位
+    function _fetchKlineWithRetry(url, attempts, delayMs, period) {
+        period = period || _currentPeriod;
         var _firstAttempt = true;
-        return _fetchKlineOnce(url).catch(function() {
+        return _fetchKlineOnce(url, period).catch(function() {
             if (attempts <= 1) {
                 return { success: false };
             }
             console.log('[弹窗] ' + _stockCode + ' K线第1次尝试失败, ' + delayMs + 'ms后重试...');
             return new Promise(function(resolve) {
                 setTimeout(function() {
-                    resolve(_fetchKlineWithRetry(url, attempts - 1, delayMs));
+                    resolve(_fetchKlineWithRetry(url, attempts - 1, delayMs, period));
                 }, delayMs);
             });
         });
     }
 
-    function _fetchKlineOnce(url) {
+    function _fetchKlineOnce(url, period) {
+        period = period || _currentPeriod;
         return fetch(url)
             .then(function(r) { return r.json(); })
             .then(function(kd) {
                 if (kd.success && kd.data && kd.data.klines) {
-                    _setCachedKlines(_currentPeriod, kd.data.klines);
+                    _setCachedKlines(period, kd.data.klines);
                 }
                 return kd;
             });
@@ -383,9 +386,12 @@ var KlinePopup = (function() {
             return;
         }
 
-        var klineUrl = '/api/stock-kline?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&period=' + _currentPeriod;
-        _fetchKlineWithRetry(klineUrl, 3, 800)
+        // 记录发起请求时的周期：请求返回时若用户已切换周期，数据过期，只写缓存不渲染
+        var reqPeriod = _currentPeriod;
+        var klineUrl = '/api/stock-kline?code=' + encodeURIComponent(_stockCode) + '&market=' + encodeURIComponent(_stockMarket) + '&period=' + reqPeriod;
+        _fetchKlineWithRetry(klineUrl, 3, 800, reqPeriod)
             .then(function(kdata) {
+                if (reqPeriod !== _currentPeriod) return;  // 已切换周期，丢弃过期响应
                 if (!kdata.success || !kdata.data || !kdata.data.klines || kdata.data.klines.length === 0) {
                     chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;">暂无K线数据</div>';
                     console.log('[弹窗] ' + _stockCode + ' _loadKlineChart(' + _currentPeriod + ') 无数据, 耗时 ' + (Date.now() - _tStart) + 'ms');
@@ -980,7 +986,7 @@ var KlinePopup = (function() {
             // 浏览器同源连接上限（6个）可能被 open() 的并发请求 + 页面轮询占满，
             // 失败后等 1.5s 让其他请求释放连接，最多重试 3 次。
             var klineUrl = '/api/stock-kline?code=' + encodeURIComponent(code) + '&market=' + encodeURIComponent(market);
-            pKline = _fetchKlineWithRetry(klineUrl, 3, 1500).then(function(r) { console.log('[弹窗] ' + code + ' stock-kline 耗时 ' + (Date.now() - _tKline) + 'ms'); return r; });
+            pKline = _fetchKlineWithRetry(klineUrl, 3, 1500, 'day').then(function(r) { console.log('[弹窗] ' + code + ' stock-kline 耗时 ' + (Date.now() - _tKline) + 'ms'); return r; });
         }
 
         // ETF/LOF/基金 没有商誉质押、主营构成和题材概念，直接返回空
@@ -1059,15 +1065,19 @@ var KlinePopup = (function() {
 
             _fillBizComp(bizComp);
 
-            if (kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
+            // open 加载的是日K；若用户已切换周期，_loadKlineChart 负责渲染当前周期，这里不覆盖
+            var stillDay = (_currentPeriod === 'day' && !_isMinute);
+            if (stillDay && kdata.success && kdata.data.klines && kdata.data.klines.length > 0) {
                 _klinesData = kdata.data.klines;
             }
 
-            if (!_klinesData) {
-                chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
-            } else {
-                try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _switchIndicator(_indicatorMode); }
-                catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
+            if (stillDay) {
+                if (!_klinesData) {
+                    chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#8b8b9e;font-size:14px;">暂无K线数据</div>';
+                } else {
+                    try { _renderChart(kdata.data); var sel = document.getElementById('klIndSelect'); if (sel) sel.value = _indicatorMode; _switchIndicator(_indicatorMode); }
+                    catch(e) { chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#ef5350;font-size:13px;">渲染失败: ' + (e.message || e) + '</div>'; }
+                }
             }
 
             // _fillHeader 必须在 _renderChart 之后调用，
