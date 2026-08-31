@@ -986,7 +986,7 @@ async function refreshHoldingsQuotes() {
 function holdingsRender() {
     var div = document.getElementById('holdingsContent');
     if (holdingsStocks.length === 0) { div.innerHTML = ''; return; }
-    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>换手/振幅</th><th>持仓天数</th><th>持仓价</th><th>持仓数</th><th>持仓市值</th><th>持仓成本</th><th>当天收益</th><th>收益率</th><th>总收益</th><th>回本涨幅</th><th></th></tr></thead><tbody>';
+    var html = '<div class="data-table"><table><thead><tr><th>代码</th><th>名称</th><th>市场</th><th>最新价</th><th>涨跌额(幅)</th><th>换手/振幅</th><th>当天收益</th><th>收益率</th><th>总收益</th><th>回本涨幅</th><th>持仓价</th><th>持仓数</th><th>持仓市值</th><th>持仓成本</th><th>持仓天数</th><th></th></tr></thead><tbody>';
     holdingsStocks.forEach(function(s) {
         var type = getStockType(s.code, s.market);
         var color = _chgColor(s.change);
@@ -998,15 +998,15 @@ function holdingsRender() {
             '<td class="cell-price"><span style="color:' + color + ';font-weight:bold;">' + s.price + '</span></td>' +
             '<td class="cell-chg"><span style="color:' + color + ';">' + chgText + '</span></td>' +
             '<td class="cell-to"><span style="color:#ddd;">' + _pairText(s.turnover, s.amplitude) + '</span></td>' +
-            '<td class="cell-jd"><span style="color:#ddd;">' + _holdingsJoinDays(s.addedDate) + '</span></td>' +
-            '<td class="cell-hp" style="cursor:pointer;" onclick="holdingsEditHoldPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓价">' + (s.holdPrice || '<span style="color:#555;">点击输入</span>') + '</td>' +
-            '<td class="cell-hq" style="cursor:pointer;" onclick="holdingsEditHoldQty(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓数">' + (s.holdQty || '<span style="color:#555;">点击输入</span>') + '</td>' +
-            '<td class="cell-hm">' + _holdingsMarketCap(s) + '</td>' +
-            '<td class="cell-ha">' + _holdingsAmount(s) + '</td>' +
             '<td class="cell-dp">' + _dailyProfit(s) + '</td>' +
             '<td class="cell-pr">' + _profitRate(s) + '</td>' +
             '<td class="cell-tp">' + _totalProfit(s) + '</td>' +
             '<td class="cell-bb">' + _backBreak(s) + '</td>' +
+            '<td class="cell-hp" style="cursor:pointer;" onclick="holdingsEditHoldPrice(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓价">' + (s.holdPrice || '<span style="color:#555;">点击输入</span>') + '</td>' +
+            '<td class="cell-hq" style="cursor:pointer;" onclick="holdingsEditHoldQty(\'' + s.code + '\',\'' + s.market + '\')" title="点击输入持仓数">' + (s.holdQty || '<span style="color:#555;">点击输入</span>') + '</td>' +
+            '<td class="cell-hm">' + _holdingsMarketCap(s) + '</td>' +
+            '<td class="cell-ha">' + _holdingsAmount(s) + '</td>' +
+            '<td class="cell-jd"><span style="color:#ddd;">' + _holdingsJoinDays(s.addedDate) + '</span></td>' +
             '<td><span style="color:#e94560;cursor:pointer;font-size:16px;" onclick="holdingsRemoveStock(\'' + s.code + '\',\'' + s.market + '\')">&times;</span></td>' +
         '</tr>';
     });
