@@ -31,16 +31,17 @@ def _init_tables(conn):
         );
 
         CREATE TABLE IF NOT EXISTS stock_klines (
-            code   TEXT NOT NULL,
-            market TEXT NOT NULL,
-            period TEXT NOT NULL,
-            date   TEXT NOT NULL,
-            open   REAL,
-            high   REAL,
-            low    REAL,
-            close  REAL,
-            volume REAL,
-            amount REAL,
+            code     TEXT NOT NULL,
+            market   TEXT NOT NULL,
+            period   TEXT NOT NULL,
+            date     TEXT NOT NULL,
+            open     REAL,
+            high     REAL,
+            low      REAL,
+            close    REAL,
+            volume   REAL,
+            amount   REAL,
+            turnover REAL,
             PRIMARY KEY (code, market, period, date)
         );
         CREATE INDEX IF NOT EXISTS idx_klines_market ON stock_klines(market, code, period, date);
@@ -207,6 +208,33 @@ def klines_count_market(market):
     return n
 
 
+def klines_years(code, market, period):
+    """返回该股票该周期在库里已有的年份集合 {'2024','2025',...}"""
+    c = _conn()
+    _init_tables(c)
+    rows = c.execute(
+        'SELECT DISTINCT substr(date,1,4) AS y FROM stock_klines '
+        'WHERE code=? AND market=? AND period=?', (code, market, period)).fetchall()
+    c.close()
+    return {r['y'] for r in rows}
+
+
+def klines_get_by_years(code, market, period, years):
+    """读取指定年份集合的K线，按日期升序返回 [{date, open, high, low, close, volume, amount}, ...]"""
+    if not years:
+        return []
+    c = _conn()
+    _init_tables(c)
+    placeholders = ','.join('?' * len(years))
+    rows = c.execute(
+        f'SELECT date, open, high, low, close, volume, amount, turnover FROM stock_klines '
+        f'WHERE code=? AND market=? AND period=? AND substr(date,1,4) IN ({placeholders}) '
+        f'ORDER BY date ASC',
+        [code, market, period] + list(years)).fetchall()
+    c.close()
+    return [dict(r) for r in rows]
+
+
 # ==================== stock_info ====================
 
 def stock_info_all():
@@ -216,6 +244,16 @@ def stock_info_all():
     rows = c.execute('SELECT code, market FROM stock_info').fetchall()
     c.close()
     return [(r['code'], r['market']) for r in rows]
+
+
+def stock_info_get(code, market):
+    """获取单只股票元信息 {name, daily_ts, weekly_ts, monthly_ts} 或 None"""
+    c = _conn()
+    _init_tables(c)
+    r = c.execute('SELECT name, daily_ts, weekly_ts, monthly_ts FROM stock_info WHERE code=? AND market=?',
+                  (code, market)).fetchone()
+    c.close()
+    return dict(r) if r else None
 
 
 def stock_info_kline_maps():
@@ -248,8 +286,8 @@ def stock_info_sync_atomic(code, market, name, kline_rows, period_dates):
         c.execute('BEGIN IMMEDIATE')
         for r in kline_rows:
             c.execute(
-                'INSERT OR IGNORE INTO stock_klines (code,market,period,date,open,high,low,close,volume,amount) '
-                'VALUES (?,?,?,?,?,?,?,?,?,?)', r)
+                'INSERT OR IGNORE INTO stock_klines (code,market,period,date,open,high,low,close,volume,amount,turnover) '
+                'VALUES (?,?,?,?,?,?,?,?,?,?,?)', r)
 
         # 读旧时间戳，只更新本次拉取的周期
         old = c.execute(

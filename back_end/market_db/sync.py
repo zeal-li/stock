@@ -318,6 +318,7 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
                 l = c
             volume = float(parts[5]) if parts[5] else 0
             amount = float(parts[6]) if parts[6] else 0
+            turnover = round(float(parts[7]) if parts[7] else 0, 2)
             rows.append((
                 code, seg_key, period,
                 date_str,
@@ -327,6 +328,7 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
                 c,
                 volume,
                 amount,
+                turnover,
             ))
     return rows
 
@@ -412,6 +414,7 @@ def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
                     round(float(quotes['close'][i] or 0), 3),
                     int(quotes['volume'][i] or 0),
                     round(float(quotes['close'][i] or 0) * int(quotes['volume'][i] or 0), 2),
+                    None,
                 ))
             return rows
         except Exception:

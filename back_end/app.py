@@ -1304,18 +1304,36 @@ def stock_kline():
                     })
             rows.sort(key=lambda r: r['time'])
         elif is_a_share(market):
-            # A 股用同花顺 K 线 API（v4 串行拉取 10 年）。
-            # 同花顺对同一股票短时间内的并发/连续请求会限流（随机 502/504），
-            # 故改为串行 + 请求间隔，避免触发限流。
+            # A 股日/周/月K：优先读本地 K 线库（stock_klines），缺失年份才向同花顺请求，
+            # 拉到的数据回写库，下次直接读库。交易日当天/当周/当月的未完结K线不入库。
             import time as _time
-            ths_period_code = {'day': '01', 'week': '11', 'month': '21'}.get(tx_period, '01')
+            from chinese_calendar import is_workday
+            from market_db.db import klines_years, klines_get_by_years, stock_info_get, stock_info_sync_atomic, market_get
+            from market_db.sync import _code_to_segment
+
+            # seg_key 按"代码前缀"归类，与 sync.py 写库时一致。不能用 _MARKET_TO_SEG[market]，
+            # 因为前端 market 代码对 ETF/创业/科创 与 sync.py 分段不一致（如 159xxx 前端 market='0' 但属 hs_etf）
+            seg_key = _code_to_segment(code)
+
+            db_period = {'day': 'daily', 'week': 'weekly', 'month': 'monthly'}[period]
+            ths_period_code = {'day': '01', 'week': '11', 'month': '21'}[period]
             current_year = _dt.datetime.now().year
-            years = list(range(current_year, current_year - 10, -1))
+            today = _dt.date.today()
+            today_str = today.strftime('%Y%m%d')
+            today_is_trading = is_workday(today)
+            # 最近交易日（从今天往前找第一个 is_workday）
+            _d = today
+            while not is_workday(_d):
+                _d = _d - _dt.timedelta(days=1)
+            latest_trading = _d.strftime('%Y%m%d')
+
+            # 市场是否已在技术选股页加载（stock_market 有记录）；seg_key 为空（如北交所）或未加载时不读/写库
+            market_loaded = bool(seg_key) and market_get(seg_key) is not None
+
             ths_headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': 'https://www.10jqka.com.cn/',
             }
-
             ths_prefix = THS_PREFIX.get(str(market), 'sh')
 
             # 单年份拉取：失败重试（同一数据源，非多源兜底）。
@@ -1346,55 +1364,142 @@ def stock_kline():
                 print(f'[stock-kline] {code} {period} 年份 {y} 拉取失败: {last_err}')
                 return None
 
-            year_results = {}
-            for y in years:
+            # 解析同花顺年文件 raw 字符串 → [{date, open, high, low, close, volume, amount, turnover}]
+            def _parse_year_raw(raw):
+                out = []
+                seen = set()
+                for line in raw.split(';'):
+                    parts = line.split(',')
+                    if len(parts) < 8:
+                        continue
+                    d = parts[0]
+                    if d in seen:
+                        continue
+                    seen.add(d)
+                    c = float(parts[4]) if parts[4] else 0
+                    if c <= 0:
+                        continue
+                    o = float(parts[1]) if parts[1] else 0
+                    h = float(parts[2]) if parts[2] else 0
+                    l = float(parts[3]) if parts[3] else 0
+                    # 开/高/低为空或为 0 时，用收盘价补上（同花顺当天可能只有收盘价）
+                    if o <= 0:
+                        o = c
+                    if h <= 0:
+                        h = c
+                    if l <= 0:
+                        l = c
+                    out.append({
+                        'date': d,
+                        'open': o, 'high': h, 'low': l, 'close': c,
+                        'volume': int(float(parts[5]) if parts[5] else 0),
+                        'amount': float(parts[6]) if parts[6] else 0,
+                        'turnover': round(float(parts[7]) if parts[7] else 0, 2),
+                    })
+                return out
+
+            # 判断某条K线是否属于当前未完结周期（仅当年文件、今天交易日时为 True）
+            def _is_unfinished(d_str):
+                if not today_is_trading:
+                    return False
+                if db_period == 'daily':
+                    return d_str == today_str
+                if db_period == 'weekly':
+                    k_iso = _dt.datetime.strptime(d_str, '%Y%m%d').isocalendar()[:2]
+                    return k_iso == today.isocalendar()[:2]
+                if db_period == 'monthly':
+                    return d_str[:6] == today_str[:6]
+                return False
+
+            # 1. 查库已有年份（市场未加载时库本就空，跳过查询）
+            have_years = klines_years(code, seg_key, db_period) if market_loaded else set()
+            # 库里最早年份：早于它的年份是上市前（无数据），不再重复请求
+            min_year = min((int(y) for y in have_years), default=None)
+
+            # 2. 历史缺失年份（< 当年）需拉取；当年按交易日判断是否需刷新
+            target_years = list(range(current_year, current_year - 10, -1))
+            miss_hist = [y for y in target_years
+                         if y < current_year and str(y) not in have_years
+                         and (min_year is None or y >= min_year)]
+
+            info = stock_info_get(code, seg_key) if market_loaded else None
+            ts_col = {'daily': 'daily_ts', 'weekly': 'weekly_ts', 'monthly': 'monthly_ts'}[db_period]
+            last_ts = (info or {}).get(ts_col) or ''
+            last_ts_date = last_ts[:10].replace('-', '') if last_ts else ''
+            # 市场未加载 → 总拉当年取实时K线；今天交易日 → 总拉当年；否则仅当落后于最近交易日才拉
+            if not market_loaded or today_is_trading:
+                need_current = True
+            else:
+                need_current = last_ts_date < latest_trading
+
+            years_to_fetch = miss_hist + ([current_year] if need_current else [])
+
+            # 3. 拉取缺失年份 + 当年（若需要）
+            fetched = {}  # {year: [parsed rows]}
+            for y in years_to_fetch:
                 raw = _fetch_year(y)
                 if raw is None:
                     # 该年份请求失败（重试耗尽），数据已不完整，整体返回失败，避免把残缺K线给前端
                     return jsonify({'success': False, 'error': f'年份 {y} K线拉取失败，请稍后重试'})
                 if raw:
-                    year_results[y] = raw
+                    fetched[y] = _parse_year_raw(raw)
                 _time.sleep(0.1)  # 串行间隔，避免同花顺限流
 
-            all_lines = []
-            for y in sorted(year_results.keys()):
-                all_lines.extend(year_results[y].split(';'))
+            # 4. 回写库（仅当市场已加载）：剔除未完结周期后入库 + 更新 stock_info 时间戳
+            if market_loaded:
+                new_rows = []
+                for y, parsed in fetched.items():
+                    for p in parsed:
+                        if _is_unfinished(p['date']):
+                            continue
+                        new_rows.append((code, seg_key, db_period, p['date'],
+                                         p['open'], p['high'], p['low'], p['close'],
+                                         p['volume'], p['amount'], p['turnover']))
+                if new_rows:
+                    period_dates = {db_period: _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                    stock_info_sync_atomic(code, seg_key, None, new_rows, period_dates)
 
-            seen = set()
-            for line in all_lines:
-                parts = line.split(',')
-                if len(parts) < 8:
-                    continue
-                d = parts[0]
-                if d in seen:
-                    continue
-                seen.add(d)
-                o = float(parts[1]) if parts[1] else 0
-                h = float(parts[2]) if parts[2] else 0
-                l = float(parts[3]) if parts[3] else 0
-                c = float(parts[4]) if parts[4] else 0
-                if c <= 0:
-                    continue
-                # 如果K线日期是今天且市场还没开盘，跳过未开盘的假K线
-                today_str = _dt.datetime.now().strftime('%Y%m%d')
-                if d == today_str and not is_market_opened(market):
-                    continue
-                # 开/高/低为空或为 0 时，用收盘价补上（同花顺当天可能只有收盘价）
-                if o <= 0:
-                    o = c
-                if h <= 0:
-                    h = c
-                if l <= 0:
-                    l = c
-                row = {
+            # 5. 组装返回
+            def _row_from(p):
+                d = p['date']
+                return {
                     'time': d[:4] + '-' + d[4:6] + '-' + d[6:8],
-                    'open': o, 'close': c,
-                    'high': h, 'low': l,
-                    'volume': int(float(parts[5]) if parts[5] else 0),
-                    'amount': float(parts[6]) if parts[6] else 0,
-                    'turnover': round(float(parts[7]) if parts[7] else 0, 2),
+                    'open': p['open'], 'close': p['close'],
+                    'high': p['high'], 'low': p['low'],
+                    'volume': p['volume'],
+                    'amount': p['amount'],
+                    'turnover': p['turnover'],
                 }
-                rows.append(row)
+
+            if market_loaded:
+                # 读库（已含历史已有 + 本次新入的已完结数据）
+                read_years = {str(y) for y in target_years}
+                db_dates = set()
+                for k in klines_get_by_years(code, seg_key, db_period, read_years):
+                    d = k['date']
+                    db_dates.add(d)
+                    rows.append({
+                        'time': d[:4] + '-' + d[4:6] + '-' + d[6:8],
+                        'open': k['open'], 'close': k['close'],
+                        'high': k['high'], 'low': k['low'],
+                        'volume': int(k['volume']),
+                        'amount': k['amount'],
+                        'turnover': k['turnover'],
+                    })
+                # 补本次拉到的未完结K线（今天/本周/本月，不入库但返回前端）
+                # 仅当今天交易日且已开盘才补；库里已有该日期则跳过（避免与 sync 写入重复）
+                if current_year in fetched and today_is_trading and is_market_opened(market):
+                    for p in fetched[current_year]:
+                        if _is_unfinished(p['date']) and p['date'] not in db_dates:
+                            rows.append(_row_from(p))
+            else:
+                # 市场未加载：直接用本次拉取的数据返回（不写库）
+                for y in sorted(fetched.keys()):
+                    for p in fetched[y]:
+                        # 跳过今天未开盘的假K线（保留原行为）
+                        if p['date'] == today_str and not is_market_opened(market):
+                            continue
+                        rows.append(_row_from(p))
             rows.sort(key=lambda r: r['time'])
         elif is_overseas(market):
             # 港股/美股 → 本地 DB（由 sync 提前拉取），无缓存时再走 Yahoo
