@@ -1101,11 +1101,11 @@ def _auto_update_all_markets():
     """遍历 K线库所有已加载市场，逐个串行执行增量更新"""
     markets = [m for m in market_all() if m in SEGMENTS]
     if not markets:
-        print('[sync] 每日自动更新: K线库暂无已加载市场，跳过')
+        print('[sync] 每日自动更新K线库: K线库暂无已加载市场，跳过')
         return
     total = len(markets)
     labels = ', '.join(SEGMENTS[m]['label'] for m in markets)
-    print(f'[sync] 每日自动更新: 开始，共 {total} 个市场 ({labels})')
+    print(f'[sync] 每日自动更新K线库: 开始，共 {total} 个市场 ({labels})')
     for idx, seg_key in enumerate(markets, 1):
         label = SEGMENTS[seg_key]['label']
         # 等待系统空闲再启动该市场，避免与手动加载/更新/清库操作冲突
@@ -1113,13 +1113,13 @@ def _auto_update_all_markets():
             time.sleep(5)
         result = update_market(seg_key)
         if not result.get('success'):
-            print(f'[sync] 每日自动更新 [{idx}/{total}] {label}: 跳过 ({result.get("error")})')
+            print(f'[sync] 每日自动更新K线库 [{idx}/{total}] {label}: 跳过 ({result.get("error")})')
             continue
-        print(f'[sync] 每日自动更新 [{idx}/{total}] {label}: 更新中...')
+        print(f'[sync] 每日自动更新K线库 [{idx}/{total}] {label}: 更新中...')
         while _sync_status['running']:
             time.sleep(5)
-        print(f'[sync] 每日自动更新 [{idx}/{total}] {label}: 完成')
-    print('[sync] 每日自动更新: 全部市场执行完毕')
+        print(f'[sync] 每日自动更新K线库 [{idx}/{total}] {label}: 完成')
+    print('[sync] 每日自动更新K线库: 全部市场执行完毕')
 
 
 def _next_run_time(base):
@@ -1143,7 +1143,7 @@ def _auto_update_loop():
             _auto_next_run = _next_run_time(now)
             _auto_update_all_markets()
         except Exception as _e:
-            print(f'[sync] 每日自动更新异常: {type(_e).__name__}: {_e}')
+            print(f'[sync] 每日自动更新K线库异常: {type(_e).__name__}: {_e}')
 
 
 def start_daily_auto_update():
@@ -1155,4 +1155,4 @@ def start_daily_auto_update():
     global _auto_next_run
     _auto_next_run = _next_run_time(datetime.datetime.now())
     threading.Thread(target=_auto_update_loop, daemon=True, name='daily-kline-auto-update').start()
-    print(f"[sync] 每日自动更新已启动（下次执行: {_auto_next_run:%Y-%m-%d %H:%M}）")
+    print(f"[sync] 每日自动更新K线库已启动（下次执行: {_auto_next_run:%Y-%m-%d %H:%M}）")
