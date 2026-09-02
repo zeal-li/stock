@@ -2012,4 +2012,6 @@ def abnormal_analyze():
 if __name__ == '__main__':
     cleanup_old_data()            # 启动时清理 3 个月前的龙虎榜数据
     start_major_indices_poller()  # 启动后台指数行情轮询
+    from market_db.sync import start_daily_auto_update
+    start_daily_auto_update()     # 启动每日凌晨 K线库全市场自动更新
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)

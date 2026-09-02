@@ -249,6 +249,7 @@ function _pollInitStatus() {
                     var bar = '', w = 20, f = Math.floor(w * s.done / s.total);
                     for (var i=0;i<w;i++) bar += i<=f ? '\u2588' : '\u2591';
                     status.textContent = s.phase === 'list' ? '拉取列表...' : ('K线 ' + bar + ' ' + s.done + '/' + s.total);
+                    status.style.color = '#fbbf24';
                 }
             } else if (s.phase === 'error') {
                 clearInterval(_initPollTimer); _initPollTimer = null;
@@ -424,6 +425,7 @@ function _pollUpdateStatus() {
                     var bar = '', w = 20, f = Math.floor(w * s.done / s.total);
                     for (var i=0;i<w;i++) bar += i<=f ? '\u2588' : '\u2591';
                     status.textContent = s.phase === 'list' ? '拉取列表...' : ('更新K线 ' + bar + ' ' + s.done + '/' + s.total);
+                    status.style.color = '#fbbf24';
                 }
             } else if (s.phase === 'error') {
                 clearInterval(_updatePollTimer); _updatePollTimer = null;
