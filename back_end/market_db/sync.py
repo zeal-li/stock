@@ -1093,7 +1093,6 @@ def clear_market(seg_key):
 # 0 点跑会拉入美股未完结的盘中 bar，且同日数据 INSERT OR IGNORE 无法再覆盖修正。
 # 取 05:30 保证所有市场都已收盘、K线定稿。
 _AUTO_UPDATE_TIME = (5, 30)
-_AUTO_UPDATE_TICK = 60          # 触发检查间隔（秒）
 _auto_next_run = None           # 下一次应执行更新库的时刻（datetime）
 
 
@@ -1129,30 +1128,26 @@ def _next_run_time(base):
         hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1], second=0, microsecond=0)
 
 
-def _auto_update_loop():
-    """后台守护线程：当前时间越过下次执行时刻后，执行一次全市场 K线自动更新"""
+def check_daily_auto_update():
+    """K线库每日自动更新检测：当前时间越过下次执行时刻后，执行一次全市场增量更新。
+    由 app.py 的公共秒级调度器每秒调用一次。"""
     global _auto_next_run
-    while True:
-        time.sleep(_AUTO_UPDATE_TICK)
-        try:
-            now = datetime.datetime.now()
-            if now < _auto_next_run:
-                continue
-            # 以当前时间（而非 _auto_next_run）为基准推次日 05:30：
-            # 即使某次因故迟醒跨越了多个执行点，也只会补跑一次，不会连环补跑
-            _auto_next_run = _next_run_time(now)
-            _auto_update_all_markets()
-        except Exception as _e:
-            print(f'[sync] 每日自动更新K线库异常: {type(_e).__name__}: {_e}')
+    now = datetime.datetime.now()
+    if now < _auto_next_run:
+        return
+    # 以当前时间（而非 _auto_next_run）为基准推次日 05:30：
+    # 即使某次因故迟醒跨越了多个执行点，也只会补跑一次，不会连环补跑
+    _auto_next_run = _next_run_time(now)
+    _auto_update_all_markets()
 
 
-def start_daily_auto_update():
-    """启动每日自动更新守护线程（由 app.py 启动时调用）。
+def init_market_db_update():
+    """初始化 K线库每日自动更新的触发时刻，返回检测函数供公共调度器注册（由 app.py 启动时调用）。
 
     下一次执行时刻初始化为"明天 05:30"：无论何时启动，当天都不会触发，
     首次更新统一发生在次日凌晨 05:30 之后，此后每天一次。
     """
     global _auto_next_run
     _auto_next_run = _next_run_time(datetime.datetime.now())
-    threading.Thread(target=_auto_update_loop, daemon=True, name='daily-kline-auto-update').start()
-    print(f"[sync] 每日自动更新K线库已启动（下次执行: {_auto_next_run:%Y-%m-%d %H:%M}）")
+    print(f"[sync] 每日自动更新K线库已初始化（下次执行: {_auto_next_run:%Y-%m-%d %H:%M}）")
+    return check_daily_auto_update

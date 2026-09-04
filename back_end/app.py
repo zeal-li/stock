@@ -14,11 +14,12 @@ from money_flow.fund_flow import get_market_fund_flow
 from money_flow.fear_index import get_fear_index
 from money_flow.risk_index import get_risk_index
 from money_flow.margin import get_margin_trading
-from longhu_bang.service import get_longhu_bang, cleanup_old_data
+from longhu_bang.service import get_longhu_bang, init_longhu_bang_update
 from global_market.commodities import get_global_commodities
 from global_market.forex import get_forex_rates
 from sector_fund.service import get_sector_fund, get_sector_stocks, get_etf_stocks
 from money_flow.storage import start_major_indices_poller
+from market_db.sync import init_market_db_update
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove, update_price, reorder
 from watchlist.service import etf_get_all, etf_add, etf_remove, etf_reorder
@@ -2007,11 +2008,44 @@ def abnormal_analyze():
     return jsonify(analyze_stock(code, market))
 
 
+# ==================== 公共秒级调度器 ====================
+# 统一秒级定时器：每秒 tick 一次，依次调用所有已注册的检测函数。
+# 后续任何需要定时执行的逻辑，只需写一个"检测一次"的函数并 register_scheduler_check 注册，
+# 无需再为每个定时功能单独开线程。
+
+import threading
+import time
+
+_scheduler_checks = []
+
+
+def register_scheduler_check(fn):
+    """注册一个定时检测函数。调度器每秒调用一次该函数。"""
+    _scheduler_checks.append(fn)
+
+
+def _scheduler_loop():
+    """公共秒级定时器：每秒 sleep 一次，依次执行所有注册的检测函数"""
+    while True:
+        time.sleep(1)
+        for fn in _scheduler_checks:
+            try:
+                fn()
+            except Exception as e:
+                print(f'[scheduler] 检测函数 {fn.__name__} 异常: {type(e).__name__}: {e}')
+
+
+def start_scheduler():
+    """启动公共秒级调度器守护线程，并注册所有内置定时检测"""
+    register_scheduler_check(init_market_db_update())  # K线库每日自动更新检测
+    register_scheduler_check(init_longhu_bang_update())      # 龙虎榜库每日跨天清理检测
+    threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
+    print('[scheduler] 公共秒级调度器已启动')
+
+
 # ==================== 启动 ====================
 
 if __name__ == '__main__':
-    cleanup_old_data()            # 启动时清理 3 个月前的龙虎榜数据
     start_major_indices_poller()  # 启动后台指数行情轮询
-    from market_db.sync import start_daily_auto_update
-    start_daily_auto_update()     # 启动每日凌晨 K线库全市场自动更新
+    start_scheduler()             # 启动公共秒级调度器
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)

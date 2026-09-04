@@ -27,12 +27,14 @@ def _db():
     return conn
 
 def cleanup_old_data():
-    """启动时删除 3 个月前的数据"""
+    """删除 3 个月前的数据"""
     cutoff = (datetime.date.today() - datetime.timedelta(days=90)).strftime("%Y-%m-%d")
     conn = _db()
-    conn.execute('DELETE FROM longhu_bang WHERE trade_date < ?', (cutoff,))
+    cur = conn.execute('DELETE FROM longhu_bang WHERE trade_date < ?', (cutoff,))
+    deleted = cur.rowcount
     conn.commit()
     conn.close()
+    print(f"[longhu] 清理龙虎榜库: 删除 trade_date < {cutoff} 的记录，共 {deleted} 条")
 
 
 def _fetch_longhu_bang(trade_date: str = None):
@@ -267,3 +269,45 @@ def get_longhu_bang(trade_date: str = None):
     conn.close()
 
     return {"success": True, "data": data}
+
+
+# =========== 每日跨天清理（定时检测） ===========
+# 每天跨天（00:00 之后）执行一次：删除 3 个月前的龙虎榜数据。
+# 实现方式：维护一个"下一次执行时刻" _auto_next_cleanup，启动时初始化为明天 00:00
+# （无论何时启动，当天都不触发）；调度器每秒检测，越过该时刻就执行一次清理，
+# 并把下一次执行时刻推进到次日 00:00，如此每天一次。
+
+_AUTO_CLEANUP_TIME = (0, 0)   # 触发时刻（时, 分）——跨天即每天零点
+_auto_next_cleanup = None     # 下一次应执行清理的时刻（datetime）
+
+
+def _next_cleanup_time(base):
+    """返回 base 下一天的 00:00（每日跨天清理应执行的时刻）"""
+    nxt = base + datetime.timedelta(days=1)
+    return nxt.replace(
+        hour=_AUTO_CLEANUP_TIME[0], minute=_AUTO_CLEANUP_TIME[1], second=0, microsecond=0)
+
+
+def check_daily_cleanup():
+    """龙虎榜库每日跨天清理检测：当前时间越过下次执行时刻后，执行一次清理。
+    由 app.py 的公共秒级调度器每秒调用一次。"""
+    global _auto_next_cleanup
+    now = datetime.datetime.now()
+    if now < _auto_next_cleanup:
+        return
+    # 以当前时间（而非 _auto_next_cleanup）为基准推次日 00:00：
+    # 即使某次因故迟醒跨越了多个执行点，也只会补跑一次，不会连环补跑
+    _auto_next_cleanup = _next_cleanup_time(now)
+    cleanup_old_data()
+
+
+def init_longhu_bang_update():
+    """初始化龙虎榜库每日跨天清理的触发时刻，返回检测函数供公共调度器注册（由 app.py 启动时调用）。
+
+    下一次执行时刻初始化为"明天 00:00"：无论何时启动，当天都不会触发，
+    首次清理统一发生在次日凌晨 00:00 之后，此后每天一次。
+    """
+    global _auto_next_cleanup
+    _auto_next_cleanup = _next_cleanup_time(datetime.datetime.now())
+    print(f"[longhu] 每日跨天清理已初始化（下次执行: {_auto_next_cleanup:%Y-%m-%d %H:%M}）")
+    return check_daily_cleanup
