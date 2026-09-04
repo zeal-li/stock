@@ -309,5 +309,5 @@ def init_longhu_bang_update():
     """
     global _auto_next_cleanup
     _auto_next_cleanup = _next_cleanup_time(datetime.datetime.now())
-    print(f"[longhu] 每日跨天清理已初始化（下次执行: {_auto_next_cleanup:%Y-%m-%d %H:%M}）")
+    print(f"[longhu] 龙虎榜每日跨天清理已初始化（下次执行: {_auto_next_cleanup:%Y-%m-%d %H:%M}）")
     return check_daily_cleanup
