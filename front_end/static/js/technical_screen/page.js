@@ -348,6 +348,8 @@ function loadMarket() {
                 return;
             }
             _initPollTimer = setInterval(_pollInitStatus, 1000);
+            // 立即刷新下拉框，让当前市场显示"加载中"状态
+            _refreshSegments();
         })
         .catch(function(e){
             status.textContent = '请求出错: ' + e.message;
@@ -515,6 +517,8 @@ function updateMarket() {
                 return;
             }
             _updatePollTimer = setInterval(_pollUpdateStatus, 1000);
+            // 立即刷新下拉框，让当前市场显示"更新中"状态
+            _refreshSegments();
         })
         .catch(function(e){
             status.textContent = '请求出错: ' + e.message;
