@@ -1521,3 +1521,51 @@ body {
     font-size: 13px;
     color: #8b8b9e;
 }
+
+/* ========== 自助复盘 ========== */
+.sr-card {
+    padding: 16px;
+    margin-bottom: 10px;
+}
+.sr-title {
+    margin-bottom: 10px;
+}
+.sr-title-sm {
+    margin-bottom: 6px;
+}
+.sr-meta {
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 6px;
+}
+.sr-note {
+    font-size: 11px;
+    color: #666;
+    margin-top: 8px;
+    line-height: 1.7;
+}
+.sr-conclusion {
+    font-size: 13px;
+    color: #ccc;
+    line-height: 1.9;
+}
+.sr-label {
+    font-size: 13px;
+    color: #8b8b9e;
+}
+.sr-value {
+    font-weight: 600;
+}
+.sr-tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    margin: 2px 4px 2px 0;
+}
+.sr-chip {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+}
