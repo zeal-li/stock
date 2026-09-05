@@ -560,6 +560,21 @@ def _cleanup_delisted():
 
 _sync_status = {'running': False, 'label': '', 'total': 0, 'done': 0, 'phase': '', 'cancel': False, 'seg_key': None, 'task_type': None, 'success_count': 0, 'no_data_count': 0, 'inactive_count': 0, 'api_empty_count': 0, 'exception_count': 0}
 
+def _reset_sync_result_fields():
+    """新任务开始前，清空上次任务残留的结果字段，避免前端轮询误读旧值"""
+    _sync_status['total'] = 0
+    _sync_status['done'] = 0
+    _sync_status['phase'] = ''
+    _sync_status['cancel'] = False
+    _sync_status['success_count'] = 0
+    _sync_status['no_data_count'] = 0
+    _sync_status['inactive_count'] = 0
+    _sync_status['api_empty_count'] = 0
+    _sync_status['exception_count'] = 0
+    _sync_status['partial_count'] = 0
+    _sync_status.pop('error', None)
+
+
 def init_segment(seg_key):
     """初始化一个市场分段：拉取股票列表 + 全量同步 K 线"""
     global _sync_status
@@ -578,6 +593,7 @@ def init_segment(seg_key):
             return {'success': False, 'error': '该市场正在操作中'}
         _syncing_markets.add(seg_key)
 
+    _reset_sync_result_fields()
     _sync_status['running'] = True
     _sync_status['label'] = SEGMENTS[seg_key]['label']
     _sync_status['seg_key'] = seg_key
@@ -805,6 +821,7 @@ def update_market(seg_key):
             return {'success': False, 'error': '该市场正在操作中'}
         _syncing_markets.add(seg_key)
 
+    _reset_sync_result_fields()
     _sync_status['running'] = True
     _sync_status['label'] = SEGMENTS[seg_key]['label']
     _sync_status['seg_key'] = seg_key
