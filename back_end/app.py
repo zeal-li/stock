@@ -53,6 +53,12 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/favicon.ico')
+def favicon():
+    """站点图标：项目无图标文件，明确返回 404，让客户端缓存后停止反复请求"""
+    return '', 404
+
+
 # ==================== 认证 ====================
 
 @app.before_request
@@ -73,7 +79,7 @@ def _require_login():
     # 放行登录页、注册/登录/会话接口（注意：/ 不放行，未登录访问首页应直接返回登录页，避免先闪主界面）
     if path in ('/login', '/api/auth/register', '/api/auth/login', '/api/auth/session'):
         return
-    if path.startswith('/static/'):
+    if path.startswith('/static/') or path == '/favicon.ico':
         return
     # 未登录：页面请求返回登录页，API 请求返回 401
     if path.startswith('/api/'):
