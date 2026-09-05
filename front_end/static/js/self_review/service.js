@@ -28,8 +28,8 @@ function renderSelfReview(d) {
     }
     var html = '';
     html += _srIndexTable(d.indices);
-    html += _srSynergy(d.synergy);
     html += _srLevels(d.levels);
+    html += _srSynergy(d.synergy);
     html += _srBreadth(d.breadth);
     html += _srTurnover(d.turnover);
     html += _srOpenHour(d.open_hour);
