@@ -56,6 +56,10 @@
                     <span class="nav-icon">📊</span>
                     <span>技术选股</span>
                 </div>
+                <div class="nav-item" data-page="self-review">
+                    <span class="nav-icon">📝</span>
+                    <span>自助复盘</span>
+                </div>
                 <div class="nav-item" data-page="market-news">
                     <span class="nav-icon">📰</span>
                     <span>市场资讯</span>
@@ -288,6 +292,18 @@
                 <!-- 结果列表 -->
                 <div class="index-card" style="padding:15px;">
                     <div id="techScreenResult" style="margin-top:4px;"></div>
+                </div>
+            </div>
+
+            <!-- 自助复盘页面 -->
+            <div id="page-self-review" style="display:none;">
+                <div class="page-header">
+                    <h1 class="page-title">📝 自助复盘</h1>
+                </div>
+                <div class="index-card" style="padding:30px;">
+                    <div style="text-align:center;color:#8b8b9e;padding:60px 0;">
+                        <div style="font-size:15px;">功能建设中，敬请期待...</div>
+                    </div>
                 </div>
             </div>
 
@@ -526,6 +542,7 @@
                 document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
                 document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
                 document.getElementById('page-tech-pick').style.display = page === 'tech-pick' ? 'block' : 'none';
+                document.getElementById('page-self-review').style.display = page === 'self-review' ? 'block' : 'none';
                 document.getElementById('page-market-news').style.display = page === 'market-news' ? 'block' : 'none';
                 document.getElementById('page-unlock-list').style.display = page === 'unlock-list' ? 'block' : 'none';
                 document.getElementById('page-earnings').style.display = page === 'earnings' ? 'block' : 'none';
