@@ -4,7 +4,6 @@ import json
 import os
 import sqlite3
 import time
-import threading
 from common import REQUEST_PROXIES
 from common.utils import is_a_trading_time, effective_today_str
 
@@ -100,51 +99,87 @@ def _is_cache_from_today(cached_row, today_str):
 
 
 
-def _background_poller():
-    """后台线程：启动时检查日期，非当日则全量抓取；交易时段按频率刷新"""
+# =========== 资金流/指数行情更新（接入公共秒级调度器，不再单独开线程） ===========
+# 由 app.py 的公共秒级调度器每秒调用一次。初始化逻辑（当日数据全量补齐）单独在
+# init_money_flow_update 中执行一次，检测函数内不再做任何"首次"判断。
+# 快任务（主要指数）与慢任务（涨跌家数/分时/资金流/成交额/两融/收盘价）各自维护
+# 一个"下次更新时间戳"：初始化时均设为 now + 间隔，每次执行完再推进为 now + 间隔。
+
+_FAST_UPDATE_INTERVAL = 5    # 快任务更新间隔（秒）
+_SLOW_UPDATE_INTERVAL = 60   # 慢任务更新间隔（秒）
+
+_next_fast_update_ts = 0.0   # 下次快任务更新时间戳
+_next_slow_update_ts = 0.0   # 下次慢任务更新时间戳
+
+
+def _full_fetch_if_stale():
+    """启动初始化：当日缓存缺失时全量抓取一轮行情数据"""
+    today = effective_today_str()
+    cached = db_get(_MAJOR_INDICES_KEY)
+    if _is_cache_from_today(cached, today):
+        return
     from money_flow.market import _fetch_and_cache_major_indices, _fetch_and_cache_breadth, _fetch_and_cache_sh_minute, _fetch_and_cache_daily_closes
     from money_flow.fund_flow import _fetch_and_cache_fund_flow
     from money_flow.turnover import _fetch_and_cache_turnover
     from money_flow.margin import _fetch_and_cache_margin
+    _fetch_and_cache_major_indices()
+    _fetch_and_cache_breadth()
+    _fetch_and_cache_sh_minute()
+    _fetch_and_cache_fund_flow()
+    _fetch_and_cache_turnover()
+    _fetch_and_cache_margin()
+    _fetch_and_cache_daily_closes()
 
-    today = effective_today_str()
 
-    # 检查是否已有当日数据（兼容 meta 为时间戳或日期字符串）
-    cached = db_get(_MAJOR_INDICES_KEY)
-    need_full_fetch = not _is_cache_from_today(cached, today)
-    if need_full_fetch:
-        _fetch_and_cache_major_indices()
-        _fetch_and_cache_breadth()
-        _fetch_and_cache_sh_minute()
-        _fetch_and_cache_fund_flow()
-        _fetch_and_cache_turnover()
+def check_money_flow_update():
+    """资金流/指数行情更新检测：由公共秒级调度器每秒调用一次。
+    仅交易时段内工作；快/慢任务各自按下次更新时间戳判断是否执行，
+    到点即执行并把对应时间戳推进为 now + 间隔。"""
+    global _next_fast_update_ts, _next_slow_update_ts
+    now = time.time()
+    if not is_a_trading_time():
+        return
+    if now >= _next_fast_update_ts:
+        _next_fast_update_ts = now + _FAST_UPDATE_INTERVAL
+        _fast_refresh()
+    if now >= _next_slow_update_ts:
+        _next_slow_update_ts = now + _SLOW_UPDATE_INTERVAL
+        _slow_refresh()
+
+
+def _fast_refresh():
+    """快任务：仅更新主要指数行情"""
+    from money_flow.market import _fetch_and_cache_major_indices
+    _fetch_and_cache_major_indices()
+
+
+def _slow_refresh():
+    """慢任务：涨跌家数/上证分时/资金流/成交额，以及每日一次的融资融券与收盘价"""
+    from money_flow.market import _fetch_and_cache_breadth, _fetch_and_cache_sh_minute, _fetch_and_cache_daily_closes
+    from money_flow.fund_flow import _fetch_and_cache_fund_flow
+    from money_flow.turnover import _fetch_and_cache_turnover
+    from money_flow.margin import _fetch_and_cache_margin
+    _fetch_and_cache_breadth()
+    _fetch_and_cache_sh_minute()
+    _fetch_and_cache_fund_flow()
+    _fetch_and_cache_turnover()
+    _today_str = datetime.date.today().strftime('%Y-%m-%d')
+    cached_margin = db_get(_MARGIN_KEY)
+    if not cached_margin or cached_margin[1] != _today_str:
         _fetch_and_cache_margin()
+    cached_closes = db_get(_DAILY_CLOSES_KEY)
+    if not cached_closes or cached_closes[1] != _today_str:
         _fetch_and_cache_daily_closes()
 
-    _loop_count = 0
-    while True:
-        time.sleep(5)
-        _loop_count += 1
-        try:
-            if is_a_trading_time():
-                _fetch_and_cache_major_indices()
-                if _loop_count % 12 == 0:
-                    _fetch_and_cache_breadth()
-                    _fetch_and_cache_sh_minute()
-                    _fetch_and_cache_fund_flow()
-                    _fetch_and_cache_turnover()
-                    _today_str = datetime.date.today().strftime('%Y-%m-%d')
-                    cached_margin = db_get(_MARGIN_KEY)
-                    if not cached_margin or cached_margin[1] != _today_str:
-                        _fetch_and_cache_margin()
-                    cached_closes = db_get(_DAILY_CLOSES_KEY)
-                    if not cached_closes or cached_closes[1] != _today_str:
-                        _fetch_and_cache_daily_closes()
-        except Exception:
-            pass
 
-
-def start_major_indices_poller():
-    """启动指数行情后台轮询线程（由 app.py 调用）"""
-    t = threading.Thread(target=_background_poller, daemon=True, name='major-indices-poller')
-    t.start()
+def init_money_flow_update():
+    """初始化资金流/指数行情更新（由 app.py 启动时调用）：
+    1) 先执行启动初始化：当日数据缺失则全量抓取一轮；
+    2) 再把快/慢任务的下次更新时间戳均设为 now + 间隔；
+    3) 返回检测函数供公共秒级调度器注册。"""
+    global _next_fast_update_ts, _next_slow_update_ts
+    _full_fetch_if_stale()
+    now = time.time()
+    _next_fast_update_ts = now + _FAST_UPDATE_INTERVAL
+    _next_slow_update_ts = now + _SLOW_UPDATE_INTERVAL
+    return check_money_flow_update

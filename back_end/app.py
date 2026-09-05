@@ -18,7 +18,7 @@ from longhu_bang.service import get_longhu_bang, init_longhu_bang_update
 from global_market.commodities import get_global_commodities
 from global_market.forex import get_forex_rates
 from sector_fund.service import get_sector_fund, get_sector_stocks, get_etf_stocks
-from money_flow.storage import start_major_indices_poller
+from money_flow.storage import init_money_flow_update
 from market_db.sync import init_market_db_update
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove, update_price, reorder
@@ -2039,6 +2039,7 @@ def start_scheduler():
     """启动公共秒级调度器守护线程，并注册所有内置定时检测"""
     register_scheduler_check(init_market_db_update())  # K线库每日自动更新检测
     register_scheduler_check(init_longhu_bang_update())      # 龙虎榜库每日跨天清理检测
+    register_scheduler_check(init_money_flow_update())    # 资金流/指数行情轮询检测
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
 
@@ -2046,6 +2047,5 @@ def start_scheduler():
 # ==================== 启动 ====================
 
 if __name__ == '__main__':
-    start_major_indices_poller()  # 启动后台指数行情轮询
-    start_scheduler()             # 启动公共秒级调度器
+    start_scheduler()             # 启动公共秒级调度器（含指数轮询/每日更新/跨天清理）
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)
