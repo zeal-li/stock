@@ -297,14 +297,12 @@
 
             <!-- 自助复盘页面 -->
             <div id="page-self-review" style="display:none;">
-                <div class="page-header">
-                    <h1 class="page-title">📝 自助复盘</h1>
+                <div class="page-header" style="justify-content:flex-start;">
+                    <h1 class="page-title" style="margin-right:12px;">📝 自助复盘</h1>
+                    <span id="srMeta" style="color:#8b8b9e;font-size:12px;"></span>
+                    <button class="refresh-btn" style="margin-left:auto;padding:6px 16px;font-size:13px;" onclick="loadSelfReview(true)">🔄 重新复盘</button>
                 </div>
-                <div class="index-card" style="padding:30px;">
-                    <div style="text-align:center;color:#8b8b9e;padding:60px 0;">
-                        <div style="font-size:15px;">功能建设中，敬请期待...</div>
-                    </div>
-                </div>
+                <div id="srContent"></div>
             </div>
 
             <!-- 市场资讯页面 -->
@@ -564,6 +562,7 @@
                 if (page === 'settings') loadAccountInfo();
                 if (page === 'system-settings') loadSystemConfig();
                 if (page === 'abnormal') loadAbnormalCenter();
+                if (page === 'self-review') loadSelfReview();
                 // 移动端点击导航后自动收回侧边栏
                 var sidebar = document.querySelector('.sidebar');
                 if (sidebar.classList.contains('show')) {
@@ -598,6 +597,7 @@
     <script src="/static/js/global_market/indices.js"></script>
     <script src="/static/js/global_market/forex.js"></script>
     <script src="/static/js/sector_fund/sector_fund.js"></script>
+    <script src="/static/js/self_review/service.js"></script>
 
     <!-- 启动（所有 JS 加载完毕后执行） -->
     <script>

@@ -2008,6 +2008,15 @@ def abnormal_analyze():
     return jsonify(analyze_stock(code, market))
 
 
+# ==================== 自助复盘 ====================
+
+@app.route('/api/self-review')
+def self_review():
+    """自助复盘：主要指数共振/分化、关键点位压力支撑、涨跌家数比例、成交额温度、日内形态"""
+    from self_review.service import run_review
+    return jsonify(run_review())
+
+
 # ==================== 公共秒级调度器 ====================
 # 统一秒级定时器：每秒 tick 一次，依次调用所有已注册的检测函数。
 # 后续任何需要定时执行的逻辑，只需写一个"检测一次"的函数并 register_scheduler_check 注册，
