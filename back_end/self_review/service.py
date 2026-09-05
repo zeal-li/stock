@@ -10,6 +10,7 @@
 7. 上证日内形态（下探回升/支撑验证）
 8. 市场情绪（涨停/跌停/连板高度/连板梯队）
 9. 资金面（两融余额趋势 + 行业板块主力资金流向）
+10. 复盘总结 + 次日预案（数据交叉验证、背离信号、观察清单、关键信号）
 
 数据源约定（单一数据源，不做多源串行兜底）：
 - 指数实时行情 + 涨跌家数：东方财富 ulist
@@ -753,6 +754,12 @@ def _analyze_sentiment(day):
     max_lb = max((x['lbc'] for x in zt_clean), default=0)
     ladder_list = sorted(ladder.items(), reverse=True)
 
+    # 连板高标（次日风向标）：3板及以上，按连板高度降序
+    leaders = [
+        {'name': x['name'], 'lbc': x['lbc'], 'industry': x['industry']}
+        for x in sorted((x for x in zt_clean if x['lbc'] >= 3), key=lambda x: -x['lbc'])[:8]
+    ]
+
     # 连板梯队断层检测（自2板至最高板之间若有缺失即为断层）
     gaps = []
     if max_lb >= 3:
@@ -804,6 +811,7 @@ def _analyze_sentiment(day):
         'max_lb': max_lb,
         'ladder': [{'h': h, 'count': v} for h, v in ladder_list],
         'gaps': gaps,
+        'leaders': leaders,
         'conclusion': '；'.join(parts) + '。' + text,
     }
 
@@ -908,6 +916,91 @@ def _analyze_funds(day):
     return dict(result, day=day.strftime('%Y-%m-%d'), conclusion=' '.join(parts))
 
 
+# ==================== 复盘总结 + 次日预案 ====================
+
+def _build_plan(synergy, breadth, turnover, sentiment, funds):
+    """复盘总结 + 次日预案：数据交叉验证判断市场真实状态，制定次日观察清单与关键信号。
+    核心：数据之间的背离才是最有价值的信号（如指数涨但涨跌比<1、缩量、炸板率高等）。"""
+    divergences = []
+
+    mode = synergy['mode'] if synergy else None
+    up_names = synergy['up'] if synergy else []
+    down_names = synergy['down'] if synergy else []
+    red_ratio = breadth['red_ratio'] if breadth else None
+    band = turnover['band'] if turnover else None
+    zt_clean = sentiment['zt_clean'] if sentiment else 0
+    dt_clean = sentiment['dt_clean'] if sentiment else 0
+    gaps = sentiment['gaps'] if sentiment else []
+
+    bull = bool(up_names) and not down_names
+    bear = bool(down_names) and not up_names
+    split = bool(up_names) and bool(down_names)
+
+    # 背离信号：数据之间的背离才是最有价值的信号
+    if bull and red_ratio is not None and red_ratio < 45:
+        divergences.append(f'指数普涨但红盘率仅 {red_ratio:.0f}%，权重护盘、个股普跌，属典型"假涨"，次日追高易被套。')
+    if bull and band == '偏低':
+        divergences.append('指数上涨但量能低于近期均量，属"缩量虚涨"，缺增量配合，持续性存疑。')
+    if bear and red_ratio is not None and red_ratio >= 50:
+        divergences.append(f'指数普跌但红盘率仍有 {red_ratio:.0f}%，个股强于指数，资金弃权重抱题材，结构性机会仍在。')
+    if bear and band == '活跃':
+        divergences.append('指数下跌但量能高于近期均量，属"放量下跌"，抛压沉重，次日谨防惯性低开。')
+    if zt_clean >= 35 and gaps:
+        divergences.append(f'涨停 {zt_clean} 家但连板梯队断层（{"/".join(map(str, gaps))}板空缺），情绪亢奋与接力不足并存，谨防高度压制。')
+    if zt_clean >= 35 and dt_clean >= 10:
+        divergences.append(f'涨停 {zt_clean} 家、跌停 {dt_clean} 家并存，多空分歧巨大，属典型分歧市，宜快进快出。')
+    if red_ratio is not None and red_ratio >= 55 and dt_clean >= 10:
+        divergences.append(f'红盘率 {red_ratio:.0f}% 却仍有 {dt_clean} 家跌停，赚钱与亏钱效应并存，结构严重分化。')
+
+    # 观察清单：主线板块 / 回避板块 / 风向标个股
+    sector = (funds or {}).get('sector')
+    watch_sectors = [x['name'] for x in (sector.get('in_top') or [])[:3]] if sector else []
+    avoid_sectors = [x['name'] for x in (sector.get('out_top') or [])[:3]] if sector else []
+    leaders = sentiment['leaders'] if sentiment else []
+
+    # 次日关键信号
+    attack = []
+    if dt_clean >= 10:
+        attack.append('开盘30分钟跌停家数收敛至10家以内')
+    attack.append('红盘率回升至50%以上且不再走低')
+    if leaders:
+        attack.append('风向标高标（' + '、'.join(l['name'] for l in leaders[:3]) + '）不被核按钮')
+    if band == '偏低':
+        attack.append('量能不再萎缩（最好温和放大）')
+    attack_text = ('、'.join(attack) + '，可考虑轻仓试错参与；否则继续观望。') if attack else '暂缺明确进攻信号，等待放量企稳确认。'
+
+    watch = []
+    if dt_clean >= 10:
+        watch.append('开盘跌停家数快速扩散（>10家）')
+    if leaders:
+        watch.append('连板高标批量断板或炸板')
+    watch.append('红盘率持续走低')
+    watch.append('量能继续萎缩')
+    watch_text = '、'.join(watch) + '，则观望为主、严控仓位。'
+
+    # 市场状态一句话
+    if bull and red_ratio is not None and red_ratio >= 55:
+        state = '普涨且赚钱效应较好，市场处于进攻区间，次日关注量能能否延续。'
+    elif bull:
+        state = '指数普涨但个股/量能配合一般，需警惕假涨，次日不宜盲目追高。'
+    elif bear:
+        state = '指数普跌、情绪偏弱，次日重点观察能否止跌企稳，不宜逆势抄底。'
+    elif split:
+        state = '指数分化、结构行情，重个股轻指数，围绕主线板块博弈。'
+    else:
+        state = '方向不明、多空平衡，等待放量选择方向，以观望为主。'
+
+    return {
+        'state': state,
+        'divergences': divergences,
+        'watch_sectors': watch_sectors,
+        'avoid_sectors': avoid_sectors,
+        'leaders': leaders,
+        'attack': attack_text,
+        'watch': watch_text,
+    }
+
+
 # ==================== 主入口 ====================
 
 def run_review():
@@ -966,6 +1059,8 @@ def run_review():
             print(f'[self-review] funds 分析失败: {e}')
             funds_analysis = None
 
+        plan = _build_plan(synergy, breadth, turnover_analysis, sentiment_analysis, funds_analysis)
+
         now = datetime.datetime.now()
         if is_a_trading_time():
             market_status = '盘中'
@@ -989,6 +1084,7 @@ def run_review():
                 'levels': levels,
                 'sentiment': sentiment_analysis,
                 'funds': funds_analysis,
+                'plan': plan,
             },
         }
     except Exception as e:

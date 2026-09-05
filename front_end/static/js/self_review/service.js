@@ -36,6 +36,7 @@ function renderSelfReview(d) {
     html += _srMinute(d.minute);
     html += _srSentiment(d.sentiment);
     html += _srFunds(d.funds);
+    html += _srPlan(d.plan);
     document.getElementById('srContent').innerHTML = html;
 }
 
@@ -283,4 +284,41 @@ function _srFunds(f) {
         (f.day ? '<div class="sr-meta">数据日期：' + f.day + '</div>' : '') +
         html +
         '<div class="sr-conclusion">' + f.conclusion + '</div>');
+}
+
+// ---- 复盘总结 · 次日预案 ----
+
+function _srPlan(p) {
+    if (!p) return '';
+    var html = '';
+    html += '<div style="font-size:14px;color:#fff;line-height:1.8;margin-bottom:10px;">' + p.state + '</div>';
+
+    if (p.divergences && p.divergences.length) {
+        var dlist = p.divergences.map(function(x) { return '· ' + x; }).join('<br>');
+        html += '<div style="font-size:12px;color:#fbbf24;line-height:1.9;margin-bottom:10px;padding:8px 10px;background:rgba(251,191,36,0.08);border-radius:4px;">⚠️ 背离信号<br>' + dlist + '</div>';
+    }
+
+    var watchHtml = '';
+    if (p.watch_sectors && p.watch_sectors.length) {
+        watchHtml += '<span class="sr-label">主线板块 <span style="color:#d63850;font-weight:600;">' + p.watch_sectors.join('、') + '</span></span>';
+    }
+    if (p.avoid_sectors && p.avoid_sectors.length) {
+        watchHtml += '<span class="sr-label">回避板块 <span style="color:#00b894;font-weight:600;">' + p.avoid_sectors.join('、') + '</span></span>';
+    }
+    if (p.leaders && p.leaders.length) {
+        var l = p.leaders.map(function(x) { return x.name + '(' + x.lbc + '板)'; }).join('、');
+        watchHtml += '<span class="sr-label">风向标个股 <span style="color:#fbbf24;font-weight:600;">' + l + '</span></span>';
+    }
+    if (watchHtml) {
+        html += '<div style="display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:10px;line-height:2;">' + watchHtml + '</div>';
+    }
+
+    html += '<div style="font-size:13px;line-height:1.9;">' +
+        '<div style="color:#d63850;font-weight:600;margin-bottom:4px;">🔺 进攻条件</div>' +
+        '<div class="sr-conclusion">' + p.attack + '</div>' +
+        '<div style="color:#00b894;font-weight:600;margin:10px 0 4px;">🔻 观望条件</div>' +
+        '<div class="sr-conclusion">' + p.watch + '</div>' +
+        '</div>';
+
+    return _srCard('<div class="card-title sr-title">📋 复盘总结 · 次日预案</div>' + html);
 }
