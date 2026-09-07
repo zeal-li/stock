@@ -27,16 +27,15 @@ function renderSelfReview(d) {
         metaEl.innerHTML = dayText + '更新于 <span style="color:#ccc;">' + d.update_time + '</span> · 市场状态：<span style="color:#ccc;">' + d.market_status + '</span>';
     }
     var html = '';
+    html += _srPlan(d.plan);
+    html += _srMinute(d.minute);
+    html += _srTurnover(d.turnover);
+    html += _srOpenHour(d.open_hour);
+    html += _srBreadth(d.breadth, d.sentiment);
     html += _srIndexTable(d.indices);
     html += _srLevels(d.levels);
     html += _srSynergy(d.synergy);
-    html += _srBreadth(d.breadth);
-    html += _srTurnover(d.turnover);
-    html += _srOpenHour(d.open_hour);
-    html += _srMinute(d.minute);
-    html += _srSentiment(d.sentiment);
     html += _srFunds(d.funds);
-    html += _srPlan(d.plan);
     document.getElementById('srContent').innerHTML = html;
 }
 
@@ -142,14 +141,17 @@ function _srLevels(levels) {
     return _srCard('<div class="card-title sr-title">🎯 关键点位 · 压力位 / 支撑位</div>' + items);
 }
 
-// ---- 市场宽度（涨跌家数比例） ----
+// ---- 全市场涨跌家数 · 涨停/连板情绪（涨跌家数的极端分布） ----
 
-function _srBreadth(b) {
+function _srBreadth(b, s) {
     if (!b) return '';
     var ratio = b.red_ratio;
     var barColor = ratio >= 55 ? '#d63850' : (ratio <= 40 ? '#00b894' : '#fbbf24');
-    return _srCard('<div class="card-title sr-title">📊 全市场涨跌家数（市场整体状况）</div>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:10px;">' +
+    function _tag(text, color, bg) {
+        return '<span class="sr-tag" style="color:' + color + ';background:' + (bg || 'transparent') + ';border:1px solid ' + color + '55;">' + text + '</span>';
+    }
+    var html = '';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:10px;">' +
         '<span style="font-size:13px;color:#8b8b9e;">上涨 <span style="color:#d63850;font-size:15px;font-weight:600;">' + b.rise + '</span> 家</span>' +
         '<span style="font-size:13px;color:#8b8b9e;">下跌 <span style="color:#00b894;font-size:15px;font-weight:600;">' + b.fall + '</span> 家</span>' +
         '<span style="font-size:13px;color:#8b8b9e;">平盘 <span style="color:#888;font-size:15px;font-weight:600;">' + b.flat + '</span> 家</span>' +
@@ -157,8 +159,34 @@ function _srBreadth(b) {
         '</div>' +
         '<div style="width:100%;height:10px;border-radius:5px;background:rgba(255,255,255,0.08);margin-bottom:10px;position:relative;">' +
         '<div style="width:' + ratio + '%;height:10px;border-radius:5px;background:' + barColor + ';"></div>' +
-        '</div>' +
-        '<div class="sr-conclusion">' + b.conclusion + '</div>');
+        '</div>';
+    if (s) {
+        var ztColor = s.zt_clean >= 35 ? '#d63850' : (s.zt_clean >= 15 ? '#fbbf24' : '#00b894');
+        var dtColor = s.dt_clean >= 20 ? '#00b894' : (s.dt_clean >= 10 ? '#fbbf24' : '#8b8b9e');
+        var chips = '';
+        chips += _tag('涨停 ' + s.zt_total + ' 家', ztColor);
+        if (s.zt_st) chips += _tag('ST ' + s.zt_st, '#8b8b9e');
+        chips += _tag('跌停 ' + s.dt_total + ' 家', dtColor);
+        if (s.dt_st) chips += _tag('ST ' + s.dt_st, '#8b8b9e');
+        if (s.max_lb >= 1) {
+            chips += _tag('最高 ' + s.max_lb + ' 连板', s.max_lb >= 4 ? '#d63850' : (s.max_lb === 3 ? '#fbbf24' : '#60a5fa'));
+        }
+        (s.ladder || []).forEach(function(l) {
+            var c = l.h >= 4 ? '#d63850' : '#fbbf24';
+            chips += _tag(l.h + '板×' + l.count + '家', c, 'rgba(255,255,255,0.02)');
+        });
+        if (s.gaps && s.gaps.length) {
+            chips += _tag('梯队断层(' + s.gaps.join('/') + '板空缺)', '#d63850', 'rgba(214,56,80,0.08)');
+        }
+        html += '<div style="border-top:1px solid rgba(255,255,255,0.07);padding-top:10px;margin-bottom:4px;">' +
+            '<div style="font-size:12px;color:#8b8b9e;margin-bottom:4px;">🔥 涨停/连板结构' +
+            (s.day ? '<span style="color:#666;font-size:11px;margin-left:6px;">数据日期：' + s.day + '</span>' : '') + '</div>' +
+            '<div style="line-height:2;">' + chips + '</div>' +
+            '<div class="sr-conclusion" style="margin-top:4px;">' + s.conclusion + '</div>' +
+            '</div>';
+    }
+    html += '<div class="sr-conclusion">' + b.conclusion + '</div>';
+    return _srCard('<div class="card-title sr-title">📊 全市场涨跌家数（含涨停/连板情绪）</div>' + html);
 }
 
 // ---- 成交额温度 ----
@@ -213,36 +241,6 @@ function _srOpenHour(m) {
         (!m.complete ? '<div style="font-size:12px;color:#fbbf24;margin-bottom:6px;">首小时尚未结束，以下为盘中实时累计</div>' : '') +
         '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:8px;">' + rows + '</div>' +
         '<div class="sr-conclusion">' + m.conclusion + '</div>');
-}
-
-// ---- 市场情绪（涨停/跌停/连板） ----
-
-function _srSentiment(s) {
-    if (!s) return '';
-    function _tag(text, color, bg) {
-        return '<span class="sr-tag" style="color:' + color + ';background:' + (bg || 'transparent') + ';border:1px solid ' + color + '55;">' + text + '</span>';
-    }
-    var ztColor = s.zt_clean >= 35 ? '#d63850' : (s.zt_clean >= 15 ? '#fbbf24' : '#00b894');
-    var dtColor = s.dt_clean >= 20 ? '#00b894' : (s.dt_clean >= 10 ? '#fbbf24' : '#8b8b9e');
-    var chips = '';
-    chips += _tag('涨停 ' + s.zt_total + ' 家', ztColor);
-    if (s.zt_st) chips += _tag('ST ' + s.zt_st, '#8b8b9e');
-    chips += _tag('跌停 ' + s.dt_total + ' 家', dtColor);
-    if (s.dt_st) chips += _tag('ST ' + s.dt_st, '#8b8b9e');
-    if (s.max_lb >= 1) {
-        chips += _tag('最高 ' + s.max_lb + ' 连板', s.max_lb >= 4 ? '#d63850' : (s.max_lb === 3 ? '#fbbf24' : '#60a5fa'));
-    }
-    (s.ladder || []).forEach(function(l) {
-        var c = l.h >= 4 ? '#d63850' : '#fbbf24';
-        chips += _tag(l.h + '板×' + l.count + '家', c, 'rgba(255,255,255,0.02)');
-    });
-    if (s.gaps && s.gaps.length) {
-        chips += _tag('梯队断层(' + s.gaps.join('/') + '板空缺)', '#d63850', 'rgba(214,56,80,0.08)');
-    }
-    return _srCard('<div class="card-title sr-title">🔥 市场情绪（涨停/连板结构）</div>' +
-        (s.day ? '<div class="sr-meta">数据日期：' + s.day + '</div>' : '') +
-        '<div style="margin-bottom:8px;line-height:2;">' + chips + '</div>' +
-        '<div class="sr-conclusion">' + s.conclusion + '</div>');
 }
 
 // ---- 资金面（两融 / 板块主力资金） ----
