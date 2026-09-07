@@ -2023,6 +2023,13 @@ def self_review():
     return jsonify(run_review())
 
 
+@app.route('/api/self-review/stocks')
+def self_review_stocks():
+    """自选复盘：自选股/场内ETF/持仓股 关键点位"""
+    from self_review.service import run_stock_review
+    return jsonify(run_stock_review(g.user_id))
+
+
 # ==================== 公共秒级调度器 ====================
 # 统一秒级定时器：每秒 tick 一次，依次调用所有已注册的检测函数。
 # 后续任何需要定时执行的逻辑，只需写一个"检测一次"的函数并 register_scheduler_check 注册，

@@ -14,7 +14,7 @@
 
 数据源约定（单一数据源，不做多源串行兜底）：
 - 指数实时行情 + 涨跌家数：东方财富 ulist
-- 指数日K（压力/支撑/均线计算）：腾讯日K（近120交易日）
+- 指数日K（压力/支撑/均线计算）：同花顺 v4/line 日K（近120交易日，与 K线弹窗同源）
 - 两市总成交额（今日/昨日）+ 逐分钟累计：money_flow 轮询缓存的同花顺成交额分时
 - 近期量能基准（近5日两市成交额）：同花顺 v4/line 指数日K（上证指数+深证综指成交额相加）
 - 上证分时走势（开盘首小时价格、日内形态）：money_flow 轮询缓存
@@ -35,14 +35,14 @@ from common import REQUEST_PROXIES
 from common.utils import is_a_trading_time
 from money_flow.storage import db_get, _EM_HEADERS, _EM_UT, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY
 
-# 主要指数 → 腾讯证券代码（日K数据源）
-_TX_SYMBOLS = {
-    '1.000001': 'sh000001',
-    '0.399001': 'sz399001',
-    '0.399006': 'sz399006',
-    '1.000300': 'sh000300',
-    '1.000688': 'sh000688',
-    '0.399905': 'sh000905',
+# 主要指数 → 同花顺证券代码（日K数据源，与 K线弹窗同源）
+_THS_SYMBOLS = {
+    '1.000001': 'sh_1A0001',   # 上证指数
+    '0.399001': 'sz_399001',   # 深证成指
+    '0.399006': 'sz_399006',   # 创业板指
+    '1.000300': 'sh_1B0300',   # 沪深300
+    '1.000688': 'sh_1B0688',   # 科创50
+    '0.399905': 'sh_1B0905',   # 中证500
 }
 
 # 复盘覆盖的主要指数（secid: 1=沪 0=深）
@@ -141,35 +141,66 @@ def _fetch_quotes():
     return quote_map
 
 
-def _fetch_kline(secid):
-    """腾讯日K：近120个交易日（收盘/最高/最低）"""
-    symbol = _TX_SYMBOLS.get(secid)
-    if not symbol:
-        raise RuntimeError(f'不支持的指数 secid: {secid}')
-    url = 'https://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
-    headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'}
-    r = requests.get(url, params={'param': f'{symbol},day,,,120,qfq'},
-                     headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-    body = r.json()
-    jd_data = (body.get('data') or {}).get(symbol, {})
-    klines = jd_data.get('qfqday') or jd_data.get('day') or []
-    if not klines:
-        raise RuntimeError(f'日K获取失败: {secid}')
+_THS_KLINE_URL = 'https://d.10jqka.com.cn/v4/line/{symbol}/01/{year}.js'
+_THS_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer': 'https://www.10jqka.com.cn/',
+}
 
+
+def _fetch_kline(symbol):
+    """同花顺 v4/line 日K：近120个交易日（收盘/最高/最低），与 K线弹窗同源。
+    symbol 如 sh_1A0001 / sz_399001 / sh_600519；502/504 为限流，失败重试 3 次。"""
+    year = datetime.datetime.now().year
     closes, highs, lows = [], [], []
-    for line in klines:
-        if not isinstance(line, (list, tuple)) or len(line) < 5:
-            continue
-        close = _num(line[2])
-        high = _num(line[3])
-        low = _num(line[4])
-        if close is None or high is None or low is None or close <= 0:
-            continue
-        closes.append(close)
-        highs.append(high)
-        lows.append(low)
+    for y in range(year, year - 3, -1):  # 最多回看 3 年，凑够 120 根即停
+        raw = None
+        for attempt in range(4):
+            try:
+                r = requests.get(_THS_KLINE_URL.format(symbol=symbol, year=y),
+                                 headers=_THS_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+                if r.status_code == 404:
+                    raw = ''
+                    break
+                if r.status_code == 200:
+                    text = r.text
+                    s, e = text.find('(') + 1, text.rfind(')')
+                    if s > 0 and e > s:
+                        raw = json.loads(text[s:e]).get('data', '')
+                        break
+            except Exception:
+                pass
+            if attempt < 3:
+                time.sleep(0.3)
+        if raw is None:
+            raise RuntimeError(f'同花顺日K获取失败: {symbol}（{y}年）')
+
+        y_closes, y_highs, y_lows = [], [], []
+        for line in raw.split(';'):
+            parts = line.split(',')
+            if len(parts) < 5:
+                continue
+            close = _num(parts[4])  # 同花顺字段: date,open,high,low,close,volume,amount
+            high = _num(parts[2])
+            low = _num(parts[3])
+            if close is None or close <= 0:
+                continue
+            # 同花顺对部分指数当日行可能只给收盘价（如沪深300/中证500盘中），
+            # 开/高低缺失或为0时用收盘价补齐，与 K线弹窗解析一致，避免当日行被跳过
+            if high is None or high <= 0:
+                high = close
+            if low is None or low <= 0:
+                low = close
+            y_closes.append(close)
+            y_highs.append(high)
+            y_lows.append(low)
+        closes = y_closes + closes   # 更早年份插到最前，保证整体按日期升序
+        highs = y_highs + highs
+        lows = y_lows + lows
+        if len(closes) >= 120:
+            break
     if len(closes) < 20:
-        raise RuntimeError(f'日K数据不足: {secid}（仅 {len(closes)} 根）')
+        raise RuntimeError(f'日K数据不足: {symbol}（仅 {len(closes)} 根）')
     return {'closes': closes, 'highs': highs, 'lows': lows}
 
 
@@ -177,10 +208,95 @@ def _fetch_all_klines():
     """并行抓取全部指数日K"""
     kline_map = {}
     with ThreadPoolExecutor(max_workers=len(MAJOR_INDICES)) as pool:
-        futs = {pool.submit(_fetch_kline, s['secid']): s for s in MAJOR_INDICES}
+        futs = {pool.submit(_fetch_kline, _THS_SYMBOLS[s['secid']]): s for s in MAJOR_INDICES}
         for fut in futs:
             kline_map[futs[fut]['secid']] = fut.result()
     return kline_map
+
+
+def _stock_ths_symbol(code, market):
+    """股票代码 → 同花顺证券代码（market: 1=沪 0=深 2=北交所，北交所按沪前缀近似）"""
+    prefix = 'sh' if market in ('1', '2') else 'sz'
+    return f'{prefix}_{code}'
+
+
+def _fetch_stock_quotes(stocks):
+    """东财 ulist 批量获取股票实时行情，返回 {原始secid: {name, price, change_pct, ...}}"""
+    code_orig_market = {s['code']: s['market'] for s in stocks}
+    secids = ','.join(f"{'0' if s['market'] == '2' else s['market']}.{s['code']}" for s in stocks)
+    url = 'https://push2delay.eastmoney.com/api/qt/ulist.np/get'
+    params = {
+        'fltt': 2, 'invt': 2, 'ut': _EM_UT,
+        'fields': 'f2,f3,f4,f12,f13,f14,f15,f16,f17,f18',
+        'secids': secids,
+    }
+    r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+    body = json.loads(r.content.decode('utf-8', 'replace'))
+    diff = ((body.get('data') or {}).get('diff')) or []
+    quote_map = {}
+    for row in diff:
+        code = str(row.get('f12') or '').strip()
+        if not code or code not in code_orig_market:
+            continue
+        secid = f"{code_orig_market[code]}.{code}"
+        quote_map[secid] = {
+            'name': str(row.get('f14') or ''),
+            'price': _num(row.get('f2')),
+            'change_pct': _num(row.get('f3')),
+            'change_val': _num(row.get('f4')),
+            'open': _num(row.get('f17')),
+            'high': _num(row.get('f15')),
+            'low': _num(row.get('f16')),
+            'pre_close': _num(row.get('f18')),
+        }
+    return quote_map
+
+
+def _analyze_stocks(stocks):
+    """对一组股票做关键点位分析（复用指数复盘的 _build_index_item / _level_conclusion）"""
+    if not stocks:
+        return []
+    quote_map = _fetch_stock_quotes(stocks)
+    symbols = {s['code']: _stock_ths_symbol(s['code'], s['market']) for s in stocks}
+
+    kline_map = {}
+    with ThreadPoolExecutor(max_workers=min(8, len(stocks))) as pool:
+        futs = {pool.submit(_fetch_kline, symbols[s['code']]): s for s in stocks}
+        for fut in futs:
+            s = futs[fut]
+            try:
+                kline_map[s['code']] = fut.result()
+            except Exception as e:
+                print(f'[self-review] {s["code"]} 日K获取失败: {e}')
+                kline_map[s['code']] = None
+
+    items = []
+    for s in stocks:
+        secid = f"{s['market']}.{s['code']}"
+        q = quote_map.get(secid)
+        k = kline_map.get(s['code'])
+        if q is None or q.get('price') is None or k is None:
+            continue
+        spec = {'code': s['code'], 'secid': secid, 'name': q.get('name') or s['code']}
+        it = _build_index_item(spec, q, k)
+        items.append({
+            'code': s['code'],
+            'market': s['market'],
+            'name': it['name'],
+            'price': it['price'],
+            'change_pct': it['change_pct'],
+            'change_val': it['change_val'],
+            'ma5': it['ma5'],
+            'ma20': it['ma20'],
+            'ma60': it['ma60'],
+            'high_20': it['high_20'],
+            'low_20': it['low_20'],
+            'pos_pct': it['pos_pct'],
+            'conclusion': _level_conclusion(it),
+            'position': _position_of(it),
+            'hint': _position_hint(it),
+        })
+    return items
 
 
 def _fetch_turnover():
@@ -212,18 +328,30 @@ def _fetch_recent_turnover(n=_TURNOVER_RECENT_N):
     """近期两市成交额（亿）：同花顺 v4/line 指数日K（上证指数+深证综指成交额相加）。
     返回按日期升序的 [(date_str, 亿元)]，最多 n+1 项（多取一项以便区分当日）。"""
     year = datetime.datetime.now().year
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-               'Referer': 'https://www.10jqka.com.cn/'}
     daily = {}
     for y in (year, year - 1):
         for market, code in _THS_INDEX_DAILY:
-            url = f'https://d.10jqka.com.cn/v4/line/{market}_{code}/01/{y}.js'
-            r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
-            text = r.text
-            s, e = text.find('(') + 1, text.rfind(')')
-            if s <= 0 or e <= s:
-                raise RuntimeError(f'同花顺指数日K返回异常: {market}_{code}')
-            raw = json.loads(text[s:e]).get('data', '')
+            symbol = f'{market}_{code}'
+            raw = None
+            for attempt in range(4):
+                try:
+                    r = requests.get(_THS_KLINE_URL.format(symbol=symbol, year=y),
+                                     headers=_THS_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+                    if r.status_code == 404:
+                        raw = ''
+                        break
+                    if r.status_code == 200:
+                        text = r.text
+                        s, e = text.find('(') + 1, text.rfind(')')
+                        if s > 0 and e > s:
+                            raw = json.loads(text[s:e]).get('data', '')
+                            break
+                except Exception:
+                    pass
+                if attempt < 3:
+                    time.sleep(0.3)
+            if raw is None:
+                raise RuntimeError(f'同花顺指数日K获取失败: {symbol}（{y}年）')
             for line in raw.split(';'):
                 parts = line.split(',')
                 if len(parts) < 7:
@@ -394,43 +522,89 @@ def _analyze_synergy(indices):
     return {'mode': mode, 'up': up, 'down': down, 'flat': flat, 'summary': summary}
 
 
+# 贴近关键位的距离比例（0.3%）：现价在 20 日高点/低点 ±0.3% 内视为"贴近"
+_NEAR_RATIO = 0.003
+
+
+def _position_of(it):
+    """判断标的是否贴近关键压力/支撑位。返回 'pressure' / 'support' / None"""
+    close = it['price']
+    if close >= it['high_20'] * (1 - _NEAR_RATIO):
+        return 'pressure'
+    if close <= it['low_20'] * (1 + _NEAR_RATIO):
+        return 'support'
+    return None
+
+
+def _position_hint(it):
+    """贴近关键位的简短提示"""
+    close = it['price']
+    h20, l20 = it['high_20'], it['low_20']
+    h60, l60 = it['high_60'], it['low_60']
+    pos = _position_of(it)
+    if pos == 'pressure':
+        if close >= h20:
+            if h60 > close:
+                return f'已突破20日高点 {_fmt_price(h20)}，上方压力看60日高点 {_fmt_price(h60)}'
+            return '已创近期新高，上方无明显压力'
+        return f'贴近20日高点压力 {_fmt_price(h20)}（距 +{(h20 - close) / close * 100:.1f}%）'
+    if pos == 'support':
+        if close <= l20:
+            if l60 < close:
+                return f'已跌破20日低点 {_fmt_price(l20)}，下方支撑看60日低点 {_fmt_price(l60)}'
+            return '已创近期新低，下方无明显支撑'
+        return f'贴近20日低点支撑 {_fmt_price(l20)}（距 -{(close - l20) / close * 100:.1f}%）'
+    return None
+
+
+def _fmt_price(v):
+    """价格显示：>=100 整数（指数），>=10 一位小数，<10 两位小数（适配低价 ETF/个股）"""
+    if v is None:
+        return '--'
+    if abs(v) >= 100:
+        return f'{v:.0f}'
+    if abs(v) >= 10:
+        return f'{v:.1f}'
+    return f'{v:.2f}'
+
+
 def _level_conclusion(it):
-    """单只指数的关键点位/压力支撑小结"""
+    """单只标的关键点位/压力支撑小结（指数/股票/ETF 通用）"""
     close = it['price']
     h20, l20 = it['high_20'], it['low_20']
     h60, l60 = it['high_60'], it['low_60']
     ma5, ma20, ma60 = it['ma5'], it['ma20'], it['ma60']
     parts = []
-    parts.append(f'近60日区间 {l60:.0f} ~ {h60:.0f}，现价位于区间 {it["pos_pct"]:.0f}% 分位。')
+    parts.append(f'近60日区间 {_fmt_price(l60)} ~ {_fmt_price(h60)}，现价位于区间 {it["pos_pct"]:.0f}% 分位。')
 
-    near_ratio = 0.003  # 视为"贴近"的距离比例
+    near_ratio = _NEAR_RATIO  # 视为"贴近"的距离比例
     if close >= h20:
         if h60 > close:
-            parts.append(f'已刷新近20日高点 {h20:.0f}，上方直接压力看60日高点 {h60:.0f}（+{(h60 - close) / close * 100:.1f}%）。')
+            parts.append(f'已刷新近20日高点 {_fmt_price(h20)}，上方直接压力看60日高点 {_fmt_price(h60)}（+{(h60 - close) / close * 100:.1f}%）。')
         else:
             parts.append(f'已刷新近20日乃至60日高点，上方无明显近端套牢压力，趋势偏强。')
     elif close >= h20 * (1 - near_ratio):
-        parts.append(f'现价紧贴20日高点压力 {h20:.0f}（距 {+((h20 - close) / close * 100):.1f}%），放量突破则打开上行空间，受阻则回踩。')
+        parts.append(f'现价紧贴20日高点压力 {_fmt_price(h20)}（距 {+((h20 - close) / close * 100):.1f}%），放量突破则打开上行空间，受阻则回踩。')
     else:
-        parts.append(f'上方压力：近20日高点 {h20:.0f}（距现价 +{(h20 - close) / close * 100:.1f}%）。')
+        parts.append(f'上方压力：近20日高点 {_fmt_price(h20)}（距现价 +{(h20 - close) / close * 100:.1f}%）。')
 
     if close <= l20:
         if l60 < close:
-            parts.append(f'已跌破近20日低点 {l20:.0f}，下方关键支撑下移至60日低点 {l60:.0f}（距现价 -{(close - l60) / close * 100:.1f}%）。')
+            parts.append(f'已跌破近20日低点 {_fmt_price(l20)}，下方关键支撑下移至60日低点 {_fmt_price(l60)}（距现价 -{(close - l60) / close * 100:.1f}%）。')
         else:
             parts.append(f'现价已创近60日新低，下行趋势中未见明确支撑，等待企稳信号。')
     elif close <= l20 * (1 + near_ratio):
-        parts.append(f'现价正逼近20日低点支撑 {l20:.0f}（距 -{(close - l20) / close * 100:.1f}%），该支撑正被考验，守住则短线止跌。')
+        parts.append(f'现价正逼近20日低点支撑 {_fmt_price(l20)}（距 -{(close - l20) / close * 100:.1f}%），该支撑正被考验，守住则短线止跌。')
     else:
-        parts.append(f'下方支撑：近20日低点 {l20:.0f}（距现价 -{(close - l20) / close * 100:.1f}%）。')
+        parts.append(f'下方支撑：近20日低点 {_fmt_price(l20)}（距现价 -{(close - l20) / close * 100:.1f}%）。')
 
     ma_texts = []
     if ma5 is not None:
-        ma_texts.append(f'5日线 {ma5:.0f}（现价{"站上" if close >= ma5 else "跌破"}）')
+        ma_texts.append(f'5日线 {_fmt_price(ma5)}（现价{"站上" if close >= ma5 else "跌破"}）')
     if ma20 is not None:
-        ma_texts.append(f'20日线 {ma20:.0f}（现价{"站上" if close >= ma20 else "跌破"}）')
+        ma_texts.append(f'20日线 {_fmt_price(ma20)}（现价{"站上" if close >= ma20 else "跌破"}）')
     if ma60 is not None:
-        ma_texts.append(f'60日线 {ma60:.0f}（现价{"站上" if close >= ma60 else "跌破"}）')
+        ma_texts.append(f'60日线 {_fmt_price(ma60)}（现价{"站上" if close >= ma60 else "跌破"}）')
     if ma_texts:
         parts.append('、'.join(ma_texts) + '。')
     return ' '.join(parts)
@@ -1089,3 +1263,45 @@ def run_review():
         }
     except Exception as e:
         return {'success': False, 'error': f'复盘失败: {e}'}
+
+
+def run_stock_review(user_id):
+    """自选复盘：自选股/场内ETF/持仓股 关键点位分析（复用指数复盘逻辑）"""
+    from watchlist.service import get_all, etf_get_all, holdings_get_all
+    wl = get_all(user_id)
+    etf = etf_get_all(user_id)
+    hold = holdings_get_all(user_id)
+
+    groups = [
+        ('watchlist', '自选股', [{'code': r[0], 'market': r[1]} for r in wl]),
+        ('etf', '场内ETF', [{'code': r[0], 'market': r[1]} for r in etf]),
+        ('holdings', '持仓股', [{'code': r[0], 'market': r[1]} for r in hold]),
+    ]
+
+    data = {}
+    summary = {'pressure': [], 'support': []}
+    for key, label, stocks in groups:
+        items = _analyze_stocks(stocks)
+        data[key] = {'label': label, 'items': items}
+        for it in items:
+            if it['position'] == 'pressure':
+                summary['pressure'].append({
+                    'name': it['name'], 'group': label, 'price': it['price'],
+                    'hint': it['hint'],
+                })
+            elif it['position'] == 'support':
+                summary['support'].append({
+                    'name': it['name'], 'group': label, 'price': it['price'],
+                    'hint': it['hint'],
+                })
+
+    now = datetime.datetime.now()
+    return {
+        'success': True,
+        'data': {
+            'update_time': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'day': _target_trade_day().strftime('%Y-%m-%d'),
+            'groups': data,
+            'summary': summary,
+        },
+    }

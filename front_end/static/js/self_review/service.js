@@ -322,3 +322,116 @@ function _srPlan(p) {
 
     return _srCard('<div class="card-title sr-title">📋 复盘总结 · 次日预案</div>' + html);
 }
+
+// ---- 页签切换 + 自选复盘 ----
+
+var currentReviewTab = 'market';
+var stockReviewLoaded = false;
+
+function switchReviewTab(tab) {
+    currentReviewTab = tab;
+    var tabs = document.querySelectorAll('#page-self-review .sr-tab');
+    for (var i = 0; i < tabs.length; i++) {
+        if (tabs[i].getAttribute('data-tab') === tab) tabs[i].classList.add('active');
+        else tabs[i].classList.remove('active');
+    }
+    document.getElementById('srContent').style.display = tab === 'market' ? 'block' : 'none';
+    document.getElementById('srStockContent').style.display = tab === 'stock' ? 'block' : 'none';
+    if (tab === 'stock' && !stockReviewLoaded) {
+        loadStockReview(false);
+    }
+}
+
+function refreshCurrentReview() {
+    if (currentReviewTab === 'market') loadSelfReview(true);
+    else loadStockReview(true);
+}
+
+function loadStockReview(manual) {
+    var content = document.getElementById('srStockContent');
+    if (!content) return;
+    if (manual) {
+        content.innerHTML = '<div class="loading" style="padding:90px 0;">正在获取自选股并复盘，请稍候...</div>';
+    }
+    fetch('/api/self-review/stocks')
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res.success) {
+                content.innerHTML = '<div class="error" style="padding:40px 20px;">' + (res.error || '复盘失败') + '</div>';
+                return;
+            }
+            stockReviewLoaded = true;
+            renderStockReview(res.data);
+        })
+        .catch(function() {
+            content.innerHTML = '<div class="error" style="padding:40px 20px;">网络异常，复盘请求失败</div>';
+        });
+}
+
+function renderStockReview(d) {
+    var html = '';
+    html += _srStockSummary(d.summary);
+    var groups = d.groups || {};
+    var order = ['watchlist', 'etf', 'holdings'];
+    order.forEach(function(key) {
+        var g = groups[key];
+        if (g) html += _srStockTable(g.label, g.items);
+    });
+    if (!html) {
+        html = '<div class="index-card sr-card"><div style="color:#666;font-size:13px;">暂无自选股 / 场内ETF / 持仓股，请先到「自选股」页面添加。</div></div>';
+    }
+    document.getElementById('srStockContent').innerHTML = html;
+}
+
+function _srStockSummary(summary) {
+    var p = (summary && summary.pressure) || [];
+    var s = (summary && summary.support) || [];
+    if (!p.length && !s.length) return '';
+    var html = '';
+    if (p.length) {
+        var rows = p.map(function(x) {
+            return '<div style="line-height:1.9;"><span style="color:#d63850;font-weight:600;">' + x.name + '</span>' +
+                ' <span style="color:#8b8b9e;font-size:11px;">[' + x.group + ']</span>' +
+                ' <span style="color:#fbbf24;font-size:12px;">' + x.hint + '</span></div>';
+        }).join('');
+        html += '<div style="color:#d63850;font-weight:600;margin-bottom:6px;">🔴 触及压力位（' + p.length + '）</div>' + rows;
+    }
+    if (s.length) {
+        var rows2 = s.map(function(x) {
+            return '<div style="line-height:1.9;"><span style="color:#00b894;font-weight:600;">' + x.name + '</span>' +
+                ' <span style="color:#8b8b9e;font-size:11px;">[' + x.group + ']</span>' +
+                ' <span style="color:#fbbf24;font-size:12px;">' + x.hint + '</span></div>';
+        }).join('');
+        html += '<div style="color:#00b894;font-weight:600;margin:10px 0 6px;">🟢 触及支撑位（' + s.length + '）</div>' + rows2;
+    }
+    return _srCard('<div class="card-title sr-title">🎯 关键点位提醒</div>' + html);
+}
+
+function _srStockTable(label, items) {
+    if (!items || !items.length) {
+        return _srCard('<div class="card-title sr-title">' + label + '</div>' +
+            '<div style="color:#666;font-size:13px;">暂无数据</div>');
+    }
+    var ths = ['名称', '现价', '涨跌幅', 'MA5', 'MA20', 'MA60', '20日压力', '20日支撑', '60日分位', '关键点位'];
+    var head = '<thead><tr>';
+    ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
+    head += '</tr></thead>';
+    var rows = '';
+    items.forEach(function(it) {
+        var col = _srCol(it.change_pct);
+        rows += '<tr>' +
+            '<td style="text-align:left;font-weight:600;color:#eee;white-space:nowrap;">' + it.name + '</td>' +
+            '<td style="color:' + col + ';font-weight:bold;">' + _srNum(it.price) + '</td>' +
+            '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
+            '<td style="color:#c4b5fd;">' + _srNum(it.ma5) + '</td>' +
+            '<td style="color:#c4b5fd;">' + _srNum(it.ma20) + '</td>' +
+            '<td style="color:#c4b5fd;">' + _srNum(it.ma60) + '</td>' +
+            '<td style="color:#fbbf24;">' + _srNum(it.high_20) + '</td>' +
+            '<td style="color:#60a5fa;">' + _srNum(it.low_20) + '</td>' +
+            '<td>' + (it.pos_pct !== null && it.pos_pct !== undefined ? it.pos_pct.toFixed(0) + '%' : '--') + '</td>' +
+            '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:240px;">' + it.conclusion + '</td>' +
+            '</tr>';
+    });
+    return _srCard('<div class="card-title sr-title">' + label + '</div>' +
+        '<div class="sector-table-wrap"><table class="sector-fund-table">' + head + '<tbody>' + rows + '</tbody></table></div>');
+}
