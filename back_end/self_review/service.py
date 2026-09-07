@@ -713,11 +713,16 @@ def _analyze_minute(minute, sh_item):
     low_idx = prices.index(low)
     low_time = times[low_idx] if low_idx < len(times) else '--'
     high = max(prices)
+    high_idx = prices.index(high)
+    high_time = times[high_idx] if high_idx < len(times) else '--'
     close = prices[-1]
     down_from_pre = (low - pre_close) / pre_close * 100 if pre_close else 0.0
     rebound = (close - low) / low * 100 if low else 0.0
+    high_pct = (high - pre_close) / pre_close * 100 if pre_close else 0.0
+    low_pct = (low - pre_close) / pre_close * 100 if pre_close else 0.0
+    change_pct = (close - pre_close) / pre_close * 100 if pre_close else 0.0
 
-    text = f'上证指数日内最高 {high:.2f}、最低 {low:.2f}（约{low_time}），收盘 {close:.2f}（昨收 {pre_close:.2f}）。'
+    text = f'上证指数日内最高 {high:.2f}（约{high_time}）、最低 {low:.2f}（约{low_time}），收盘 {close:.2f}（昨收 {pre_close:.2f}）。'
 
     l20 = sh_item['low_20']
     if rebound < 0.25:
@@ -735,10 +740,14 @@ def _analyze_minute(minute, sh_item):
                 text += f'不过日内低点已跌破近20日低点 {l20:.0f}，回升属于超跌反抽，该位后市或转为压力。'
     return {
         'high': round(high, 2),
+        'high_time': high_time,
+        'high_pct': round(high_pct, 2),
         'low': round(low, 2),
         'low_time': low_time,
+        'low_pct': round(low_pct, 2),
         'close': round(close, 2),
         'pre_close': round(pre_close, 2),
+        'change_pct': round(change_pct, 2),
         'rebound': round(rebound, 2),
         'down_from_pre': round(down_from_pre, 2),
         'day': minute.get('day'),

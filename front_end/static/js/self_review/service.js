@@ -28,8 +28,7 @@ function renderSelfReview(d) {
     }
     var html = '';
     html += _srPlan(d.plan);
-    html += _srMinute(d.minute);
-    html += _srTurnover(d.turnover);
+    html += _srIntraday(d.minute, d.turnover);
     html += _srOpenHour(d.open_hour);
     html += _srBreadth(d.breadth, d.sentiment);
     html += _srIndexTable(d.indices);
@@ -189,36 +188,37 @@ function _srBreadth(b, s) {
     return _srCard('<div class="card-title sr-title">📊 全市场涨跌家数（含涨停/连板情绪）</div>' + html);
 }
 
-// ---- 成交额温度 ----
+// ---- 上证日内形态 · 两市成交额（日内量价与温度） ----
 
-function _srTurnover(t) {
-    if (!t) return '';
-    var chgCol = _srCol(t.change);
-    var rows =
-        '<span>当日成交额 <span style="color:#fff;font-weight:600;">' + t.today.toFixed(0) + ' 亿</span></span>' +
-        '<span>昨日成交额 <span style="color:#fff;">' + t.yesterday.toFixed(0) + ' 亿</span></span>' +
-        '<span>较昨日 <span style="color:' + chgCol + ';">' + _srSigned(t.change) + ' 亿 (' + _srPct(t.change_pct) + ')</span></span>';
-    var bandTag = t.band === '活跃'
-        ? '<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:3px;font-size:11px;background:rgba(214,56,80,0.15);color:#d63850;border:1px solid rgba(214,56,80,0.4);vertical-align:2px;">量能活跃（高于近期均量）</span>'
-        : (t.band === '偏低' ? '<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:3px;font-size:11px;background:rgba(0,184,148,0.15);color:#00b894;border:1px solid rgba(0,184,148,0.4);vertical-align:2px;">量能偏低（低于近期均量）</span>' : '');
-    return _srCard('<div class="card-title sr-title">🔥 两市成交额变化（市场温度）' + bandTag + '</div>' +
-        (t.day ? '<div class="sr-meta">数据日期：' + t.day + '</div>' : '') +
-        '<div style="display:flex;flex-wrap:wrap;gap:20px;font-size:13px;color:#8b8b9e;margin-bottom:8px;">' + rows + '</div>' +
-        '<div class="sr-conclusion">' + t.conclusion + '</div>');
-}
-
-// ---- 上证日内形态 ----
-
-function _srMinute(m) {
-    if (!m) return '';
-    return _srCard('<div class="card-title sr-title">🕐 上证指数日内形态（支撑验证）</div>' +
-        (m.day ? '<div class="sr-meta">数据日期：' + m.day + '</div>' : '') +
-        '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:8px;font-size:13px;color:#8b8b9e;">' +
-        '<span>日内最高 <span style="color:#d63850;font-weight:600;">' + _srNum(m.high) + '</span></span>' +
-        '<span>日内最低 <span style="color:#00b894;font-weight:600;">' + _srNum(m.low) + '</span>（约' + m.low_time + '）</span>' +
-        '<span>自低点回升 <span style="color:' + _srCol(m.rebound) + ';font-weight:600;">' + _srPct(m.rebound) + '</span></span>' +
-        '</div>' +
-        '<div class="sr-conclusion">' + m.conclusion + '</div>');
+function _srIntraday(m, t) {
+    if (!m && !t) return '';
+    var html = '';
+    // 数据日期（日内形态）
+    if (m && m.day) html += '<div class="sr-meta">数据日期：' + m.day + '</div>';
+    var rows = '';
+    // 日内形态数据
+    if (m) {
+        rows += '<span>日内最高 <span style="color:#d63850;font-weight:600;">' + _srNum(m.high) + '</span>' +
+            (m.high_time ? '<span style="color:#8b8b9e;">（约' + m.high_time + '）</span>' : '') +
+            ' <span style="color:' + _srCol(m.high_pct) + ';font-weight:600;">' + _srPct(m.high_pct) + '</span></span>' +
+            '<span>日内最低 <span style="color:#00b894;font-weight:600;">' + _srNum(m.low) + '</span>' +
+            (m.low_time ? '<span style="color:#8b8b9e;">（约' + m.low_time + '）</span>' : '') +
+            ' <span style="color:' + _srCol(m.low_pct) + ';font-weight:600;">' + _srPct(m.low_pct) + '</span></span>' +
+            '<span>自低点回升 <span style="color:' + _srCol(m.rebound) + ';font-weight:600;">' + _srPct(m.rebound) + '</span></span>';
+    }
+    // 成交额数据（紧随日内形态）
+    if (t) {
+        var chgCol = _srCol(t.change);
+        rows += '<span>当日成交额 <span style="color:#fff;font-weight:600;">' + t.today.toFixed(0) + ' 亿</span></span>' +
+            '<span>昨日成交额 <span style="color:#fff;">' + t.yesterday.toFixed(0) + ' 亿</span></span>' +
+            '<span>较昨日 <span style="color:' + chgCol + ';">' + _srSigned(t.change) + ' 亿 (' + _srPct(t.change_pct) + ')</span></span>';
+    }
+    if (rows) {
+        html += '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:8px;font-size:13px;color:#8b8b9e;">' + rows + '</div>';
+    }
+    if (m && m.conclusion) html += '<div class="sr-conclusion">' + m.conclusion + '</div>';
+    if (t && t.conclusion) html += '<div class="sr-conclusion">' + t.conclusion + '</div>';
+    return _srCard('<div class="card-title sr-title">🕐 上证日内形态</div>' + html);
 }
 
 // ---- 开盘首小时量价 ----
