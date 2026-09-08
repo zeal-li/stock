@@ -751,23 +751,39 @@ def _analyze_minute(minute, sh_item):
     rebound = (close - low) / low * 100 if low else 0.0
     high_pct = (high - pre_close) / pre_close * 100 if pre_close else 0.0
     low_pct = (low - pre_close) / pre_close * 100 if pre_close else 0.0
+    # 当日振幅（相对昨收）、最大盘中反弹（低→高）、收盘在日内区间的位置（0=最低 100=最高）
+    amplitude = (high - low) / pre_close * 100 if pre_close else 0.0
+    max_rebound = (high - low) / low * 100 if low else 0.0
+    close_pos = (close - low) / (high - low) * 100 if high > low else 50.0
 
-    text = f'上证指数日内最高 {high:.2f}（约{high_time}）、最低 {low:.2f}（约{low_time}），收盘 {close:.2f}（昨收 {pre_close:.2f}）。'
+    text = ''
 
     l20 = sh_item['low_20']
-    if rebound < 0.25:
-        text += '尾盘仍在日内低位附近，未见有效回升，走势偏弱，日内低点支撑有效性仍待确认。'
-    else:
-        text += f'盘中自低点回升 {rebound:.2f}%，'
+    if high <= low:
+        text += '日内振幅极小，指数窄幅整理，多空方向不明。'
+    elif close_pos < 33:
+        # 收盘在日内区间低位区：整体偏弱，支撑未确认
+        text += f'收盘位于日内区间 {close_pos:.0f}% 分位（低位区），自低点仅回升 {rebound:.2f}%，'
+        if max_rebound >= 0.5:
+            text += f'盘中最大反弹 {max_rebound:.2f}% 但尾盘再度走弱，'
+        text += '走势偏弱，日内低点支撑有效性仍待确认。'
+    elif close_pos >= 66:
+        # 收盘在高位区：承接有力，支撑经受住考验
+        text += f'收盘位于日内区间 {close_pos:.0f}% 分位（高位区），自低点回升 {rebound:.2f}%，'
         if down_from_pre <= -0.3:
             text += '呈“下探后回升”形态，'
-        text += f'说明 {low:.0f} 一带存在承接买盘，下方支撑经受住了考验。'
-        if l20 is not None:
-            near = abs(low - l20) / l20 <= 0.008
-            if near:
-                text += f'且日内低点与近20日低点 {l20:.0f} 基本重合，关键点位支撑被确认，参考意义较强。'
-            elif low < l20 * 0.99:
-                text += f'不过日内低点已跌破近20日低点 {l20:.0f}，回升属于超跌反抽，该位后市或转为压力。'
+        text += f'说明 {low:.0f} 一带承接有力，下方支撑经受住了考验。'
+    else:
+        # 收盘在中位区：多空拉锯，方向未明
+        text += f'收盘位于日内区间 {close_pos:.0f}% 分位（中位区），自低点回升 {rebound:.2f}%（盘中最大反弹 {max_rebound:.2f}%），'
+        text += '多空在区间中段拉锯，支撑有效性一般，方向仍需观察。'
+
+    if l20 is not None:
+        near = abs(low - l20) / l20 <= 0.008
+        if near:
+            text += f'日内低点与近20日低点 {l20:.0f} 基本重合，关键点位支撑被确认，参考意义较强。'
+        elif low < l20 * 0.99:
+            text += f'日内低点已跌破近20日低点 {l20:.0f}，回升属于超跌反抽，该位后市或转为压力。'
     return {
         'high': round(high, 2),
         'high_time': high_time,
@@ -782,6 +798,9 @@ def _analyze_minute(minute, sh_item):
         'change_pct': round(change_pct, 2),
         'rebound': round(rebound, 2),
         'down_from_pre': round(down_from_pre, 2),
+        'amplitude': round(amplitude, 2),
+        'max_rebound': round(max_rebound, 2),
+        'close_pos': round(close_pos, 1),
         'day': minute.get('day'),
         'conclusion': text,
     }
