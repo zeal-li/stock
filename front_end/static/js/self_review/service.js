@@ -200,7 +200,7 @@ function _srIntraday(m, t) {
         return '<div style="' + rowStyle + '">' + content + '</div>';
     }
     if (m) {
-        // 第一行：昨收 / 开盘 / 收盘 / 最高 / 最低 / 自低点回升
+        // 第一行：昨收 / 开盘 / 收盘 / 最高 / 最低
         var line1 =
             '<span>昨收 <span style="color:#8b8b9e;font-weight:600;">' + _srNum(m.pre_close) + '</span></span>' +
             '<span>开盘 <span style="color:' + _srCol(m.open_pct) + ';font-weight:600;">' + _srNum(m.open) + '</span>' +
@@ -212,8 +212,7 @@ function _srIntraday(m, t) {
             (m.high_time ? '<span style="color:#8b8b9e;">（约' + m.high_time + '）</span>' : '') + '</span>' +
             '<span>最低 <span style="color:#00b894;font-weight:600;">' + _srNum(m.low) + '</span>' +
             ' <span style="color:' + _srCol(m.low_pct) + ';font-weight:600;">' + _srPct(m.low_pct) + '</span>' +
-            (m.low_time ? '<span style="color:#8b8b9e;">（约' + m.low_time + '）</span>' : '') + '</span>' +
-            '<span>自低点回升 <span style="color:' + _srCol(m.rebound) + ';font-weight:600;">' + _srPct(m.rebound) + '</span></span>';
+            (m.low_time ? '<span style="color:#8b8b9e;">（约' + m.low_time + '）</span>' : '') + '</span>';
         html += _row(line1);
     }
     // 第二行：成交额
