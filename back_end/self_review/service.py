@@ -700,6 +700,19 @@ def _analyze_turnover(turnover, recent, indices):
     return dict(turnover, band=band_tag, conclusion=conclusion)
 
 
+def _seg_pct(prices, times, start, end):
+    """分时某时段 [start, end]（HH:MM）内的涨跌幅（时段首尾价格），数据不足返回 None"""
+    s = e = None
+    for t, p in zip(times, prices):
+        if start <= t <= end:
+            if s is None:
+                s = p
+            e = p
+    if s is None or e is None or not s:
+        return None
+    return (e - s) / s * 100
+
+
 def _analyze_minute(minute, sh_item):
     """上证日内形态：下探回升/支撑验证"""
     if minute is None or sh_item is None:
@@ -751,37 +764,81 @@ def _analyze_minute(minute, sh_item):
     rebound = (close - low) / low * 100 if low else 0.0
     high_pct = (high - pre_close) / pre_close * 100 if pre_close else 0.0
     low_pct = (low - pre_close) / pre_close * 100 if pre_close else 0.0
-    # 当日振幅（相对昨收）、最大盘中反弹（低→高）、收盘在日内区间的位置（0=最低 100=最高）
+    # 当日振幅（相对昨收）、最大盘中反弹（低→高）、收盘/开盘在日内区间的位置（0=最低 100=最高）
     amplitude = (high - low) / pre_close * 100 if pre_close else 0.0
     max_rebound = (high - low) / low * 100 if low else 0.0
     close_pos = (close - low) / (high - low) * 100 if high > low else 50.0
+    open_pos = (open_price - low) / (high - low) * 100 if high > low else 50.0
+
+    # 第一维度：方向（收盘定势）
+    if change_pct >= 0.05:
+        direction = '收阳'
+    elif change_pct <= -0.05:
+        direction = '收阴'
+    else:
+        direction = '平盘'
+
+    # 高低点出现先后（决定 V 型还是倒 V/A 字）
+    low_first = low_time != '--' and high_time != '--' and low_time <= high_time
+
+    # 第三维度：关键时段涨跌
+    early = _seg_pct(prices, times, '09:30', '10:00')   # 早盘半小时
+    noon = _seg_pct(prices, times, '13:00', '13:30')    # 午后开盘
+    tail = _seg_pct(prices, times, '14:50', '15:00')    # 尾盘
 
     text = ''
+    form = ''
 
-    l20 = sh_item['low_20']
-    if high <= low:
-        text += '日内振幅极小，指数窄幅整理，多空方向不明。'
-    elif close_pos < 33:
-        # 收盘在日内区间低位区：整体偏弱，支撑未确认
-        text += f'收盘位于日内区间 {close_pos:.0f}% 分位（低位区），自低点仅回升 {rebound:.2f}%，'
-        if max_rebound >= 0.5:
-            text += f'盘中最大反弹 {max_rebound:.2f}% 但尾盘再度走弱，'
-        text += '走势偏弱，日内低点支撑有效性仍待确认。'
-    elif close_pos >= 66:
-        # 收盘在高位区：承接有力，支撑经受住考验
-        text += f'收盘位于日内区间 {close_pos:.0f}% 分位（高位区），自低点回升 {rebound:.2f}%，'
-        if down_from_pre <= -0.3:
-            text += '呈“下探后回升”形态，'
-        text += f'说明 {low:.0f} 一带承接有力，下方支撑经受住了考验。'
+    # 第二维度：核心形态
+    if high <= low or amplitude < 0.3:
+        form = '横盘窄幅震荡'
+        text += f'全天振幅仅 {amplitude:.2f}%，横盘窄幅震荡（{direction}），多空均无力打破僵局，属垃圾时间，宜观望。'
+    elif open_pos < 30 and close_pos >= 75 and low_first:
+        form = '单边上攻'
+        text += (f'单边上攻形态：开盘即见低点（约{low_time}），随后逐级走高，'
+                 f'收盘贴近全日最高（区间 {close_pos:.0f}% 分位），趋势型强势，持股最佳形态。')
+    elif open_pos > 70 and close_pos <= 25 and not low_first:
+        form = '单边下杀'
+        text += (f'单边下杀形态：开盘即见高点（约{high_time}），随后逐级走低，'
+                 f'收盘贴近全日最低（区间 {close_pos:.0f}% 分位），趋势型弱势，严禁抄底，宜空仓/止损。')
+    elif low_first and low_time <= '11:30' and close_pos >= 70:
+        form = 'V型反转'
+        text += (f'V型反转（深V）：{low_time} 前后急速下探见底，午后拉升收复失地，'
+                 f'收盘 {close_pos:.0f}% 分位，日内见底信号，短线转强。')
+    elif not low_first and high_time <= '11:00' and close_pos <= 30:
+        form = '倒V（A字杀）'
+        text += (f'倒V（A字杀）：早盘诱多冲高（约{high_time}见顶），午后急速跳水，'
+                 f'收盘 {close_pos:.0f}% 分位，套牢追高者，日内见顶信号，杀伤力较大。')
+    elif amplitude >= 1.2 and 33 <= close_pos < 66:
+        form = '宽幅N字震荡'
+        text += (f'宽幅N字震荡：盘中多次涨跌交替（振幅 {amplitude:.2f}%），收盘回到区间中段，'
+                 f'洗盘特征明显，关键看二次低点/高点是否抬高。')
     else:
-        # 收盘在中位区：多空拉锯，方向未明
-        text += f'收盘位于日内区间 {close_pos:.0f}% 分位（中位区），自低点回升 {rebound:.2f}%（盘中最大反弹 {max_rebound:.2f}%），'
-        text += '多空在区间中段拉锯，支撑有效性一般，方向仍需观察。'
+        form = '震荡'
+        if close_pos >= 66:
+            text += f'收盘位于日内区间 {close_pos:.0f}% 分位（高位区），自低点回升 {rebound:.2f}%，承接有力，下方支撑经受住了考验。'
+        elif close_pos < 33:
+            text += f'收盘位于日内区间 {close_pos:.0f}% 分位（低位区），自低点仅回升 {rebound:.2f}%，走势偏弱，支撑有效性仍待确认。'
+        else:
+            text += f'收盘位于日内区间 {close_pos:.0f}% 分位（中位区），多空拉锯，支撑有效性一般，方向仍需观察。'
 
+    # 时段要点（第三维度补充）
+    seg_notes = []
+    if early is not None and abs(early) >= 0.3:
+        seg_notes.append(f'早盘半小时{"高开高走" if early >= 0 else "低开低走"}（{early:+.2f}%），全天定调{"偏强" if early >= 0 else "偏弱"}')
+    if noon is not None and abs(noon) >= 0.3:
+        seg_notes.append(f'午后开盘{"拉升" if noon >= 0 else "跳水"}（{noon:+.2f}%），出现{"向上" if noon >= 0 else "向下"}变盘')
+    if tail is not None and abs(tail) >= 0.2:
+        seg_notes.append(f'尾盘{"偷袭拉升" if tail >= 0 else "砸尾盘"}（{tail:+.2f}%）')
+    if seg_notes:
+        text += '时段要点：' + '；'.join(seg_notes) + '。'
+
+    # 20日低点联动
+    l20 = sh_item['low_20']
     if l20 is not None:
         near = abs(low - l20) / l20 <= 0.008
         if near:
-            text += f'日内低点与近20日低点 {l20:.0f} 基本重合，关键点位支撑被确认，参考意义较强。'
+            text += f'日内低点与近20日低点 {l20:.0f} 基本重合，关键点位支撑被确认。'
         elif low < l20 * 0.99:
             text += f'日内低点已跌破近20日低点 {l20:.0f}，回升属于超跌反抽，该位后市或转为压力。'
     return {
@@ -801,6 +858,8 @@ def _analyze_minute(minute, sh_item):
         'amplitude': round(amplitude, 2),
         'max_rebound': round(max_rebound, 2),
         'close_pos': round(close_pos, 1),
+        'form': form,
+        'direction': direction,
         'day': minute.get('day'),
         'conclusion': text,
     }
