@@ -706,21 +706,51 @@ def _analyze_minute(minute, sh_item):
         return None
     prices = minute['prices']
     times = minute['times']
-    if len(prices) < 30 or len(times) < len(prices):
+
+    # 开/高/低/收/昨收/涨跌幅以 ulist 实时行情为准（与主要指数复盘一致），
+    # 分时序列仅用于定位日内高低点出现的时间。
+    open_price = sh_item.get('open')
+    high = sh_item.get('high')
+    low = sh_item.get('low')
+    close = sh_item.get('price')
+    pre_close = sh_item.get('pre_close')
+    change_pct = sh_item.get('change_pct')
+
+    # 关键价格缺失时退回分时序列推算
+    if high is None or low is None or close is None or pre_close is None:
+        if len(prices) < 30 or len(times) < len(prices):
+            return None
+    if high is None:
+        high = max(prices)
+    if low is None:
+        low = min(prices)
+    if close is None:
+        close = prices[-1]
+    if open_price is None:
+        open_price = prices[0]
+    if pre_close is None:
+        pre_close = minute.get('pre_close')
+    if close is None or pre_close is None or low is None or high is None:
         return None
-    pre_close = minute['pre_close']
-    low = min(prices)
-    low_idx = prices.index(low)
-    low_time = times[low_idx] if low_idx < len(times) else '--'
-    high = max(prices)
-    high_idx = prices.index(high)
-    high_time = times[high_idx] if high_idx < len(times) else '--'
-    close = prices[-1]
+    if open_price is None:
+        open_price = close
+    if change_pct is None:
+        change_pct = (close - pre_close) / pre_close * 100 if pre_close else 0.0
+
+    # 定位日内高低点出现时间（取与权威值最接近的分时点）
+    high_time = '--'
+    low_time = '--'
+    if len(prices) >= 30 and len(times) >= len(prices):
+        hi = min(range(len(prices)), key=lambda i: abs(prices[i] - high))
+        high_time = times[hi] if hi < len(times) else '--'
+        li = min(range(len(prices)), key=lambda i: abs(prices[i] - low))
+        low_time = times[li] if li < len(times) else '--'
+
+    open_pct = (open_price - pre_close) / pre_close * 100 if pre_close else 0.0
     down_from_pre = (low - pre_close) / pre_close * 100 if pre_close else 0.0
     rebound = (close - low) / low * 100 if low else 0.0
     high_pct = (high - pre_close) / pre_close * 100 if pre_close else 0.0
     low_pct = (low - pre_close) / pre_close * 100 if pre_close else 0.0
-    change_pct = (close - pre_close) / pre_close * 100 if pre_close else 0.0
 
     text = f'上证指数日内最高 {high:.2f}（约{high_time}）、最低 {low:.2f}（约{low_time}），收盘 {close:.2f}（昨收 {pre_close:.2f}）。'
 
@@ -745,6 +775,8 @@ def _analyze_minute(minute, sh_item):
         'low': round(low, 2),
         'low_time': low_time,
         'low_pct': round(low_pct, 2),
+        'open': round(open_price, 2),
+        'open_pct': round(open_pct, 2),
         'close': round(close, 2),
         'pre_close': round(pre_close, 2),
         'change_pct': round(change_pct, 2),

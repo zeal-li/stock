@@ -195,26 +195,35 @@ function _srIntraday(m, t) {
     var html = '';
     // 数据日期（日内形态）
     if (m && m.day) html += '<div class="sr-meta">数据日期：' + m.day + '</div>';
-    var rows = '';
-    // 日内形态数据
-    if (m) {
-        rows += '<span>日内最高 <span style="color:#d63850;font-weight:600;">' + _srNum(m.high) + '</span>' +
-            (m.high_time ? '<span style="color:#8b8b9e;">（约' + m.high_time + '）</span>' : '') +
-            ' <span style="color:' + _srCol(m.high_pct) + ';font-weight:600;">' + _srPct(m.high_pct) + '</span></span>' +
-            '<span>日内最低 <span style="color:#00b894;font-weight:600;">' + _srNum(m.low) + '</span>' +
-            (m.low_time ? '<span style="color:#8b8b9e;">（约' + m.low_time + '）</span>' : '') +
-            ' <span style="color:' + _srCol(m.low_pct) + ';font-weight:600;">' + _srPct(m.low_pct) + '</span></span>' +
-            '<span>自低点回升 <span style="color:' + _srCol(m.rebound) + ';font-weight:600;">' + _srPct(m.rebound) + '</span></span>';
+    var rowStyle = 'display:flex;flex-wrap:wrap;gap:20px;font-size:13px;color:#8b8b9e;margin-bottom:8px;';
+    function _row(content) {
+        return '<div style="' + rowStyle + '">' + content + '</div>';
     }
-    // 成交额数据（紧随日内形态）
+    if (m) {
+        // 第一行：昨收 / 开盘 / 收盘 / 最高 / 最低 / 自低点回升
+        var line1 =
+            '<span>昨收 <span style="color:#8b8b9e;font-weight:600;">' + _srNum(m.pre_close) + '</span></span>' +
+            '<span>开盘 <span style="color:' + _srCol(m.open_pct) + ';font-weight:600;">' + _srNum(m.open) + '</span>' +
+            ' <span style="color:' + _srCol(m.open_pct) + ';font-weight:600;">' + _srPct(m.open_pct) + '</span></span>' +
+            '<span>收盘 <span style="color:' + _srCol(m.change_pct) + ';font-weight:600;">' + _srNum(m.close) + '</span>' +
+            ' <span style="color:' + _srCol(m.change_pct) + ';font-weight:600;">' + _srPct(m.change_pct) + '</span></span>' +
+            '<span>最高 <span style="color:#d63850;font-weight:600;">' + _srNum(m.high) + '</span>' +
+            ' <span style="color:' + _srCol(m.high_pct) + ';font-weight:600;">' + _srPct(m.high_pct) + '</span>' +
+            (m.high_time ? '<span style="color:#8b8b9e;">（约' + m.high_time + '）</span>' : '') + '</span>' +
+            '<span>最低 <span style="color:#00b894;font-weight:600;">' + _srNum(m.low) + '</span>' +
+            ' <span style="color:' + _srCol(m.low_pct) + ';font-weight:600;">' + _srPct(m.low_pct) + '</span>' +
+            (m.low_time ? '<span style="color:#8b8b9e;">（约' + m.low_time + '）</span>' : '') + '</span>' +
+            '<span>自低点回升 <span style="color:' + _srCol(m.rebound) + ';font-weight:600;">' + _srPct(m.rebound) + '</span></span>';
+        html += _row(line1);
+    }
+    // 第二行：成交额
     if (t) {
         var chgCol = _srCol(t.change);
-        rows += '<span>当日成交额 <span style="color:#fff;font-weight:600;">' + t.today.toFixed(0) + ' 亿</span></span>' +
-            '<span>昨日成交额 <span style="color:#fff;">' + t.yesterday.toFixed(0) + ' 亿</span></span>' +
+        var line2 =
+            '<span>昨日成交额 <span style="color:#8b8b9e;">' + t.yesterday.toFixed(0) + ' 亿</span></span>' +
+            '<span>当日成交额 <span style="color:' + chgCol + ';font-weight:600;">' + t.today.toFixed(0) + ' 亿</span></span>' +
             '<span>较昨日 <span style="color:' + chgCol + ';">' + _srSigned(t.change) + ' 亿 (' + _srPct(t.change_pct) + ')</span></span>';
-    }
-    if (rows) {
-        html += '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:8px;font-size:13px;color:#8b8b9e;">' + rows + '</div>';
+        html += _row(line2);
     }
     if (m && m.conclusion) html += '<div class="sr-conclusion">' + m.conclusion + '</div>';
     if (t && t.conclusion) html += '<div class="sr-conclusion">' + t.conclusion + '</div>';
