@@ -149,13 +149,14 @@ _THS_HEADERS = {
 }
 
 
-def _fetch_kline(symbol):
-    """同花顺 v4/line 日K：近120个交易日（日期/收盘/最高/最低/成交量），与 K线弹窗同源。
+def _fetch_kline(symbol, min_bars=120):
+    """同花顺 v4/line 日K：最近若干交易日（日期/收盘/最高/最低/成交量），与 K线弹窗同源。
     symbol 如 sh_1A0001 / sz_399001 / sh_600519；502/504 为限流，失败重试 3 次。
+    最多回看 3 年，凑够 min_bars 根即停（默认 120；120日周期等更长窗口由调用方调大）。
     返回 {dates, closes, highs, lows, volumes}，均按日期升序。"""
     year = datetime.datetime.now().year
     dates, closes, highs, lows, volumes = [], [], [], [], []
-    for y in range(year, year - 3, -1):  # 最多回看 3 年，凑够 120 根即停
+    for y in range(year, year - 3, -1):  # 最多回看 3 年，凑够 min_bars 根即停
         raw = None
         for attempt in range(4):
             try:
@@ -203,7 +204,7 @@ def _fetch_kline(symbol):
         highs = y_highs + highs
         lows = y_lows + lows
         volumes = y_vols + volumes
-        if len(closes) >= 120:
+        if len(closes) >= min_bars:
             break
     if len(closes) < 20:
         raise RuntimeError(f'日K数据不足: {symbol}（仅 {len(closes)} 根）')
@@ -268,7 +269,7 @@ def _fetch_stock_quotes(stocks):
 #   5) 盘中剔除尚未收盘的当日K线，只统计已定型交易日。
 # 单一数据源：行情=东财 ulist，日K=同花顺 v4/line，二者同属一只标的同一份记录，不做串行兜底。
 
-_SR_WINDOWS = (5, 20, 60)          # 压力/支撑周期
+_SR_WINDOWS = (20, 60, 120)        # 压力/支撑周期
 _SR_ZONE_TOL_RATIO = 0.5           # 密集区聚类容差 = 窗口日均振幅 × 0.5（收盘价差在此内视为同一带）
 _SR_ZONE_SPAN_RATIO = 2.0          # 单个密集区收盘价跨度上限 = 日均振幅 × 2（防慢牛/慢熊漂移伪密集）
 _SR_NEAR_PCT = 1.5                 # 现价与密集区中枢距离 <= 1.5% 视为“贴近”，进入顶部关键位提醒
@@ -371,7 +372,7 @@ def _trend_info(closes):
 
 def _stock_levels(s, q, k, decimals=None):
     """单只自选股/ETF：收盘价×成交量 成交密集区压力/支撑。
-    返回行数据：price/change_pct/change_val、pressure_5~60/support_5~60、
+    返回行数据：price/change_pct/change_val、pressure_20~120/support_20~120、
     conclusion（状态感知文本）、near/hint（贴近提醒，供顶部关键点位汇总）。
     decimals 缺省时按标的本身判断：is_etf → 三位小数（场内基金价格保留三位），否则两位。"""
     def fmt(v):
@@ -499,7 +500,7 @@ def _stock_levels(s, q, k, decimals=None):
 
 
 def _analyze_stocks(stocks, decimals=None):
-    """自选股关键点位分析（收盘价×成交量 成交密集区压力/支撑，5/20/60日）。
+    """自选股关键点位分析（收盘价×成交量 成交密集区压力/支撑，20/60/120日）。
     decimals 缺省时逐标的判断：is_etf → 三位小数，否则两位（与分组无关）。
     单一数据源：行情=东财 ulist，日K=同花顺 v4/line；任一缺失该股整行跳过。"""
     if not stocks:
@@ -509,7 +510,10 @@ def _analyze_stocks(stocks, decimals=None):
 
     kline_map = {}
     with ThreadPoolExecutor(max_workers=min(8, len(stocks))) as pool:
-        futs = {pool.submit(_fetch_kline, symbols[s['code']]): s for s in stocks}
+        # 拉取根数留足裕量：盘中 _drop_incomplete_bar 会剔除当日未定型K线，
+        # 须保证剔除后仍 >= 最大周期窗口（120日）。
+        need_bars = _SR_WINDOWS[-1] + 20
+        futs = {pool.submit(_fetch_kline, symbols[s['code']], need_bars): s for s in stocks}
         for fut in futs:
             s = futs[fut]
             try:
