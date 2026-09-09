@@ -28,8 +28,7 @@ function renderSelfReview(d) {
     }
     var html = '';
     html += _srPlan(d.plan);
-    html += _srIntraday(d.minute, d.turnover);
-    html += _srOpenHour(d.open_hour);
+    html += _srIntraday(d.minute, d.turnover, d.open_hour);
     html += _srBreadth(d.breadth, d.sentiment);
     html += _srIndexTable(d.indices);
     html += _srLevels(d.levels);
@@ -188,13 +187,14 @@ function _srBreadth(b, s) {
     return _srCard('<div class="card-title sr-title">📊 全市场涨跌家数（含涨停/连板情绪）</div>' + html);
 }
 
-// ---- 上证日内形态 · 两市成交额（日内量价与温度） ----
+// ---- 上证日内形态 · 两市成交额（日内量价与温度，含开盘首小时量价结构） ----
 
-function _srIntraday(m, t) {
-    if (!m && !t) return '';
+function _srIntraday(m, t, oh) {
+    if (!m && !t && !oh) return '';
     var html = '';
     // 数据日期（日内形态）
-    if (m && m.day) html += '<div class="sr-meta">数据日期：' + m.day + '</div>';
+    var day = (m && m.day) || (oh && oh.day) || (t && t.day);
+    if (day) html += '<div class="sr-meta">数据日期：' + day + '</div>';
     var rowStyle = 'display:flex;flex-wrap:wrap;gap:20px;font-size:13px;color:#8b8b9e;margin-bottom:8px;';
     function _row(content) {
         return '<div style="' + rowStyle + '">' + content + '</div>';
@@ -224,31 +224,26 @@ function _srIntraday(m, t) {
             '<span>较昨日 <span style="color:' + chgCol + ';">' + _srSigned(t.change) + ' 亿 (' + _srPct(t.change_pct) + ')</span></span>';
         html += _row(line2);
     }
-    if (m && m.conclusion) html += '<div class="sr-conclusion">' + m.conclusion + '</div>';
-    if (t && t.conclusion) html += '<div class="sr-conclusion">' + t.conclusion + '</div>';
-    return _srCard('<div class="card-title sr-title">🕐 上证日内形态</div>' + html);
-}
-
-// ---- 开盘首小时量价 ----
-
-function _srOpenHour(m) {
-    if (!m) return '';
-    function _s(label, value, color) {
-        return '<span class="sr-label">' + label +
-            ' <span class="sr-value" style="color:' + (color || '#fff') + ';">' + value + '</span></span>';
+    // 第三行：开盘首小时量价（原「开盘首小时量价结构」卡片数据并入此处）
+    if (oh) {
+        if (!oh.complete) {
+            html += '<div style="font-size:12px;color:#fbbf24;margin-bottom:6px;">首小时尚未结束，以下为盘中实时累计</div>';
+        }
+        var ratioCol = oh.ratio >= 36 ? '#d63850' : (oh.ratio >= 24 ? '#fbbf24' : '#00b894');
+        var line3 =
+            '<span>开盘一小时成交 <span style="color:#8b8b9e;font-weight:600;">' + oh.open_amt.toFixed(0) + ' 亿</span></span>' +
+            '<span>占当日成交比例 <span style="color:' + ratioCol + ';font-weight:600;">' + oh.ratio.toFixed(0) + '%</span></span>' +
+            (oh.sh_pct !== null && oh.sh_pct !== undefined
+                ? '<span>同期上证(对开盘) <span style="color:' + _srCol(oh.sh_pct) + ';font-weight:600;">' +
+                    (oh.sh_pct >= 0 ? '+' : '') + oh.sh_pct.toFixed(2) + '%</span></span>'
+                : '');
+        html += _row(line3);
     }
-    var ratioCol = m.ratio >= 36 ? '#d63850' : (m.ratio >= 24 ? '#fbbf24' : '#00b894');
-    var rows = _s('开盘一小时成交', m.open_amt.toFixed(0) + ' 亿') +
-        _s('占当日成交比例', m.ratio.toFixed(0) + '%', ratioCol) +
-        _s('当日累计成交', m.total_now.toFixed(0) + ' 亿') +
-        (m.sh_pct !== null && m.sh_pct !== undefined
-            ? _s('同期上证(对开盘)', (m.sh_pct >= 0 ? '+' : '') + m.sh_pct.toFixed(2) + '%', _srCol(m.sh_pct))
-            : '');
-    return _srCard('<div class="card-title sr-title">🕘 开盘首小时量价结构</div>' +
-        (m.day ? '<div class="sr-meta">数据日期：' + m.day + '</div>' : '') +
-        (!m.complete ? '<div style="font-size:12px;color:#fbbf24;margin-bottom:6px;">首小时尚未结束，以下为盘中实时累计</div>' : '') +
-        '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:8px;">' + rows + '</div>' +
-        '<div class="sr-conclusion">' + m.conclusion + '</div>');
+    if (m && m.conclusion) html += '<div class="sr-conclusion">' + m.conclusion + '</div>';
+    // 成交量的总结：量能温度结论 + 开盘首小时量价结论
+    if (t && t.conclusion) html += '<div class="sr-conclusion">' + t.conclusion + '</div>';
+    if (oh && oh.verdict) html += '<div class="sr-conclusion">' + oh.verdict + '</div>';
+    return _srCard('<div class="card-title sr-title">🕐 上证日内形态</div>' + html);
 }
 
 // ---- 资金面（两融 / 板块主力资金） ----

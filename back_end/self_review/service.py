@@ -989,6 +989,7 @@ def _analyze_open_hour(day):
         'ratio': round(ratio, 1),
         'sh_pct': round(sh_pct, 2) if sh_pct is not None else None,
         'sh_vs_pre': round(sh_vs_pre, 2) if sh_vs_pre is not None else None,
+        'verdict': verdict,
         'conclusion': head + '。' + verdict,
     }
 
