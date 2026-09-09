@@ -391,7 +391,7 @@ function renderStockReview(d) {
     var order = ['watchlist', 'etf', 'holdings'];
     order.forEach(function(key) {
         var g = groups[key];
-        if (g) html += _srStockTable(g.label, g.items, key === 'etf' ? 3 : 2);
+        if (g) html += _srStockTable(g.label, g.items);
     });
     if (!html) {
         html = '<div class="index-card sr-card"><div style="color:#666;font-size:13px;">暂无自选股 / 场内ETF / 持仓股，请先到「自选股」页面添加。</div></div>';
@@ -423,17 +423,19 @@ function _srStockSummary(summary) {
     return _srCard('<div class="card-title sr-title">🎯 关键点位提醒</div>' + html);
 }
 
-function _srStockTable(label, items, decimals) {
+function _srStockTable(label, items) {
     if (!items || !items.length) {
         return _srCard('<div class="card-title sr-title">' + label + '</div>' +
             '<div style="color:#666;font-size:13px;">暂无数据</div>');
     }
-    var dec = decimals || 2;
-    function _fmt(v) {
-        return (v === null || v === undefined) ? '--' : v.toFixed(dec);
+    function _dec(code, market) {
+        return isETF(code, market) ? 3 : 2;  // 复用 common.js 全局 isETF
+    }
+    function _fmt(v, code, market) {
+        return (v === null || v === undefined) ? '--' : v.toFixed(_dec(code, market));
     }
     function _cell(it, field, color) {
-        var v = (it[field] === null || it[field] === undefined) ? '--' : it[field].toFixed(dec);
+        var v = (it[field] === null || it[field] === undefined) ? '--' : it[field].toFixed(_dec(it.code, it.market));
         return '<td style="color:' + ((v === '--') ? '#666' : color) + ';">' + v + '</td>';
     }
     var ths = ['代码', '名称', '现价', '涨跌幅', '5日压力', '5日支撑', '20日压力', '20日支撑', '60日压力', '60日支撑', '关键点位'];
@@ -446,19 +448,22 @@ function _srStockTable(label, items, decimals) {
         rows += '<tr>' +
             '<td style="color:#888;white-space:nowrap;">' + it.code + '</td>' +
             '<td style="text-align:left;white-space:nowrap;"><span style="font-weight:600;color:#eee;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + it.code + '\',\'' + it.market + '\',\'' + it.name + '\')">' + it.name + '</span></td>' +
-            '<td style="color:' + col + ';font-weight:bold;">' + _fmt(it.price) + '</td>' +
+            '<td style="color:' + col + ';font-weight:bold;">' + _fmt(it.price, it.code, it.market) + '</td>' +
             '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
-            _cell(it, 'pressure_5', '#fbbf24') +
-            _cell(it, 'support_5', '#60a5fa') +
+            _cell(it, 'pressure_5', '#f97316') +
+            _cell(it, 'support_5', '#6366f1') +
             _cell(it, 'pressure_20', '#fbbf24') +
             _cell(it, 'support_20', '#60a5fa') +
-            _cell(it, 'pressure_60', '#fbbf24') +
-            _cell(it, 'support_60', '#60a5fa') +
+            _cell(it, 'pressure_60', '#c084fc') +
+            _cell(it, 'support_60', '#22d3ee') +
             '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:240px;">' + (it.conclusion || '') + '</td>' +
             '</tr>';
     });
     var note = '<div class="sr-note">' +
-        '压力/支撑 = 近对应交易日已收盘K线按收盘价聚合成「成交密集区」，压力为现价上方最近区中枢、支撑为现价下方最近区中枢（黄=压力，蓝=支撑）；' +
+        '压力/支撑 = 近对应交易日已收盘K线按收盘价聚合成「成交密集区」，压力为现价上方最近区中枢、支撑为现价下方最近区中枢；' +
+        '颜色区分：<span style="color:#f97316;">橙=5日压力</span> <span style="color:#6366f1;">靛=5日支撑</span>　' +
+        '<span style="color:#fbbf24;">黄=20日压力</span> <span style="color:#60a5fa;">蓝=20日支撑</span>　' +
+        '<span style="color:#c084fc;">紫=60日压力</span> <span style="color:#22d3ee;">青=60日支撑</span>。' +
         '密集区是以收盘价+成交量计算的真实筹码带（中枢=区内成交量加权收盘价），盘中自动剔除尚未收盘的当日K线。' +
         '显示 -- 表示现价上方/下方近期无成交密集区（处于突破/破位状态）；震荡市密集区有效性强，趋势市中仅作回踩/反抽参考。' +
         '</div>';
