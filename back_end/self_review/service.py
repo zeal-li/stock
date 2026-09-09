@@ -471,8 +471,23 @@ def _stock_levels(s, q, k, decimals=None):
     }
     for w in wins:
         n = w['n']
-        item[f'pressure_{n}'] = round(w['above']['center'], decimals) if w['above'] else None
-        item[f'support_{n}'] = round(w['below']['center'], decimals) if w['below'] else None
+        above, below = w['above'], w['below']
+        # 压力列：现价上方最近密集区中枢；若上方无带且现价位于下方带内部
+        # （已突破到该带上半部），则取该带上沿作压力参考。
+        if above:
+            item[f'pressure_{n}'] = round(above['center'], decimals)
+        elif below and below['lo'] <= price <= below['hi']:
+            item[f'pressure_{n}'] = round(below['hi'], decimals)
+        else:
+            item[f'pressure_{n}'] = None
+        # 支撑列：现价下方最近密集区中枢；若下方无带且现价位于上方带内部
+        # （价格已在带内、中枢在其上方），则取该带下沿作支撑参考（跌破下沿才破位）。
+        if below:
+            item[f'support_{n}'] = round(below['center'], decimals)
+        elif above and above['lo'] <= price <= above['hi']:
+            item[f'support_{n}'] = round(above['lo'], decimals)
+        else:
+            item[f'support_{n}'] = None
 
     # ---- 贴近任一周期压力/支撑（顶部关键点位提醒用） ----
     best = None  # (dist_pct, kind, n, zone)
