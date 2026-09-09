@@ -252,8 +252,9 @@ def _fetch_stock_quotes(stocks):
     return quote_map
 
 
-def _analyze_stocks(stocks):
-    """对一组股票做关键点位分析（复用指数复盘的 _build_index_item / _level_conclusion）"""
+def _analyze_stocks(stocks, decimals=2):
+    """对一组股票做关键点位分析（复用指数复盘的 _build_index_item / _level_conclusion）。
+    decimals 控制价格小数位：ETF 场内基金价格保留三位。"""
     if not stocks:
         return []
     quote_map = _fetch_stock_quotes(stocks)
@@ -277,7 +278,7 @@ def _analyze_stocks(stocks):
         k = kline_map.get(s['code'])
         if q is None or q.get('price') is None or k is None:
             continue
-        spec = {'code': s['code'], 'secid': secid, 'name': q.get('name') or s['code']}
+        spec = {'code': s['code'], 'secid': secid, 'name': q.get('name') or s['code'], 'decimals': decimals}
         it = _build_index_item(spec, q, k)
         items.append({
             'code': s['code'],
@@ -292,9 +293,9 @@ def _analyze_stocks(stocks):
             'high_20': it['high_20'],
             'low_20': it['low_20'],
             'pos_pct': it['pos_pct'],
-            'conclusion': _level_conclusion(it),
+            'conclusion': _level_conclusion(it, decimals),
             'position': _position_of(it),
-            'hint': _position_hint(it),
+            'hint': _position_hint(it, decimals),
         })
     return items
 
@@ -424,6 +425,7 @@ def _build_index_item(spec, q, k):
     if q['price'] is None:
         raise RuntimeError(f'{spec["name"]} 实时价缺失')
     close = q['price']
+    decimals = spec.get('decimals', 2)
 
     n20 = min(20, len(highs))
     n60 = min(60, len(highs))
@@ -442,20 +444,20 @@ def _build_index_item(spec, q, k):
         'code': spec['code'],
         'secid': spec['secid'],
         'name': q.get('name') or spec['name'],
-        'price': round(close, 2),
+        'price': round(close, decimals),
         'change_pct': round(q['change_pct'], 2) if q['change_pct'] is not None else None,
         'change_val': round(q['change_val'], 2) if q['change_val'] is not None else None,
         'open': round(q['open'], 2) if q['open'] is not None else None,
         'high': round(q['high'], 2) if q['high'] is not None else None,
         'low': round(q['low'], 2) if q['low'] is not None else None,
         'pre_close': round(q['pre_close'], 2) if q['pre_close'] is not None else None,
-        'ma5': round(ma5, 2) if ma5 is not None else None,
-        'ma20': round(ma20, 2) if ma20 is not None else None,
-        'ma60': round(ma60, 2) if ma60 is not None else None,
-        'high_20': round(high_20, 2),
-        'low_20': round(low_20, 2),
-        'high_60': round(high_60, 2),
-        'low_60': round(low_60, 2),
+        'ma5': round(ma5, decimals) if ma5 is not None else None,
+        'ma20': round(ma20, decimals) if ma20 is not None else None,
+        'ma60': round(ma60, decimals) if ma60 is not None else None,
+        'high_20': round(high_20, decimals),
+        'low_20': round(low_20, decimals),
+        'high_60': round(high_60, decimals),
+        'low_60': round(low_60, decimals),
         'pos_pct': pos_pct,
     }
 
@@ -536,8 +538,10 @@ def _position_of(it):
     return None
 
 
-def _position_hint(it):
+def _position_hint(it, decimals=2):
     """贴近关键位的简短提示"""
+    def fmt(v):
+        return _fmt_price(v, decimals)
     close = it['price']
     h20, l20 = it['high_20'], it['low_20']
     h60, l60 = it['high_60'], it['low_60']
@@ -545,22 +549,24 @@ def _position_hint(it):
     if pos == 'pressure':
         if close >= h20:
             if h60 > close:
-                return f'已突破20日高点 {_fmt_price(h20)}，上方压力看60日高点 {_fmt_price(h60)}'
+                return f'已突破20日高点 {fmt(h20)}，上方压力看60日高点 {fmt(h60)}'
             return '已创近期新高，上方无明显压力'
-        return f'贴近20日高点压力 {_fmt_price(h20)}（距 +{(h20 - close) / close * 100:.1f}%）'
+        return f'贴近20日高点压力 {fmt(h20)}（距 +{(h20 - close) / close * 100:.1f}%）'
     if pos == 'support':
         if close <= l20:
             if l60 < close:
-                return f'已跌破20日低点 {_fmt_price(l20)}，下方支撑看60日低点 {_fmt_price(l60)}'
+                return f'已跌破20日低点 {fmt(l20)}，下方支撑看60日低点 {fmt(l60)}'
             return '已创近期新低，下方无明显支撑'
-        return f'贴近20日低点支撑 {_fmt_price(l20)}（距 -{(close - l20) / close * 100:.1f}%）'
+        return f'贴近20日低点支撑 {fmt(l20)}（距 -{(close - l20) / close * 100:.1f}%）'
     return None
 
 
-def _fmt_price(v):
-    """价格显示：>=100 整数（指数），>=10 一位小数，<10 两位小数（适配低价 ETF/个股）"""
+def _fmt_price(v, decimals=None):
+    """价格显示：decimals 指定时按指定小数位；否则 >=100 整数（指数），>=10 一位，<10 两位"""
     if v is None:
         return '--'
+    if decimals is not None:
+        return f'{v:.{decimals}f}'
     if abs(v) >= 100:
         return f'{v:.0f}'
     if abs(v) >= 10:
@@ -568,43 +574,45 @@ def _fmt_price(v):
     return f'{v:.2f}'
 
 
-def _level_conclusion(it):
-    """单只标的关键点位/压力支撑小结（指数/股票/ETF 通用）"""
+def _level_conclusion(it, decimals=2):
+    """单只标的关键点位/压力支撑小结（指数/股票/ETF 通用，decimals 控制价格小数位）"""
+    def fmt(v):
+        return _fmt_price(v, decimals)
     close = it['price']
     h20, l20 = it['high_20'], it['low_20']
     h60, l60 = it['high_60'], it['low_60']
     ma5, ma20, ma60 = it['ma5'], it['ma20'], it['ma60']
     parts = []
-    parts.append(f'近60日区间 {_fmt_price(l60)} ~ {_fmt_price(h60)}，现价位于区间 {it["pos_pct"]:.0f}% 分位。')
+    parts.append(f'近60日区间 {fmt(l60)} ~ {fmt(h60)}，现价位于区间 {it["pos_pct"]:.0f}% 分位。')
 
     near_ratio = _NEAR_RATIO  # 视为"贴近"的距离比例
     if close >= h20:
         if h60 > close:
-            parts.append(f'已刷新近20日高点 {_fmt_price(h20)}，上方直接压力看60日高点 {_fmt_price(h60)}（+{(h60 - close) / close * 100:.1f}%）。')
+            parts.append(f'已刷新近20日高点 {fmt(h20)}，上方直接压力看60日高点 {fmt(h60)}（+{(h60 - close) / close * 100:.1f}%）。')
         else:
             parts.append(f'已刷新近20日乃至60日高点，上方无明显近端套牢压力，趋势偏强。')
     elif close >= h20 * (1 - near_ratio):
-        parts.append(f'现价紧贴20日高点压力 {_fmt_price(h20)}（距 {+((h20 - close) / close * 100):.1f}%），放量突破则打开上行空间，受阻则回踩。')
+        parts.append(f'现价紧贴20日高点压力 {fmt(h20)}（距 {+((h20 - close) / close * 100):.1f}%），放量突破则打开上行空间，受阻则回踩。')
     else:
-        parts.append(f'上方压力：近20日高点 {_fmt_price(h20)}（距现价 +{(h20 - close) / close * 100:.1f}%）。')
+        parts.append(f'上方压力：近20日高点 {fmt(h20)}（距现价 +{(h20 - close) / close * 100:.1f}%）。')
 
     if close <= l20:
         if l60 < close:
-            parts.append(f'已跌破近20日低点 {_fmt_price(l20)}，下方关键支撑下移至60日低点 {_fmt_price(l60)}（距现价 -{(close - l60) / close * 100:.1f}%）。')
+            parts.append(f'已跌破近20日低点 {fmt(l20)}，下方关键支撑下移至60日低点 {fmt(l60)}（距现价 -{(close - l60) / close * 100:.1f}%）。')
         else:
             parts.append(f'现价已创近60日新低，下行趋势中未见明确支撑，等待企稳信号。')
     elif close <= l20 * (1 + near_ratio):
-        parts.append(f'现价正逼近20日低点支撑 {_fmt_price(l20)}（距 -{(close - l20) / close * 100:.1f}%），该支撑正被考验，守住则短线止跌。')
+        parts.append(f'现价正逼近20日低点支撑 {fmt(l20)}（距 -{(close - l20) / close * 100:.1f}%），该支撑正被考验，守住则短线止跌。')
     else:
-        parts.append(f'下方支撑：近20日低点 {_fmt_price(l20)}（距现价 -{(close - l20) / close * 100:.1f}%）。')
+        parts.append(f'下方支撑：近20日低点 {fmt(l20)}（距现价 -{(close - l20) / close * 100:.1f}%）。')
 
     ma_texts = []
     if ma5 is not None:
-        ma_texts.append(f'5日线 {_fmt_price(ma5)}（现价{"站上" if close >= ma5 else "跌破"}）')
+        ma_texts.append(f'5日线 {fmt(ma5)}（现价{"站上" if close >= ma5 else "跌破"}）')
     if ma20 is not None:
-        ma_texts.append(f'20日线 {_fmt_price(ma20)}（现价{"站上" if close >= ma20 else "跌破"}）')
+        ma_texts.append(f'20日线 {fmt(ma20)}（现价{"站上" if close >= ma20 else "跌破"}）')
     if ma60 is not None:
-        ma_texts.append(f'60日线 {_fmt_price(ma60)}（现价{"站上" if close >= ma60 else "跌破"}）')
+        ma_texts.append(f'60日线 {fmt(ma60)}（现价{"站上" if close >= ma60 else "跌破"}）')
     if ma_texts:
         parts.append('、'.join(ma_texts) + '。')
     return ' '.join(parts)
@@ -1401,7 +1409,7 @@ def run_stock_review(user_id):
     data = {}
     summary = {'pressure': [], 'support': []}
     for key, label, stocks in groups:
-        items = _analyze_stocks(stocks)
+        items = _analyze_stocks(stocks, decimals=3 if key == 'etf' else 2)
         data[key] = {'label': label, 'items': items}
         for it in items:
             if it['position'] == 'pressure':

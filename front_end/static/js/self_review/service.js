@@ -376,7 +376,7 @@ function renderStockReview(d) {
     var order = ['watchlist', 'etf', 'holdings'];
     order.forEach(function(key) {
         var g = groups[key];
-        if (g) html += _srStockTable(g.label, g.items);
+        if (g) html += _srStockTable(g.label, g.items, key === 'etf' ? 3 : 2);
     });
     if (!html) {
         html = '<div class="index-card sr-card"><div style="color:#666;font-size:13px;">暂无自选股 / 场内ETF / 持仓股，请先到「自选股」页面添加。</div></div>';
@@ -408,10 +408,14 @@ function _srStockSummary(summary) {
     return _srCard('<div class="card-title sr-title">🎯 关键点位提醒</div>' + html);
 }
 
-function _srStockTable(label, items) {
+function _srStockTable(label, items, decimals) {
     if (!items || !items.length) {
         return _srCard('<div class="card-title sr-title">' + label + '</div>' +
             '<div style="color:#666;font-size:13px;">暂无数据</div>');
+    }
+    var dec = decimals || 2;
+    function _fmt(v) {
+        return (v === null || v === undefined) ? '--' : v.toFixed(dec);
     }
     var ths = ['名称', '现价', '涨跌幅', 'MA5', 'MA20', 'MA60', '20日压力', '20日支撑', '60日分位', '关键点位'];
     var head = '<thead><tr>';
@@ -422,13 +426,13 @@ function _srStockTable(label, items) {
         var col = _srCol(it.change_pct);
         rows += '<tr>' +
             '<td style="text-align:left;font-weight:600;color:#eee;white-space:nowrap;">' + it.name + '</td>' +
-            '<td style="color:' + col + ';font-weight:bold;">' + _srNum(it.price) + '</td>' +
+            '<td style="color:' + col + ';font-weight:bold;">' + _fmt(it.price) + '</td>' +
             '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _srNum(it.ma5) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _srNum(it.ma20) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _srNum(it.ma60) + '</td>' +
-            '<td style="color:#fbbf24;">' + _srNum(it.high_20) + '</td>' +
-            '<td style="color:#60a5fa;">' + _srNum(it.low_20) + '</td>' +
+            '<td style="color:#c4b5fd;">' + _fmt(it.ma5) + '</td>' +
+            '<td style="color:#c4b5fd;">' + _fmt(it.ma20) + '</td>' +
+            '<td style="color:#c4b5fd;">' + _fmt(it.ma60) + '</td>' +
+            '<td style="color:#fbbf24;">' + _fmt(it.high_20) + '</td>' +
+            '<td style="color:#60a5fa;">' + _fmt(it.low_20) + '</td>' +
             '<td>' + (it.pos_pct !== null && it.pos_pct !== undefined ? it.pos_pct.toFixed(0) + '%' : '--') + '</td>' +
             '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:240px;">' + it.conclusion + '</td>' +
             '</tr>';
