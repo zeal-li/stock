@@ -409,7 +409,7 @@ function _srStockSummary(summary) {
             return '<div style="line-height:1.9;"><span style="color:#888;">' + x.code + '</span> ' +
                 '<span style="cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + x.code + '\',\'' + x.market + '\',\'' + x.name + '\')">' + x.name + '</span>' +
                 ' <span style="color:#8b8b9e;font-size:11px;">[' + x.group + ']</span>' +
-                ' <span style="color:#fbbf24;font-size:12px;">' + x.hint + '</span></div>';
+                ' <span style="color:#888;font-size:12px;">' + x.hint + '</span></div>';
         }).join('');
         html += '<div style="color:#fbbf24;font-weight:600;margin-bottom:6px;">🟡 触及压力位（' + p.length + '）</div>' + rows;
     }
@@ -418,7 +418,7 @@ function _srStockSummary(summary) {
             return '<div style="line-height:1.9;"><span style="color:#888;">' + x.code + '</span> ' +
                 '<span style="cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + x.code + '\',\'' + x.market + '\',\'' + x.name + '\')">' + x.name + '</span>' +
                 ' <span style="color:#8b8b9e;font-size:11px;">[' + x.group + ']</span>' +
-                ' <span style="color:#fbbf24;font-size:12px;">' + x.hint + '</span></div>';
+                ' <span style="color:#888;font-size:12px;">' + x.hint + '</span></div>';
         }).join('');
         html += '<div style="color:#3b82f6;font-weight:600;margin:10px 0 6px;">🔵 触及支撑位（' + s.length + '）</div>' + rows2;
     }
@@ -436,11 +436,25 @@ function _srStockTable(label, items) {
     function _fmt(v, code, market) {
         return (v === null || v === undefined) ? '--' : v.toFixed(_dec(code, market));
     }
-    function _cell(it, field, color) {
-        var v = (it[field] === null || it[field] === undefined) ? '--' : it[field].toFixed(_dec(it.code, it.market));
-        return '<td style="color:' + ((v === '--') ? '#666' : color) + ';">' + v + '</td>';
+    function _srLevelCell(it) {
+        function _pct(val) {
+            if (val === null || val === undefined || !it.price) return null;
+            return (val - it.price) / it.price * 100;
+        }
+        function _pctTxt(pct) {
+            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)';
+        }
+        var rows = [20, 60, 120].map(function(n) {
+            var sup = it['support_' + n];
+            var pre = it['pressure_' + n];
+            return '<div style="white-space:nowrap;">' + n + '日 ' +
+                '<span style="color:#60a5fa;">' + _fmt(sup, it.code, it.market) + '</span>' + _pctTxt(_pct(sup)) + '~' +
+                '<span style="color:#fbbf24;">' + _fmt(pre, it.code, it.market) + '</span>' + _pctTxt(_pct(pre)) + '</div>';
+        });
+        return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:nowrap;min-width:220px;">' +
+            rows.join('') + '</td>';
     }
-    var ths = ['代码', '名称', '现价', '涨跌幅', '20日压力', '20日支撑', '60日压力', '60日支撑', '120日压力', '120日支撑', '关键点位'];
+    var ths = ['代码', '名称', '现价', '涨跌幅', '支撑/压力', '关键点位'];
     var head = '<thead><tr>';
     ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
     head += '</tr></thead>';
@@ -452,21 +466,14 @@ function _srStockTable(label, items) {
             '<td style="text-align:left;white-space:nowrap;"><span style="font-weight:600;color:#eee;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + it.code + '\',\'' + it.market + '\',\'' + it.name + '\')">' + it.name + '</span></td>' +
             '<td style="color:' + col + ';font-weight:bold;">' + _fmt(it.price, it.code, it.market) + '</td>' +
             '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
-            _cell(it, 'pressure_20', '#fbbf24') +
-            _cell(it, 'support_20', '#60a5fa') +
-            _cell(it, 'pressure_60', '#c084fc') +
-            _cell(it, 'support_60', '#22d3ee') +
-            _cell(it, 'pressure_120', '#f97316') +
-            _cell(it, 'support_120', '#6366f1') +
+            _srLevelCell(it) +
             '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:240px;">' + (it.conclusion || '') + '</td>' +
             '</tr>';
     });
     var note = '<div class="sr-note">' +
         '压力/支撑 = 近对应交易日已收盘K线按收盘价聚合成「成交密集区」，压力为现价上方最近区中枢、支撑为现价下方最近区中枢；' +
         '现价位于某密集区内部时，压力/支撑改取该区上沿/下沿作参考（价格仍在带内、未真正突破/破位）。' +
-        '颜色区分：<span style="color:#fbbf24;">黄=20日压力</span> <span style="color:#60a5fa;">蓝=20日支撑</span>　' +
-        '<span style="color:#c084fc;">紫=60日压力</span> <span style="color:#22d3ee;">青=60日支撑</span>　' +
-        '<span style="color:#f97316;">橙=120日压力</span> <span style="color:#6366f1;">靛=120日支撑</span>。' +
+        '颜色区分：<span style="color:#fbbf24;">黄=压力</span> <span style="color:#60a5fa;">蓝=支撑</span>。' +
         '密集区是以收盘价+成交量计算的真实筹码带（中枢=区内成交量加权收盘价），盘中自动剔除尚未收盘的当日K线。' +
         '显示 -- 表示现价上方/下方均无成交密集区且不在任一密集区内（处于突破/破位状态）；震荡市密集区有效性强，趋势市中仅作回踩/反抽参考。' +
         '</div>';
