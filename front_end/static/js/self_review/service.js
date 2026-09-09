@@ -454,7 +454,29 @@ function _srStockTable(label, items) {
         return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:nowrap;min-width:220px;">' +
             rows.join('') + '</td>';
     }
-    var ths = ['代码', '名称', '现价', '涨跌幅', '支撑/压力', '关键点位'];
+    function _srBollCell(it) {
+        function _pct(val) {
+            if (val === null || val === undefined || !it.price) return null;
+            return (val - it.price) / it.price * 100;
+        }
+        function _pctTxt(pct) {
+            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)';
+        }
+        function _row(label, b) {
+            if (!b || b.mid === null || b.mid === undefined) {
+                return '<div style="white-space:nowrap;">' + label + ' --</div>';
+            }
+            return '<div style="white-space:nowrap;">' + label + ' ' +
+                '<span style="color:#ef5350;">' + _fmt(b.upper, it.code, it.market) + '</span>' + _pctTxt(_pct(b.upper)) + '~' +
+                '<span style="color:#60a5fa;">' + _fmt(b.mid, it.code, it.market) + '</span>' + _pctTxt(_pct(b.mid)) + '~' +
+                '<span style="color:#26a69a;">' + _fmt(b.lower, it.code, it.market) + '</span>' + _pctTxt(_pct(b.lower)) + '</div>';
+        }
+        return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:nowrap;min-width:280px;">' +
+            _row('日布林', it.boll_daily) +
+            _row('周布林', it.boll_weekly) +
+            '</td>';
+    }
+    var ths = ['代码', '名称', '现价', '涨跌幅', '支撑/压力', '布林轨', '关键点位'];
     var head = '<thead><tr>';
     ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
     head += '</tr></thead>';
@@ -467,6 +489,7 @@ function _srStockTable(label, items) {
             '<td style="color:' + col + ';font-weight:bold;">' + _fmt(it.price, it.code, it.market) + '</td>' +
             '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
             _srLevelCell(it) +
+            _srBollCell(it) +
             '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:240px;">' + (it.conclusion || '') + '</td>' +
             '</tr>';
     });

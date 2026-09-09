@@ -273,6 +273,8 @@ _SR_WINDOWS = (20, 60, 120)        # 压力/支撑周期
 _SR_ZONE_TOL_RATIO = 0.5           # 密集区聚类容差 = 窗口日均振幅 × 0.5（收盘价差在此内视为同一带）
 _SR_ZONE_SPAN_RATIO = 2.0          # 单个密集区收盘价跨度上限 = 日均振幅 × 2（防慢牛/慢熊漂移伪密集）
 _SR_NEAR_PCT = 1.5                 # 现价与密集区中枢距离 <= 1.5% 视为“贴近”，进入顶部关键位提醒
+_BOLL_PERIOD = 20                  # 布林带周期（日/周均为 20）
+_BOLL_STD = 2.0                    # 布林带标准差倍数
 
 
 def _drop_incomplete_bar(k):
@@ -370,6 +372,27 @@ def _trend_info(closes):
     return 'range', net
 
 
+def _weekly_closes(dates, closes):
+    """把日K按 ISO 周聚合为每周收盘价（每周最后一个交易日的收盘价），按时间升序返回列表。"""
+    weekly = {}
+    for d, c in zip(dates, closes):
+        dt = datetime.datetime.strptime(str(d), '%Y%m%d')
+        iso = dt.isocalendar()
+        weekly[(iso[0], iso[1])] = c  # 同周内更晚交易日的收盘价覆盖
+    return [weekly[k] for k in sorted(weekly.keys())]
+
+
+def _bollinger(closes, period=20, num_std=2.0):
+    """布林带（收盘价）：返回 (upper, mid, lower)。数据不足 period 根返回 (None, None, None)。"""
+    if not closes or len(closes) < period:
+        return None, None, None
+    window = closes[-period:]
+    mid = sum(window) / period
+    var = sum((c - mid) ** 2 for c in window) / period
+    std = var ** 0.5
+    return mid + num_std * std, mid, mid - num_std * std
+
+
 def _stock_levels(s, q, k, decimals=None):
     """单只自选股/ETF：收盘价×成交量 成交密集区压力/支撑。
     返回行数据：price/change_pct/change_val、pressure_20~120/support_20~120、
@@ -388,6 +411,10 @@ def _stock_levels(s, q, k, decimals=None):
     highs = k['highs']
     lows = k['lows']
     volumes = k['volumes']
+
+    # ---- 布林带（日/周） ----
+    daily_u, daily_m, daily_l = _bollinger(closes, _BOLL_PERIOD, _BOLL_STD)
+    weekly_u, weekly_m, weekly_l = _bollinger(_weekly_closes(k['dates'], closes), _BOLL_PERIOD, _BOLL_STD)
 
     wins = []
     for n in _SR_WINDOWS:
@@ -468,6 +495,16 @@ def _stock_levels(s, q, k, decimals=None):
         'price': round(price, decimals),
         'change_pct': round(q['change_pct'], 2) if q['change_pct'] is not None else None,
         'change_val': round(q['change_val'], decimals) if q['change_val'] is not None else None,
+        'boll_daily': {
+            'upper': None if daily_u is None else round(daily_u, decimals),
+            'mid': None if daily_m is None else round(daily_m, decimals),
+            'lower': None if daily_l is None else round(daily_l, decimals),
+        },
+        'boll_weekly': {
+            'upper': None if weekly_u is None else round(weekly_u, decimals),
+            'mid': None if weekly_m is None else round(weekly_m, decimals),
+            'lower': None if weekly_l is None else round(weekly_l, decimals),
+        },
     }
     for w in wins:
         n = w['n']
