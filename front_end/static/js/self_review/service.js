@@ -420,7 +420,7 @@ function _srStockSummary(summary) {
         }).join('');
         html += '<div style="color:#00b894;font-weight:600;margin:10px 0 6px;">🟢 触及支撑位（' + s.length + '）</div>' + rows2;
     }
-    return _srCard('<div class="card-title sr-title">🎯 关键点位提醒</div>' + html);
+    return _srCard('<div class="card-title sr-title">🎯 复盘总结·关键点位提醒</div>' + html);
 }
 
 function _srStockTable(label, items) {
