@@ -27,12 +27,13 @@
 import datetime
 import json
 import time
+import traceback
 import requests
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 from common import REQUEST_PROXIES
-from common.utils import is_a_trading_time
+from common.utils import is_a_trading_time, is_etf
 from money_flow.storage import db_get, _EM_HEADERS, _EM_UT, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY
 
 # 主要指数 → 同花顺证券代码（日K数据源，与 K线弹窗同源）
@@ -149,10 +150,11 @@ _THS_HEADERS = {
 
 
 def _fetch_kline(symbol):
-    """同花顺 v4/line 日K：近120个交易日（收盘/最高/最低），与 K线弹窗同源。
-    symbol 如 sh_1A0001 / sz_399001 / sh_600519；502/504 为限流，失败重试 3 次。"""
+    """同花顺 v4/line 日K：近120个交易日（日期/收盘/最高/最低/成交量），与 K线弹窗同源。
+    symbol 如 sh_1A0001 / sz_399001 / sh_600519；502/504 为限流，失败重试 3 次。
+    返回 {dates, closes, highs, lows, volumes}，均按日期升序。"""
     year = datetime.datetime.now().year
-    closes, highs, lows = [], [], []
+    dates, closes, highs, lows, volumes = [], [], [], [], []
     for y in range(year, year - 3, -1):  # 最多回看 3 年，凑够 120 根即停
         raw = None
         for attempt in range(4):
@@ -175,7 +177,7 @@ def _fetch_kline(symbol):
         if raw is None:
             raise RuntimeError(f'同花顺日K获取失败: {symbol}（{y}年）')
 
-        y_closes, y_highs, y_lows = [], [], []
+        y_dates, y_closes, y_highs, y_lows, y_vols = [], [], [], [], []
         for line in raw.split(';'):
             parts = line.split(',')
             if len(parts) < 5:
@@ -191,17 +193,21 @@ def _fetch_kline(symbol):
                 high = close
             if low is None or low <= 0:
                 low = close
+            y_dates.append(str(parts[0]))
             y_closes.append(close)
             y_highs.append(high)
             y_lows.append(low)
-        closes = y_closes + closes   # 更早年份插到最前，保证整体按日期升序
+            y_vols.append(_num(parts[5]) if len(parts) > 5 else None)
+        dates = y_dates + dates       # 更早年份插到最前，保证整体按日期升序
+        closes = y_closes + closes
         highs = y_highs + highs
         lows = y_lows + lows
+        volumes = y_vols + volumes
         if len(closes) >= 120:
             break
     if len(closes) < 20:
         raise RuntimeError(f'日K数据不足: {symbol}（仅 {len(closes)} 根）')
-    return {'closes': closes, 'highs': highs, 'lows': lows}
+    return {'dates': dates, 'closes': closes, 'highs': highs, 'lows': lows, 'volumes': volumes}
 
 
 def _fetch_all_klines():
@@ -252,9 +258,250 @@ def _fetch_stock_quotes(stocks):
     return quote_map
 
 
-def _analyze_stocks(stocks, decimals=2):
-    """对一组股票做关键点位分析（复用指数复盘的 _build_index_item / _level_conclusion）。
-    decimals 控制价格小数位：ETF 场内基金价格保留三位。"""
+# ==================== 自选股 压力/支撑（收盘价×成交量 成交密集区） ====================
+# 旧模型用近N日最高/最低价（Donchian 极值），会把盘中瞬时影线与盘中未收盘的
+# 当日K线当压力支撑，横盘时点位漂移、趋势中又失真。自选股改用：
+#   1) 收盘价定区（不用影线极值）；
+#   2) 收盘价按振幅聚成“成交密集区”（区带而非单点）；
+#   3) 成交量加权 → 真实换手筹码带（中枢=区内成交量加权收盘价）；
+#   4) 结论文本带趋势状态：趋势市中密集区为“突破/跌破确认位”，震荡市中才是硬压硬支；
+#   5) 盘中剔除尚未收盘的当日K线，只统计已定型交易日。
+# 单一数据源：行情=东财 ulist，日K=同花顺 v4/line，二者同属一只标的同一份记录，不做串行兜底。
+
+_SR_WINDOWS = (5, 20, 60)          # 压力/支撑周期
+_SR_ZONE_TOL_RATIO = 0.5           # 密集区聚类容差 = 窗口日均振幅 × 0.5（收盘价差在此内视为同一带）
+_SR_ZONE_SPAN_RATIO = 2.0          # 单个密集区收盘价跨度上限 = 日均振幅 × 2（防慢牛/慢熊漂移伪密集）
+_SR_NEAR_PCT = 1.5                 # 现价与密集区中枢距离 <= 1.5% 视为“贴近”，进入顶部关键位提醒
+
+
+def _drop_incomplete_bar(k):
+    """剔除尚未收盘的当日K线（盘中 THS 当日行是滚动未定型数据，会污染近N日密集区）。
+    当日 15:00 前且末根K线日期=今天才剔除；收盘后 THS 当日行已定型则保留。
+    非当日数据（休市/盘后复盘）原样返回。"""
+    dates = k.get('dates') or []
+    if not dates:
+        return k
+    now = datetime.datetime.now()
+    if str(dates[-1]) == now.strftime('%Y%m%d') and now.hour * 60 + now.minute < 15 * 60:
+        return {key: vals[:-1] for key, vals in k.items()}
+    return k
+
+
+def _sr_zones(closes, highs, lows, volumes, n):
+    """把近 n 根已收盘K线按收盘价聚合成“成交密集区”（真实换手成本带）。
+    相邻收盘价差 <= 日均振幅一半 → 并入同一区；且单区收盘价总跨度 <= 日均振幅×2，
+    防止长时间缓涨/缓跌被误并成一个伪密集区。区内权重=成交量合计
+    （同花顺日K volume 字段，个别行无量时按 1 根计，不引入其它数据源）。
+    返回按中枢价升序的 [{'lo','hi','center','vol','bars'}]；
+    已收盘K线不足 n 根时返回 []（该周期不计算）。"""
+    if len(closes) < n:
+        return []
+    seg = list(zip(closes[-n:], highs[-n:], lows[-n:], volumes[-n:]))
+    amps = [h - l for _, h, l, _ in seg if h and l and h > l]
+    if amps:
+        day_amp = sum(amps) / len(amps)
+    else:
+        cs = [c for c, _, _, _ in seg]
+        day_amp = (max(cs) - min(cs)) * 0.02
+    if day_amp <= 0:
+        day_amp = 0.0
+    tol = day_amp * _SR_ZONE_TOL_RATIO
+    span_limit = day_amp * _SR_ZONE_SPAN_RATIO
+
+    zones = []
+    for c, _, _, v in sorted(seg, key=lambda x: x[0]):
+        w = float(v) if v and v > 0 else 1.0
+        if zones and tol > 0:
+            last = zones[-1]
+            if c - last['hi'] <= tol and c - last['lo'] <= span_limit:
+                last['csum'] += c * w
+                last['wsum'] += w
+                last['vol'] += w
+                last['hi'] = c
+                last['bars'] += 1
+                continue
+        zones.append({'lo': c, 'hi': c, 'csum': c * w, 'wsum': w, 'vol': w, 'bars': 1})
+    return [{'lo': z['lo'], 'hi': z['hi'],
+             'center': z['csum'] / z['wsum'], 'vol': z['vol'], 'bars': z['bars']}
+            for z in zones]
+
+
+def _sr_nearest(zones, price):
+    """现价上/下方最近密集区：above=中枢>=现价且离现价最近；below=中枢<现价且离现价最近。
+    返回 (above_zone, below_zone)，缺省 None。"""
+    above = below = None
+    for z in zones:
+        if z['center'] >= price:
+            if above is None or z['center'] < above['center']:
+                above = z
+        else:
+            if below is None or z['center'] > below['center']:
+                below = z
+    return above, below
+
+
+def _vwap_close(closes, volumes):
+    """区间成交量加权收盘均价（近N日平均成本）。volume 缺失/为零时按 1 根计（等权）。"""
+    wsum = csum = 0.0
+    for c, v in zip(closes, volumes):
+        w = float(v) if v and v > 0 else 1.0
+        wsum += w
+        csum += c * w
+    return csum / wsum if wsum > 0 else None
+
+
+def _trend_info(closes):
+    """近段趋势状态（用于结论文本的状态感知）：up/down/range + 净涨跌幅%。
+    观察窗口取最近约20个已收盘交易日，数据不足 10 根返回 range/None。"""
+    if len(closes) < 10:
+        return 'range', None
+    seg = closes[-(min(20, len(closes) - 1) + 1):]
+    base = seg[0]
+    if not base:
+        return 'range', None
+    net = (seg[-1] - base) / base * 100
+    up = sum(1 for i in range(1, len(seg)) if seg[i] > seg[i - 1])
+    ratio = up / (len(seg) - 1)
+    if net >= 3 and ratio >= 0.6:
+        return 'up', net
+    if net <= -3 and ratio <= 0.4:
+        return 'down', net
+    return 'range', net
+
+
+def _stock_levels(s, q, k, decimals=None):
+    """单只自选股/ETF：收盘价×成交量 成交密集区压力/支撑。
+    返回行数据：price/change_pct/change_val、pressure_5~60/support_5~60、
+    conclusion（状态感知文本）、near/hint（贴近提醒，供顶部关键点位汇总）。
+    decimals 缺省时按标的本身判断：is_etf → 三位小数（场内基金价格保留三位），否则两位。"""
+    def fmt(v):
+        return _fmt_price(v, decimals)
+
+    code = s['code']
+    if decimals is None:
+        decimals = 3 if is_etf(code, s['market']) else 2
+    price = q['price']
+    name = q.get('name') or code
+    k = _drop_incomplete_bar(k)
+    closes = k['closes']
+    highs = k['highs']
+    lows = k['lows']
+    volumes = k['volumes']
+
+    wins = []
+    for n in _SR_WINDOWS:
+        zones = _sr_zones(closes, highs, lows, volumes, n)
+        above, below = _sr_nearest(zones, price)
+        wins.append({'n': n, 'zones': zones, 'above': above, 'below': below})
+
+    # ---- 行文本（含趋势状态感知） ----
+    def strong(z, zones):
+        if z is None or not zones:
+            return False
+        top = max(x['vol'] for x in zones) or 1
+        return z['bars'] >= 2 and z['vol'] >= 0.6 * top
+
+    def in_zone(z):
+        return z is not None and z['lo'] <= price <= z['hi']
+
+    parts = []
+    for w in wins:
+        n = w['n']
+        zones, above, below = w['zones'], w['above'], w['below']
+        if not zones:
+            continue  # 数据不足该周期，列为 '--'，表格底部注释说明
+        if above and below:
+            dp = (above['center'] - price) / price * 100
+            ds = (price - below['center']) / price * 100
+            t = (f'近{n}日：上方压力 {fmt(above["center"])}（+{dp:.1f}%）；'
+                 f'下方支撑 {fmt(below["center"])}（-{ds:.1f}%）')
+            if strong(above, zones):
+                t += '，上压为放量密集区'
+            if strong(below, zones):
+                t += '，下撑为放量密集区'
+            if in_zone(above) or in_zone(below):
+                t += f'，现价正处于近{n}日密集区内'
+            parts.append(t + '。')
+        elif above:
+            # 所有密集区中枢 >= 现价：现价在密集区带内部或已跌破
+            if in_zone(above):
+                parts.append(f'近{n}日：现价位于密集区 {fmt(above["lo"])}~{fmt(above["hi"])}'
+                             f'（中枢 {fmt(above["center"])}）内，跌破该区下沿前下方暂无密集支撑。')
+            else:
+                d = (above['center'] - price) / price * 100
+                parts.append(f'近{n}日：现价跌破全部成交密集区，最近中枢 {fmt(above["center"])}'
+                             f'（距 +{d:.1f}%），其下暂无密集支撑，反抽该中枢前反弹乏力。')
+        elif below:
+            if in_zone(below):
+                parts.append(f'近{n}日：现价位于密集区 {fmt(below["lo"])}~{fmt(below["hi"])}'
+                             f'（中枢 {fmt(below["center"])}）内，突破该区上沿后上方暂无密集压力。')
+            else:
+                d = (price - below['center']) / price * 100
+                parts.append(f'近{n}日：现价升破全部成交密集区，最近中枢 {fmt(below["center"])}'
+                             f'（现价高出 {d:.1f}%），上方暂无近端压力，回踩该密集区企稳则支撑有效。')
+
+    state, net = _trend_info(closes)
+    if net is not None:
+        if state == 'up':
+            parts.append(f'近20日趋势上行（净{net:+.1f}%），趋势市中上方密集区压力多为突破确认位、'
+                         f'下方密集区回踩可低吸，勿因恐高而中途下车。')
+        elif state == 'down':
+            parts.append(f'近20日趋势下行（净{net:+.1f}%），弱势中下方支撑有效性弱、易被跌破，'
+                         f'反抽密集区宜减仓而非抄底。')
+        else:
+            parts.append(f'近20日震荡整理（净{net:+.1f}%），密集区上下沿有效性强，适合区间高抛低吸。')
+
+    m = min(60, len(closes))
+    cost = _vwap_close(closes[-m:], volumes[-m:]) if closes else None
+    if cost is not None:
+        delta = (price - cost) / cost * 100
+        parts.append(f'近{m}日成交量加权均价（平均成本）{fmt(cost)}，现价较其'
+                     f'{("高" if delta >= 0 else "低")} {abs(delta):.1f}%，'
+                     f'持仓筹码多数{"浮盈" if delta >= 0 else "浮亏"}。')
+
+    # ---- 行字段 ----
+    item = {
+        'code': code,
+        'market': s['market'],
+        'name': name,
+        'price': round(price, decimals),
+        'change_pct': round(q['change_pct'], 2) if q['change_pct'] is not None else None,
+        'change_val': round(q['change_val'], decimals) if q['change_val'] is not None else None,
+    }
+    for w in wins:
+        n = w['n']
+        item[f'pressure_{n}'] = round(w['above']['center'], decimals) if w['above'] else None
+        item[f'support_{n}'] = round(w['below']['center'], decimals) if w['below'] else None
+
+    # ---- 贴近任一周期压力/支撑（顶部关键点位提醒用） ----
+    best = None  # (dist_pct, kind, n, zone)
+    for w in wins:
+        above, below = w['above'], w['below']
+        if above is not None and above['center'] > price:
+            d = (above['center'] - price) / price * 100
+            if d <= _SR_NEAR_PCT and (best is None or d < best[0]):
+                best = (d, 'pressure', w['n'], above)
+        if below is not None and below['center'] < price:
+            d = (price - below['center']) / price * 100
+            if d <= _SR_NEAR_PCT and (best is None or d < best[0]):
+                best = (d, 'support', w['n'], below)
+    if best:
+        d, kind, n, z = best
+        if kind == 'pressure':
+            item['hint'] = (f'贴近{n}日成交密集区压力 {fmt(z["center"])}'
+                            f'（距 +{d:.1f}%），放量突破则打开空间，受阻则回踩')
+        else:
+            item['hint'] = (f'贴近{n}日成交密集区支撑 {fmt(z["center"])}'
+                            f'（距 -{d:.1f}%），守住可低吸，跌破则下看更远密集区')
+    item['near'] = best[1] if best else None
+    item['conclusion'] = ' '.join(parts) if parts else '暂无足够已收盘K线计算关键点位。'
+    return item
+
+
+def _analyze_stocks(stocks, decimals=None):
+    """自选股关键点位分析（收盘价×成交量 成交密集区压力/支撑，5/20/60日）。
+    decimals 缺省时逐标的判断：is_etf → 三位小数，否则两位（与分组无关）。
+    单一数据源：行情=东财 ulist，日K=同花顺 v4/line；任一缺失该股整行跳过。"""
     if not stocks:
         return []
     quote_map = _fetch_stock_quotes(stocks)
@@ -277,26 +524,11 @@ def _analyze_stocks(stocks, decimals=2):
         q = quote_map.get(secid)
         k = kline_map.get(s['code'])
         if q is None or q.get('price') is None or k is None:
-            continue
-        spec = {'code': s['code'], 'secid': secid, 'name': q.get('name') or s['code'], 'decimals': decimals}
-        it = _build_index_item(spec, q, k)
-        items.append({
-            'code': s['code'],
-            'market': s['market'],
-            'name': it['name'],
-            'price': it['price'],
-            'change_pct': it['change_pct'],
-            'change_val': it['change_val'],
-            'ma5': it['ma5'],
-            'ma20': it['ma20'],
-            'ma60': it['ma60'],
-            'high_20': it['high_20'],
-            'low_20': it['low_20'],
-            'pos_pct': it['pos_pct'],
-            'conclusion': _level_conclusion(it, decimals),
-            'position': _position_of(it),
-            'hint': _position_hint(it, decimals),
-        })
+            continue  # 行情或日K任一缺失 → 整行跳过，不做任何修补
+        try:
+            items.append(_stock_levels(s, q, k, decimals))
+        except Exception as e:
+            print(f'[self-review] {s["code"]} 关键点位计算失败: {e}')
     return items
 
 
@@ -526,39 +758,6 @@ def _analyze_synergy(indices):
 
 # 贴近关键位的距离比例（0.3%）：现价在 20 日高点/低点 ±0.3% 内视为"贴近"
 _NEAR_RATIO = 0.003
-
-
-def _position_of(it):
-    """判断标的是否贴近关键压力/支撑位。返回 'pressure' / 'support' / None"""
-    close = it['price']
-    if close >= it['high_20'] * (1 - _NEAR_RATIO):
-        return 'pressure'
-    if close <= it['low_20'] * (1 + _NEAR_RATIO):
-        return 'support'
-    return None
-
-
-def _position_hint(it, decimals=2):
-    """贴近关键位的简短提示"""
-    def fmt(v):
-        return _fmt_price(v, decimals)
-    close = it['price']
-    h20, l20 = it['high_20'], it['low_20']
-    h60, l60 = it['high_60'], it['low_60']
-    pos = _position_of(it)
-    if pos == 'pressure':
-        if close >= h20:
-            if h60 > close:
-                return f'已突破20日高点 {fmt(h20)}，上方压力看60日高点 {fmt(h60)}'
-            return '已创近期新高，上方无明显压力'
-        return f'贴近20日高点压力 {fmt(h20)}（距 +{(h20 - close) / close * 100:.1f}%）'
-    if pos == 'support':
-        if close <= l20:
-            if l60 < close:
-                return f'已跌破20日低点 {fmt(l20)}，下方支撑看60日低点 {fmt(l60)}'
-            return '已创近期新低，下方无明显支撑'
-        return f'贴近20日低点支撑 {fmt(l20)}（距 -{(close - l20) / close * 100:.1f}%）'
-    return None
 
 
 def _fmt_price(v, decimals=None):
@@ -1408,20 +1607,26 @@ def run_stock_review(user_id):
 
     data = {}
     summary = {'pressure': [], 'support': []}
-    for key, label, stocks in groups:
-        items = _analyze_stocks(stocks, decimals=3 if key == 'etf' else 2)
-        data[key] = {'label': label, 'items': items}
-        for it in items:
-            if it['position'] == 'pressure':
-                summary['pressure'].append({
-                    'name': it['name'], 'group': label, 'price': it['price'],
-                    'hint': it['hint'],
-                })
-            elif it['position'] == 'support':
-                summary['support'].append({
-                    'name': it['name'], 'group': label, 'price': it['price'],
-                    'hint': it['hint'],
-                })
+    try:
+        for key, label, stocks in groups:
+            items = _analyze_stocks(stocks)  # 小数位逐标的按 is_etf 判断，与分组无关
+            data[key] = {'label': label, 'items': items}
+            for it in items:
+                if it.get('near') == 'pressure':
+                    summary['pressure'].append({
+                        'name': it['name'], 'group': label, 'price': it['price'],
+                        'hint': it['hint'],
+                    })
+                elif it.get('near') == 'support':
+                    summary['support'].append({
+                        'name': it['name'], 'group': label, 'price': it['price'],
+                        'hint': it['hint'],
+                    })
+    except Exception:
+        # 行情/日K源等内部异常：显式报错（success:false + 具体原因）而不是让 Flask
+        # 返回 HTML 500 错误页；完整 traceback 保留在服务端控制台便于定位
+        traceback.print_exc()
+        return {'success': False, 'error': '自选复盘执行失败，请查看服务端控制台详细日志'}
 
     now = datetime.datetime.now()
     return {

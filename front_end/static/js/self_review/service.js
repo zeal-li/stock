@@ -1,23 +1,51 @@
 // ==================== 自助复盘页面 ====================
 
-function loadSelfReview(manual) {
-    var content = document.getElementById('srContent');
+// 自助复盘通用加载：区分「业务失败 / HTTP 异常 / 响应非 JSON / 网络异常 / 渲染异常」，
+// 避免把服务端 500 等真实原因一律误报为“网络异常”。
+function _srLoad(url, content, loadingText, manual, render) {
     if (!content) return;
     if (manual) {
-        content.innerHTML = '<div class="loading" style="padding:90px 0;">正在获取行情并复盘，请稍候...</div>';
+        content.innerHTML = '<div class="loading" style="padding:90px 0;">' + loadingText + '</div>';
     }
-    fetch('/api/self-review')
-        .then(function(r) { return r.json(); })
+    fetch(url)
+        .then(function(r) {
+            if (!r.ok) {
+                return r.text().then(function(body) {
+                    var err = new Error('HTTP ' + r.status);
+                    err.status = r.status;
+                    err.body = body;
+                    throw err;
+                });
+            }
+            return r.json();
+        })
         .then(function(res) {
-            if (!res.success) {
-                content.innerHTML = '<div class="error" style="padding:40px 20px;">' + (res.error || '复盘失败') + '</div>';
+            if (!res || res.success === false) {
+                content.innerHTML = '<div class="error" style="padding:40px 20px;">' + ((res && res.error) || '复盘失败') + '</div>';
                 return;
             }
-            renderSelfReview(res.data);
+            try {
+                render(res.data);
+            } catch (e) {
+                console.error('[self-review] 数据渲染出错:', e);
+                content.innerHTML = '<div class="error" style="padding:40px 20px;">复盘数据渲染出错，请查看浏览器控制台</div>';
+            }
         })
-        .catch(function() {
-            content.innerHTML = '<div class="error" style="padding:40px 20px;">网络异常，复盘请求失败</div>';
+        .catch(function(err) {
+            if (err && err.status) {
+                console.error('[self-review] HTTP ' + err.status, String(err.body || '').slice(0, 500));
+                content.innerHTML = '<div class="error" style="padding:40px 20px;">服务异常（HTTP ' + err.status + '），请查看服务端控制台日志</div>';
+            } else if (err instanceof SyntaxError) {
+                content.innerHTML = '<div class="error" style="padding:40px 20px;">服务响应解析失败，请查看服务端控制台日志</div>';
+            } else {
+                content.innerHTML = '<div class="error" style="padding:40px 20px;">网络异常，复盘请求失败</div>';
+            }
         });
+}
+
+function loadSelfReview(manual) {
+    _srLoad('/api/self-review', document.getElementById('srContent'),
+        '正在获取行情并复盘，请稍候...', manual, renderSelfReview);
 }
 
 function renderSelfReview(d) {
@@ -349,23 +377,10 @@ function refreshCurrentReview() {
 }
 
 function loadStockReview(manual) {
-    var content = document.getElementById('srStockContent');
-    if (!content) return;
-    if (manual) {
-        content.innerHTML = '<div class="loading" style="padding:90px 0;">正在获取自选股并复盘，请稍候...</div>';
-    }
-    fetch('/api/self-review/stocks')
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (!res.success) {
-                content.innerHTML = '<div class="error" style="padding:40px 20px;">' + (res.error || '复盘失败') + '</div>';
-                return;
-            }
+    _srLoad('/api/self-review/stocks', document.getElementById('srStockContent'),
+        '正在获取自选股并复盘，请稍候...', manual, function(data) {
             stockReviewLoaded = true;
-            renderStockReview(res.data);
-        })
-        .catch(function() {
-            content.innerHTML = '<div class="error" style="padding:40px 20px;">网络异常，复盘请求失败</div>';
+            renderStockReview(data);
         });
 }
 
@@ -417,26 +432,36 @@ function _srStockTable(label, items, decimals) {
     function _fmt(v) {
         return (v === null || v === undefined) ? '--' : v.toFixed(dec);
     }
-    var ths = ['名称', '现价', '涨跌幅', 'MA5', 'MA20', 'MA60', '20日压力', '20日支撑', '60日分位', '关键点位'];
+    function _cell(it, field, color) {
+        var v = (it[field] === null || it[field] === undefined) ? '--' : it[field].toFixed(dec);
+        return '<td style="color:' + ((v === '--') ? '#666' : color) + ';">' + v + '</td>';
+    }
+    var ths = ['代码', '名称', '现价', '涨跌幅', '5日压力', '5日支撑', '20日压力', '20日支撑', '60日压力', '60日支撑', '关键点位'];
     var head = '<thead><tr>';
     ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
     head += '</tr></thead>';
     var rows = '';
-    items.forEach(function(it) {
+    items.forEach(function(it, i) {
         var col = _srCol(it.change_pct);
         rows += '<tr>' +
-            '<td style="text-align:left;font-weight:600;color:#eee;white-space:nowrap;">' + it.name + '</td>' +
+            '<td style="color:#888;white-space:nowrap;">' + it.code + '</td>' +
+            '<td style="text-align:left;white-space:nowrap;"><span style="font-weight:600;color:#eee;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + it.code + '\',\'' + it.market + '\',\'' + it.name + '\')">' + it.name + '</span></td>' +
             '<td style="color:' + col + ';font-weight:bold;">' + _fmt(it.price) + '</td>' +
             '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _fmt(it.ma5) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _fmt(it.ma20) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _fmt(it.ma60) + '</td>' +
-            '<td style="color:#fbbf24;">' + _fmt(it.high_20) + '</td>' +
-            '<td style="color:#60a5fa;">' + _fmt(it.low_20) + '</td>' +
-            '<td>' + (it.pos_pct !== null && it.pos_pct !== undefined ? it.pos_pct.toFixed(0) + '%' : '--') + '</td>' +
-            '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:240px;">' + it.conclusion + '</td>' +
+            _cell(it, 'pressure_5', '#fbbf24') +
+            _cell(it, 'support_5', '#60a5fa') +
+            _cell(it, 'pressure_20', '#fbbf24') +
+            _cell(it, 'support_20', '#60a5fa') +
+            _cell(it, 'pressure_60', '#fbbf24') +
+            _cell(it, 'support_60', '#60a5fa') +
+            '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:240px;">' + (it.conclusion || '') + '</td>' +
             '</tr>';
     });
+    var note = '<div class="sr-note">' +
+        '压力/支撑 = 近对应交易日已收盘K线按收盘价聚合成「成交密集区」，压力为现价上方最近区中枢、支撑为现价下方最近区中枢（黄=压力，蓝=支撑）；' +
+        '密集区是以收盘价+成交量计算的真实筹码带（中枢=区内成交量加权收盘价），盘中自动剔除尚未收盘的当日K线。' +
+        '显示 -- 表示现价上方/下方近期无成交密集区（处于突破/破位状态）；震荡市密集区有效性强，趋势市中仅作回踩/反抽参考。' +
+        '</div>';
     return _srCard('<div class="card-title sr-title">' + label + '</div>' +
-        '<div class="sector-table-wrap"><table class="sector-fund-table">' + head + '<tbody>' + rows + '</tbody></table></div>');
+        '<div class="sector-table-wrap"><table class="sector-fund-table">' + head + '<tbody>' + rows + '</tbody></table></div>' + note);
 }
