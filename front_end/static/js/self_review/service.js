@@ -467,9 +467,9 @@ function _srStockTable(label, items) {
                 return '<div style="white-space:nowrap;">' + label + ' --</div>';
             }
             return '<div style="white-space:nowrap;">' + label + ' ' +
-                '<span style="color:#ef5350;">' + _fmt(b.upper, it.code, it.market) + '</span>' + _pctTxt(_pct(b.upper)) + '~' +
+                '<span style="color:#26a69a;">' + _fmt(b.lower, it.code, it.market) + '</span>' + _pctTxt(_pct(b.lower)) + '~' +
                 '<span style="color:#60a5fa;">' + _fmt(b.mid, it.code, it.market) + '</span>' + _pctTxt(_pct(b.mid)) + '~' +
-                '<span style="color:#26a69a;">' + _fmt(b.lower, it.code, it.market) + '</span>' + _pctTxt(_pct(b.lower)) + '</div>';
+                '<span style="color:#ef5350;">' + _fmt(b.upper, it.code, it.market) + '</span>' + _pctTxt(_pct(b.upper)) + '</div>';
         }
         return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:nowrap;min-width:280px;">' +
             _row('日布林', it.boll_daily) +
