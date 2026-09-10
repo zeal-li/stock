@@ -118,7 +118,7 @@ function _srIndexTable(indices) {
             '<td style="color:#c4b5fd;">' + _srNum(it.ma60) + '</td>' +
             '<td style="color:#fbbf24;">' + _srNum(it.high_20) + '</td>' +
             '<td style="color:#60a5fa;">' + _srNum(it.low_20) + '</td>' +
-            '<td>' + (it.pos_pct !== null && it.pos_pct !== undefined ? it.pos_pct.toFixed(0) + '%' : '--') + '</td>' +
+            '<td>' + (it.pos_pct !== null && it.pos_pct !== undefined ? it.pos_pct.toFixed(2) + '%' : '--') + '</td>' +
             '</tr>';
     });
 
@@ -181,7 +181,7 @@ function _srBreadth(b, s) {
         '<span style="font-size:13px;color:#8b8b9e;">上涨 <span style="color:#d63850;font-size:15px;font-weight:600;">' + b.rise + '</span> 家</span>' +
         '<span style="font-size:13px;color:#8b8b9e;">下跌 <span style="color:#00b894;font-size:15px;font-weight:600;">' + b.fall + '</span> 家</span>' +
         '<span style="font-size:13px;color:#8b8b9e;">平盘 <span style="color:#888;font-size:15px;font-weight:600;">' + b.flat + '</span> 家</span>' +
-        '<span style="font-size:13px;color:#8b8b9e;">红盘率 <span style="color:' + barColor + ';font-size:15px;font-weight:600;">' + ratio.toFixed(1) + '%</span></span>' +
+        '<span style="font-size:13px;color:#8b8b9e;">红盘率 <span style="color:' + barColor + ';font-size:15px;font-weight:600;">' + ratio.toFixed(2) + '%</span></span>' +
         '</div>' +
         '<div style="width:100%;height:10px;border-radius:5px;background:rgba(255,255,255,0.08);margin-bottom:10px;position:relative;">' +
         '<div style="width:' + ratio + '%;height:10px;border-radius:5px;background:' + barColor + ';"></div>' +
@@ -260,7 +260,7 @@ function _srIntraday(m, t, oh) {
         var ratioCol = oh.ratio >= 36 ? '#d63850' : (oh.ratio >= 24 ? '#fbbf24' : '#00b894');
         var line3 =
             '<span>开盘一小时成交 <span style="color:#8b8b9e;font-weight:600;">' + oh.open_amt.toFixed(0) + ' 亿</span></span>' +
-            '<span>占当日成交比例 <span style="color:' + ratioCol + ';font-weight:600;">' + oh.ratio.toFixed(0) + '%</span></span>' +
+            '<span>占当日成交比例 <span style="color:' + ratioCol + ';font-weight:600;">' + oh.ratio.toFixed(2) + '%</span></span>' +
             (oh.sh_pct !== null && oh.sh_pct !== undefined
                 ? '<span>同期上证(对开盘) <span style="color:' + _srCol(oh.sh_pct) + ';font-weight:600;">' +
                     (oh.sh_pct >= 0 ? '+' : '') + oh.sh_pct.toFixed(2) + '%</span></span>'

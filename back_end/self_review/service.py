@@ -736,7 +736,7 @@ def _build_index_item(spec, q, k):
     ma60 = _sma(closes, 60)
 
     span = high_60 - low_60
-    pos_pct = round((close - low_60) / span * 100, 1) if span > 0 else 50.0
+    pos_pct = round((close - low_60) / span * 100, 2) if span > 0 else 50.0
 
     return {
         'code': spec['code'],
@@ -848,28 +848,28 @@ def _level_conclusion(it, decimals=2):
     h60, l60 = it['high_60'], it['low_60']
     ma5, ma20, ma60 = it['ma5'], it['ma20'], it['ma60']
     parts = []
-    parts.append(f'近60日区间 {fmt(l60)} ~ {fmt(h60)}，现价位于区间 {it["pos_pct"]:.0f}% 分位。')
+    parts.append(f'近60日区间 {fmt(l60)} ~ {fmt(h60)}，现价位于区间 {it["pos_pct"]:.2f}% 分位。')
 
     near_ratio = _NEAR_RATIO  # 视为"贴近"的距离比例
     if close >= h20:
         if h60 > close:
-            parts.append(f'已刷新近20日高点 {fmt(h20)}，上方直接压力看60日高点 {fmt(h60)}（+{(h60 - close) / close * 100:.1f}%）。')
+            parts.append(f'已刷新近20日高点 {fmt(h20)}，上方直接压力看60日高点 {fmt(h60)}（+{(h60 - close) / close * 100:.2f}%）。')
         else:
             parts.append(f'已刷新近20日乃至60日高点，上方无明显近端套牢压力，趋势偏强。')
     elif close >= h20 * (1 - near_ratio):
-        parts.append(f'现价紧贴20日高点压力 {fmt(h20)}（距 {+((h20 - close) / close * 100):.1f}%），放量突破则打开上行空间，受阻则回踩。')
+        parts.append(f'现价紧贴20日高点压力 {fmt(h20)}（距 {+((h20 - close) / close * 100):.2f}%），放量突破则打开上行空间，受阻则回踩。')
     else:
-        parts.append(f'上方压力：近20日高点 {fmt(h20)}（距现价 +{(h20 - close) / close * 100:.1f}%）。')
+        parts.append(f'上方压力：近20日高点 {fmt(h20)}（距现价 +{(h20 - close) / close * 100:.2f}%）。')
 
     if close <= l20:
         if l60 < close:
-            parts.append(f'已跌破近20日低点 {fmt(l20)}，下方关键支撑下移至60日低点 {fmt(l60)}（距现价 -{(close - l60) / close * 100:.1f}%）。')
+            parts.append(f'已跌破近20日低点 {fmt(l20)}，下方关键支撑下移至60日低点 {fmt(l60)}（距现价 -{(close - l60) / close * 100:.2f}%）。')
         else:
             parts.append(f'现价已创近60日新低，下行趋势中未见明确支撑，等待企稳信号。')
     elif close <= l20 * (1 + near_ratio):
-        parts.append(f'现价正逼近20日低点支撑 {fmt(l20)}（距 -{(close - l20) / close * 100:.1f}%），该支撑正被考验，守住则短线止跌。')
+        parts.append(f'现价正逼近20日低点支撑 {fmt(l20)}（距 -{(close - l20) / close * 100:.2f}%），该支撑正被考验，守住则短线止跌。')
     else:
-        parts.append(f'下方支撑：近20日低点 {fmt(l20)}（距现价 -{(close - l20) / close * 100:.1f}%）。')
+        parts.append(f'下方支撑：近20日低点 {fmt(l20)}（距现价 -{(close - l20) / close * 100:.2f}%）。')
 
     ma_texts = []
     if ma5 is not None:
@@ -895,17 +895,17 @@ def _analyze_breadth(quote_map):
     total = rise + fall
     if total <= 0:
         return None
-    red_ratio = round(rise / total * 100, 1)
+    red_ratio = round(rise / total * 100, 2)
     if red_ratio >= 70:
-        conclusion = f'红盘率 {red_ratio:.1f}%，超过七成个股上涨，呈普涨格局，赚钱效应强。'
+        conclusion = f'红盘率 {red_ratio:.2f}%，超过七成个股上涨，呈普涨格局，赚钱效应强。'
     elif red_ratio >= 55:
-        conclusion = f'红盘率 {red_ratio:.1f}%，上涨家数明显占优，市场整体偏暖，参与性尚可。'
+        conclusion = f'红盘率 {red_ratio:.2f}%，上涨家数明显占优，市场整体偏暖，参与性尚可。'
     elif red_ratio >= 45:
-        conclusion = f'红盘率 {red_ratio:.1f}%，涨跌家数接近，多空分歧加大，属结构性行情，个股选择比仓位更重要。'
+        conclusion = f'红盘率 {red_ratio:.2f}%，涨跌家数接近，多空分歧加大，属结构性行情，个股选择比仓位更重要。'
     elif red_ratio >= 30:
-        conclusion = f'红盘率 {red_ratio:.1f}%，跌多涨少，亏钱效应扩散，操作上宜控制仓位、谨慎追高。'
+        conclusion = f'红盘率 {red_ratio:.2f}%，跌多涨少，亏钱效应扩散，操作上宜控制仓位、谨慎追高。'
     else:
-        conclusion = f'红盘率 {red_ratio:.1f}%，市场普跌、情绪低迷，谨防恐慌性杀跌，耐心等待企稳。'
+        conclusion = f'红盘率 {red_ratio:.2f}%，市场普跌、情绪低迷，谨防恐慌性杀跌，耐心等待企稳。'
     return {
         'rise': rise, 'fall': fall, 'flat': flat, 'total': total,
         'red_ratio': red_ratio, 'conclusion': conclusion,
@@ -932,13 +932,13 @@ def _analyze_turnover(turnover, recent, indices):
         ratio = today / base
         delta_pct = (ratio - 1) * 100
         if ratio >= 1.2:
-            band = f'两市成交额 {today:.0f} 亿，较近{len(base_vals)}日均量 {base:.0f} 亿放量 +{delta_pct:.0f}%'
+            band = f'两市成交额 {today:.0f} 亿，较近{len(base_vals)}日均量 {base:.0f} 亿放量 +{delta_pct:.2f}%'
             band_tag = '活跃'
         elif ratio <= 0.8:
-            band = f'两市成交额 {today:.0f} 亿，较近{len(base_vals)}日均量 {base:.0f} 亿缩量 {delta_pct:.0f}%'
+            band = f'两市成交额 {today:.0f} 亿，较近{len(base_vals)}日均量 {base:.0f} 亿缩量 {delta_pct:.2f}%'
             band_tag = '偏低'
         else:
-            band = f'两市成交额 {today:.0f} 亿，与近{len(base_vals)}日均量 {base:.0f} 亿基本相当（{delta_pct:+.0f}%）'
+            band = f'两市成交额 {today:.0f} 亿，与近{len(base_vals)}日均量 {base:.0f} 亿基本相当（{delta_pct:+.2f}%）'
             band_tag = '正常'
     else:
         band = f'两市成交额 {today:.0f} 亿'
@@ -956,19 +956,19 @@ def _analyze_turnover(turnover, recent, indices):
     if change_pct is None:
         conclusion = f'{band}，暂无昨日对比数据。'
     elif change_pct >= 15 and up:
-        conclusion = (f'{band}，较昨日放量 +{change_pct:.1f}%，'
+        conclusion = (f'{band}，较昨日放量 +{change_pct:.2f}%，'
                       f'量价齐升、增量资金进场明显，市场温度显著回升。')
     elif change_pct >= 15 and down:
-        conclusion = (f'{band}，较昨日放量 +{change_pct:.1f}%，'
+        conclusion = (f'{band}，较昨日放量 +{change_pct:.2f}%，'
                       f'放量下跌意味着抛压沉重，市场温度偏冷，谨慎抄底。')
     elif change_pct <= -10 and up:
-        conclusion = (f'{band}，较昨日缩量 {change_pct:.1f}%，'
+        conclusion = (f'{band}，较昨日缩量 {change_pct:.2f}%，'
                       f'缩量上涨表明拉升缺少增量配合，持续性存疑。')
     elif change_pct <= -10 and down:
-        conclusion = (f'{band}，较昨日缩量 {change_pct:.1f}%，'
+        conclusion = (f'{band}，较昨日缩量 {change_pct:.2f}%，'
                       f'缩量回调说明抛压有所衰竭，关注止跌企稳信号。')
     else:
-        conclusion = (f'{band}，较昨日变动 {change_pct:+.1f}%，'
+        conclusion = (f'{band}，较昨日变动 {change_pct:+.2f}%，'
                       f'量能基本平稳，市场温度中性，方向取决于后续放量选择。')
     return dict(turnover, band=band_tag, conclusion=conclusion)
 
@@ -1069,19 +1069,19 @@ def _analyze_minute(minute, sh_item):
     elif open_pos < 30 and close_pos >= 75 and low_first:
         form = '单边上攻'
         text += (f'单边上攻形态：开盘即见低点（约{low_time}），随后逐级走高，'
-                 f'收盘贴近全日最高（区间 {close_pos:.0f}% 分位），趋势型强势，持股最佳形态。')
+                 f'收盘贴近全日最高（区间 {close_pos:.2f}% 分位），趋势型强势，持股最佳形态。')
     elif open_pos > 70 and close_pos <= 25 and not low_first:
         form = '单边下杀'
         text += (f'单边下杀形态：开盘即见高点（约{high_time}），随后逐级走低，'
-                 f'收盘贴近全日最低（区间 {close_pos:.0f}% 分位），趋势型弱势，严禁抄底，宜空仓/止损。')
+                 f'收盘贴近全日最低（区间 {close_pos:.2f}% 分位），趋势型弱势，严禁抄底，宜空仓/止损。')
     elif low_first and low_time <= '11:30' and close_pos >= 70:
         form = 'V型反转'
         text += (f'V型反转（深V）：{low_time} 前后急速下探见底，午后拉升收复失地，'
-                 f'收盘 {close_pos:.0f}% 分位，日内见底信号，短线转强。')
+                 f'收盘 {close_pos:.2f}% 分位，日内见底信号，短线转强。')
     elif not low_first and high_time <= '11:00' and close_pos <= 30:
         form = '倒V（A字杀）'
         text += (f'倒V（A字杀）：早盘诱多冲高（约{high_time}见顶），午后急速跳水，'
-                 f'收盘 {close_pos:.0f}% 分位，套牢追高者，日内见顶信号，杀伤力较大。')
+                 f'收盘 {close_pos:.2f}% 分位，套牢追高者，日内见顶信号，杀伤力较大。')
     elif amplitude >= 1.2 and 33 <= close_pos < 66:
         form = '宽幅N字震荡'
         text += (f'宽幅N字震荡：盘中多次涨跌交替（振幅 {amplitude:.2f}%），收盘回到区间中段，'
@@ -1089,11 +1089,11 @@ def _analyze_minute(minute, sh_item):
     else:
         form = '震荡'
         if close_pos >= 66:
-            text += f'收盘位于日内区间 {close_pos:.0f}% 分位（高位区），自低点回升 {rebound:.2f}%，承接有力，下方支撑经受住了考验。'
+            text += f'收盘位于日内区间 {close_pos:.2f}% 分位（高位区），自低点回升 {rebound:.2f}%，承接有力，下方支撑经受住了考验。'
         elif close_pos < 33:
-            text += f'收盘位于日内区间 {close_pos:.0f}% 分位（低位区），自低点仅回升 {rebound:.2f}%，走势偏弱，支撑有效性仍待确认。'
+            text += f'收盘位于日内区间 {close_pos:.2f}% 分位（低位区），自低点仅回升 {rebound:.2f}%，走势偏弱，支撑有效性仍待确认。'
         else:
-            text += f'收盘位于日内区间 {close_pos:.0f}% 分位（中位区），多空拉锯，支撑有效性一般，方向仍需观察。'
+            text += f'收盘位于日内区间 {close_pos:.2f}% 分位（中位区），多空拉锯，支撑有效性一般，方向仍需观察。'
 
     # 时段要点（第三维度补充）
     seg_notes = []
@@ -1130,7 +1130,7 @@ def _analyze_minute(minute, sh_item):
         'down_from_pre': round(down_from_pre, 2),
         'amplitude': round(amplitude, 2),
         'max_rebound': round(max_rebound, 2),
-        'close_pos': round(close_pos, 1),
+        'close_pos': round(close_pos, 2),
         'form': form,
         'direction': direction,
         'day': minute.get('day'),
@@ -1226,7 +1226,7 @@ def _analyze_open_hour(day):
     sh_pct = (p_at_cut - open_price) / open_price * 100 if open_price else None
     sh_vs_pre = (p_at_cut - pre_close) / pre_close * 100 if pre_close else None
 
-    head = (f'开盘首小时（09:30-10:30）两市成交 {cum_open:.0f} 亿，约占当日累计成交 {ratio:.0f}%'
+    head = (f'开盘首小时（09:30-10:30）两市成交 {cum_open:.0f} 亿，约占当日累计成交 {ratio:.2f}%'
             if complete else
             f'截至 {t_times[-1]} 两市成交 {cum_open:.0f} 亿（当日累计 {cum_now:.0f} 亿，首小时尚未结束）')
     if sh_pct is not None:
@@ -1505,11 +1505,11 @@ def _build_plan(synergy, breadth, turnover, sentiment, funds):
 
     # 背离信号：数据之间的背离才是最有价值的信号
     if bull and red_ratio is not None and red_ratio < 45:
-        divergences.append(f'指数普涨但红盘率仅 {red_ratio:.0f}%，权重护盘、个股普跌，属典型"假涨"，次日追高易被套。')
+        divergences.append(f'指数普涨但红盘率仅 {red_ratio:.2f}%，权重护盘、个股普跌，属典型"假涨"，次日追高易被套。')
     if bull and band == '偏低':
         divergences.append('指数上涨但量能低于近期均量，属"缩量虚涨"，缺增量配合，持续性存疑。')
     if bear and red_ratio is not None and red_ratio >= 50:
-        divergences.append(f'指数普跌但红盘率仍有 {red_ratio:.0f}%，个股强于指数，资金弃权重抱题材，结构性机会仍在。')
+        divergences.append(f'指数普跌但红盘率仍有 {red_ratio:.2f}%，个股强于指数，资金弃权重抱题材，结构性机会仍在。')
     if bear and band == '活跃':
         divergences.append('指数下跌但量能高于近期均量，属"放量下跌"，抛压沉重，次日谨防惯性低开。')
     if zt_clean >= 35 and gaps:
@@ -1517,7 +1517,7 @@ def _build_plan(synergy, breadth, turnover, sentiment, funds):
     if zt_clean >= 35 and dt_clean >= 10:
         divergences.append(f'涨停 {zt_clean} 家、跌停 {dt_clean} 家并存，多空分歧巨大，属典型分歧市，宜快进快出。')
     if red_ratio is not None and red_ratio >= 55 and dt_clean >= 10:
-        divergences.append(f'红盘率 {red_ratio:.0f}% 却仍有 {dt_clean} 家跌停，赚钱与亏钱效应并存，结构严重分化。')
+        divergences.append(f'红盘率 {red_ratio:.2f}% 却仍有 {dt_clean} 家跌停，赚钱与亏钱效应并存，结构严重分化。')
 
     # 观察清单：主线板块 / 回避板块 / 风向标个股
     sector = (funds or {}).get('sector')
