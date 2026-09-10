@@ -551,10 +551,10 @@ def _stock_levels(s, q, k, decimals=None):
         d, kind, n, z = best
         if kind == 'pressure':
             item['hint'] = (f'现价 {fmt(price)}，贴近{n}日成交密集区压力 {fmt(z["center"])}'
-                            f'（距 +{d:.1f}%），放量突破则打开空间，受阻则回踩')
+                            f'(+{d:.1f}%)，放量突破则打开空间，受阻则回踩')
         else:
             item['hint'] = (f'现价 {fmt(price)}，贴近{n}日成交密集区支撑 {fmt(z["center"])}'
-                            f'（距 -{d:.1f}%），守住可低吸，跌破则下看更远密集区')
+                            f'(-{d:.1f}%)，守住可低吸，跌破则下看更远密集区')
     item['near'] = best[1] if best else None
     item['levels'] = levels
     item['conclusion'] = ' '.join(tail_parts) if tail_parts else '暂无足够已收盘K线计算关键点位。'

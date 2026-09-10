@@ -403,13 +403,19 @@ function _srStockSummary(summary) {
     var p = (summary && summary.pressure) || [];
     var s = (summary && summary.support) || [];
     if (!p.length && !s.length) return '';
+    function hintHtml(x, color) {
+        var h = (x.hint || '').replace(/(压力|支撑)\s*([\d.]+)\(([+-][\d.]+%)\)/g, function(m, kw, pt, dist) {
+            return kw + ' <span style="color:' + color + ';font-weight:600;">' + pt + '(' + dist + ')</span>';
+        });
+        return '<span style="color:#888;font-size:12px;">' + h + '</span>';
+    }
     var html = '';
     if (p.length) {
         var rows = p.map(function(x) {
             return '<div style="line-height:1.9;"><span style="color:#888;">' + x.code + '</span> ' +
                 '<span style="cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + x.code + '\',\'' + x.market + '\',\'' + x.name + '\')">' + x.name + '</span>' +
-                ' <span style="color:#8b8b9e;font-size:11px;">[' + x.group + ']</span>' +
-                ' <span style="color:#888;font-size:12px;">' + x.hint + '</span></div>';
+                ' <span style="color:#8b8b9e;font-size:11px;">[' + x.group + ']</span> ' +
+                hintHtml(x, '#fbbf24') + '</div>';
         }).join('');
         html += '<div style="color:#fbbf24;font-weight:600;margin-bottom:6px;">🟡 触及压力位（' + p.length + '）</div>' + rows;
     }
@@ -417,8 +423,8 @@ function _srStockSummary(summary) {
         var rows2 = s.map(function(x) {
             return '<div style="line-height:1.9;"><span style="color:#888;">' + x.code + '</span> ' +
                 '<span style="cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + x.code + '\',\'' + x.market + '\',\'' + x.name + '\')">' + x.name + '</span>' +
-                ' <span style="color:#8b8b9e;font-size:11px;">[' + x.group + ']</span>' +
-                ' <span style="color:#888;font-size:12px;">' + x.hint + '</span></div>';
+                ' <span style="color:#8b8b9e;font-size:11px;">[' + x.group + ']</span> ' +
+                hintHtml(x, '#3b82f6') + '</div>';
         }).join('');
         html += '<div style="color:#3b82f6;font-weight:600;margin:10px 0 6px;">🔵 触及支撑位（' + s.length + '）</div>' + rows2;
     }
