@@ -59,7 +59,6 @@ function renderSelfReview(d) {
     html += _srIntraday(d.minute, d.turnover, d.open_hour);
     html += _srBreadth(d.breadth, d.sentiment);
     html += _srIndexTable(d.indices);
-    html += _srLevels(d.levels);
     html += _srSynergy(d.synergy);
     html += _srFunds(d.funds);
     document.getElementById('srContent').innerHTML = html;
@@ -97,7 +96,7 @@ function _srCard(bodyHtml) {
 
 function _srIndexTable(indices) {
     if (!indices || !indices.length) return '';
-    var ths = ['指数', '最新价', '涨跌幅', '涨跌额', '今开', '最高', '最低', 'MA5', 'MA20', 'MA60', '20日压力', '20日支撑', '60日分位'];
+    var ths = ['指数', '最新价', '涨跌额(幅)', '今开', '最高', '最低', 'MA5', 'MA20', 'MA60', '20日压力', '20日支撑', '60日分位', '关键点位'];
     var head = '<thead><tr>';
     ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
     head += '</tr></thead>';
@@ -108,8 +107,7 @@ function _srIndexTable(indices) {
         rows += '<tr>' +
             '<td class="col-name">' + it.name + '</td>' +
             '<td style="color:' + col + ';font-weight:bold;">' + _srNum(it.price) + '</td>' +
-            '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
-            '<td style="color:' + col + ';">' + _srSigned(it.change_val) + '</td>' +
+            '<td style="color:' + col + ';">' + _srSigned(it.change_val) + '(' + _srPct(it.change_pct) + ')</td>' +
             '<td>' + _srNum(it.open) + '</td>' +
             '<td>' + _srNum(it.high) + '</td>' +
             '<td>' + _srNum(it.low) + '</td>' +
@@ -119,13 +117,15 @@ function _srIndexTable(indices) {
             '<td style="color:#fbbf24;">' + _srNum(it.high_20) + '</td>' +
             '<td style="color:#60a5fa;">' + _srNum(it.low_20) + '</td>' +
             '<td>' + (it.pos_pct !== null && it.pos_pct !== undefined ? it.pos_pct.toFixed(2) + '%' : '--') + '</td>' +
+            _srConclusionCell(it) +
             '</tr>';
     });
 
     var note = '<div class="sr-note">' +
         'MA5/20/60 = 近5/20/60个交易日收盘均价（紫色），现价在均线上方说明该周期持仓多数盈利、抛压小，跌破则套牢盘增多；' +
         '20日压力/支撑 = 近20个交易日最高/最低价（含当日），黄色为上方压力、蓝色为下方支撑参考；' +
-        '60日分位 = 现价位于近60日最高最低价区间的百分位（越低越接近区间底部）。' +
+        '60日分位 = 现价位于近60日最高最低价区间的百分位（越低越接近区间底部）；' +
+        '关键点位 = 20/60/120日成交密集区（黄=压力、蓝=支撑、紫=中枢）+ 趋势与持仓成本结论。' +
         '</div>';
     return _srCard('<div class="card-title sr-title">📈 主要指数复盘</div>' +
         '<div class="sector-table-wrap"><table class="sector-fund-table">' + head + '<tbody>' + rows + '</tbody></table></div>' + note);
@@ -485,34 +485,6 @@ function _srStockTable(label, items) {
             _row('周布林', it.boll_weekly) +
             '</td>';
     }
-    function _srConclusionCell(it) {
-        function _pct(val) {
-            if (val === null || val === undefined || !it.price) return null;
-            return (val - it.price) / it.price * 100;
-        }
-        function _pctTxt(pct) {
-            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
-        }
-        function _num(v, color) {
-            var txt = (v === null || v === undefined) ? '--' : v.toFixed(_dec(it.code, it.market));
-            return '<span style="color:' + color + ';">' + txt + '</span>' + _pctTxt(_pct(v));
-        }
-        var html = '';
-        (it.levels || []).forEach(function(lv) {
-            html += '<div style="white-space:nowrap;">' + lv.n + '日 筹码密集区 ' +
-                _num(lv.lo, '#60a5fa') + '~' + _num(lv.hi, '#fbbf24') + ' 中枢 ' + _num(lv.center, '#c084fc');
-            if (lv.note) {
-                html += '，' + lv.note;
-            } else if (lv.pressure !== null && lv.pressure !== undefined) {
-                html += '，上方压力 ' + _num(lv.pressure, '#fbbf24') + '、下方支撑 ' + _num(lv.support, '#60a5fa');
-            }
-            html += '。</div>';
-        });
-        if (it.conclusion) {
-            html += '<div style="margin-top:2px;white-space:normal;">' + it.conclusion + '</div>';
-        }
-        return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:260px;">' + html + '</td>';
-    }
     var ths = ['代码', '名称', '现价', '涨跌额(幅)', '支撑/压力', '布林轨', '关键点位'];
     var head = '<thead><tr>';
     ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
@@ -539,4 +511,36 @@ function _srStockTable(label, items) {
         '</div>';
     return _srCard('<div class="card-title sr-title">' + label + '</div>' +
         '<div class="sector-table-wrap"><table class="sector-fund-table">' + head + '<tbody>' + rows + '</tbody></table></div>' + note);
+}
+
+function _srConclusionCell(it) {
+    function _dec(code, market) {
+        return isETF(code, market) ? 3 : 2;
+    }
+    function _pct(val) {
+        if (val === null || val === undefined || !it.price) return null;
+        return (val - it.price) / it.price * 100;
+    }
+    function _pctTxt(pct) {
+        return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
+    }
+    function _num(v, color) {
+        var txt = (v === null || v === undefined) ? '--' : v.toFixed(_dec(it.code, it.market));
+        return '<span style="color:' + color + ';">' + txt + '</span>' + _pctTxt(_pct(v));
+    }
+    var html = '';
+    (it.levels || []).forEach(function(lv) {
+        html += '<div style="white-space:nowrap;">' + lv.n + '日 筹码密集区 ' +
+            _num(lv.lo, '#60a5fa') + '~' + _num(lv.hi, '#fbbf24') + ' 中枢 ' + _num(lv.center, '#c084fc');
+        if (lv.note) {
+            html += '，' + lv.note;
+        } else if (lv.pressure !== null && lv.pressure !== undefined) {
+            html += '，上方压力 ' + _num(lv.pressure, '#fbbf24') + '、下方支撑 ' + _num(lv.support, '#60a5fa');
+        }
+        html += '。</div>';
+    });
+    if (it.conclusion) {
+        html += '<div style="margin-top:2px;white-space:normal;">' + it.conclusion + '</div>';
+    }
+    return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:260px;">' + html + '</td>';
 }

@@ -738,6 +738,9 @@ def _build_index_item(spec, q, k):
     span = high_60 - low_60
     pos_pct = round((close - low_60) / span * 100, 2) if span > 0 else 50.0
 
+    # 复用自选复盘的成交密集区关键点位（20/60/120日筹码密集区 + 趋势/成本）
+    lv = _stock_levels({'code': spec['code'], 'market': spec['secid'].split('.')[0]}, q, k, decimals=decimals)
+
     return {
         'code': spec['code'],
         'secid': spec['secid'],
@@ -757,6 +760,9 @@ def _build_index_item(spec, q, k):
         'high_60': round(high_60, decimals),
         'low_60': round(low_60, decimals),
         'pos_pct': pos_pct,
+        'market': spec['secid'].split('.')[0],
+        'levels': lv['levels'],
+        'conclusion': lv['conclusion'],
     }
 
 
@@ -822,8 +828,7 @@ def _analyze_synergy(indices):
     return {'mode': mode, 'up': up, 'down': down, 'flat': flat, 'summary': summary}
 
 
-# 贴近关键位的距离比例（0.3%）：现价在 20 日高点/低点 ±0.3% 内视为"贴近"
-_NEAR_RATIO = 0.003
+
 
 
 def _fmt_price(v, decimals=None):
@@ -839,48 +844,6 @@ def _fmt_price(v, decimals=None):
     return f'{v:.2f}'
 
 
-def _level_conclusion(it, decimals=2):
-    """单只标的关键点位/压力支撑小结（指数/股票/ETF 通用，decimals 控制价格小数位）"""
-    def fmt(v):
-        return _fmt_price(v, decimals)
-    close = it['price']
-    h20, l20 = it['high_20'], it['low_20']
-    h60, l60 = it['high_60'], it['low_60']
-    ma5, ma20, ma60 = it['ma5'], it['ma20'], it['ma60']
-    parts = []
-    parts.append(f'近60日区间 {fmt(l60)} ~ {fmt(h60)}，现价位于区间 {it["pos_pct"]:.2f}% 分位。')
-
-    near_ratio = _NEAR_RATIO  # 视为"贴近"的距离比例
-    if close >= h20:
-        if h60 > close:
-            parts.append(f'已刷新近20日高点 {fmt(h20)}，上方直接压力看60日高点 {fmt(h60)}（+{(h60 - close) / close * 100:.2f}%）。')
-        else:
-            parts.append(f'已刷新近20日乃至60日高点，上方无明显近端套牢压力，趋势偏强。')
-    elif close >= h20 * (1 - near_ratio):
-        parts.append(f'现价紧贴20日高点压力 {fmt(h20)}（距 {+((h20 - close) / close * 100):.2f}%），放量突破则打开上行空间，受阻则回踩。')
-    else:
-        parts.append(f'上方压力：近20日高点 {fmt(h20)}（距现价 +{(h20 - close) / close * 100:.2f}%）。')
-
-    if close <= l20:
-        if l60 < close:
-            parts.append(f'已跌破近20日低点 {fmt(l20)}，下方关键支撑下移至60日低点 {fmt(l60)}（距现价 -{(close - l60) / close * 100:.2f}%）。')
-        else:
-            parts.append(f'现价已创近60日新低，下行趋势中未见明确支撑，等待企稳信号。')
-    elif close <= l20 * (1 + near_ratio):
-        parts.append(f'现价正逼近20日低点支撑 {fmt(l20)}（距 -{(close - l20) / close * 100:.2f}%），该支撑正被考验，守住则短线止跌。')
-    else:
-        parts.append(f'下方支撑：近20日低点 {fmt(l20)}（距现价 -{(close - l20) / close * 100:.2f}%）。')
-
-    ma_texts = []
-    if ma5 is not None:
-        ma_texts.append(f'5日线 {fmt(ma5)}（现价{"站上" if close >= ma5 else "跌破"}）')
-    if ma20 is not None:
-        ma_texts.append(f'20日线 {fmt(ma20)}（现价{"站上" if close >= ma20 else "跌破"}）')
-    if ma60 is not None:
-        ma_texts.append(f'60日线 {fmt(ma60)}（现价{"站上" if close >= ma60 else "跌破"}）')
-    if ma_texts:
-        parts.append('、'.join(ma_texts) + '。')
-    return ' '.join(parts)
 
 
 def _analyze_breadth(quote_map):
@@ -1602,12 +1565,6 @@ def run_review():
         minute_analysis = _analyze_minute(minute, sh_item)
 
         synergy = _analyze_synergy(indices)
-        levels = [{
-            'code': it['code'],
-            'name': it['name'],
-            'price': it['price'],
-            'conclusion': _level_conclusion(it),
-        } for it in indices]
 
         # 补充维度：单源取数，失败/无数据则置空，不影响核心复盘结果
         try:
@@ -1648,7 +1605,6 @@ def run_review():
                 'open_hour': open_hour_analysis,
                 'minute': minute_analysis,
                 'synergy': synergy,
-                'levels': levels,
                 'sentiment': sentiment_analysis,
                 'funds': funds_analysis,
                 'plan': plan,
