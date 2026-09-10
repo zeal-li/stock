@@ -422,70 +422,79 @@ def _stock_levels(s, q, k, decimals=None):
         above, below = _sr_nearest(zones, price)
         wins.append({'n': n, 'zones': zones, 'above': above, 'below': below})
 
-    # ---- 行文本（含趋势状态感知） ----
-    def strong(z, zones):
-        if z is None or not zones:
-            return False
-        top = max(x['vol'] for x in zones) or 1
-        return z['bars'] >= 2 and z['vol'] >= 0.6 * top
-
+    # ---- 行文本（筹码密集区 + 趋势/成本状态） ----
     def in_zone(z):
         return z is not None and z['lo'] <= price <= z['hi']
 
-    parts = []
+    levels = []     # 每周期结构化关键点位（前端渲染数值颜色/涨跌幅）
     for w in wins:
         n = w['n']
         zones, above, below = w['zones'], w['above'], w['below']
         if not zones:
-            continue  # 数据不足该周期，列为 '--'，表格底部注释说明
-        if above and below:
-            dp = (above['center'] - price) / price * 100
-            ds = (price - below['center']) / price * 100
-            t = (f'近{n}日：上方压力 {fmt(above["center"])}（+{dp:.1f}%）；'
-                 f'下方支撑 {fmt(below["center"])}（-{ds:.1f}%）')
-            if strong(above, zones):
-                t += '，上压为放量密集区'
-            if strong(below, zones):
-                t += '，下撑为放量密集区'
-            if in_zone(above) or in_zone(below):
-                t += f'，现价正处于近{n}日密集区内'
-            parts.append(t + '。')
-        elif above:
-            # 所有密集区中枢 >= 现价：现价在密集区带内部或已跌破
-            if in_zone(above):
-                parts.append(f'近{n}日：现价位于密集区 {fmt(above["lo"])}~{fmt(above["hi"])}'
-                             f'（中枢 {fmt(above["center"])}）内，跌破该区下沿前下方暂无密集支撑。')
-            else:
-                d = (above['center'] - price) / price * 100
-                parts.append(f'近{n}日：现价跌破全部成交密集区，最近中枢 {fmt(above["center"])}'
-                             f'（距 +{d:.1f}%），其下暂无密集支撑，反抽该中枢前反弹乏力。')
-        elif below:
-            if in_zone(below):
-                parts.append(f'近{n}日：现价位于密集区 {fmt(below["lo"])}~{fmt(below["hi"])}'
-                             f'（中枢 {fmt(below["center"])}）内，突破该区上沿后上方暂无密集压力。')
-            else:
-                d = (price - below['center']) / price * 100
-                parts.append(f'近{n}日：现价升破全部成交密集区，最近中枢 {fmt(below["center"])}'
-                             f'（现价高出 {d:.1f}%），上方暂无近端压力，回踩该密集区企稳则支撑有效。')
+            continue  # 数据不足该周期
+        # 现价所在密集区：优先现价落在其内的区
+        if above and in_zone(above):
+            zin = above
+        elif below and in_zone(below):
+            zin = below
+        else:
+            zin = None
 
+        lv = {'n': n, 'lo': None, 'hi': None, 'center': None,
+              'note': None, 'pressure': None, 'support': None}
+        if zin is not None:
+            # 现价位于密集区内
+            lv['lo'] = round(zin['lo'], decimals)
+            lv['hi'] = round(zin['hi'], decimals)
+            lv['center'] = round(zin['center'], decimals)
+            if below is None:
+                lv['note'] = '跌破该区下沿前下方暂无密集支撑'
+            elif above is None:
+                lv['note'] = '突破该区上沿后上方暂无密集压力'
+            else:
+                lv['note'] = '现价正处于该密集区内'
+        else:
+            # 现价不在任何密集区内：取离现价最近的区，并给出压力/支撑点位
+            if above and below:
+                zin = above if (above['center'] - price) <= (price - below['center']) else below
+                lv['lo'] = round(zin['lo'], decimals)
+                lv['hi'] = round(zin['hi'], decimals)
+                lv['center'] = round(zin['center'], decimals)
+                lv['pressure'] = round(above['center'], decimals)
+                lv['support'] = round(below['center'], decimals)
+            elif above:
+                lv['lo'] = round(above['lo'], decimals)
+                lv['hi'] = round(above['hi'], decimals)
+                lv['center'] = round(above['center'], decimals)
+                lv['note'] = '现价已跌破全部成交密集区，其下暂无密集支撑'
+            elif below:
+                lv['lo'] = round(below['lo'], decimals)
+                lv['hi'] = round(below['hi'], decimals)
+                lv['center'] = round(below['center'], decimals)
+                lv['note'] = '现价已升破全部成交密集区，上方暂无近端压力'
+            else:
+                continue
+        levels.append(lv)
+
+    tail_parts = []  # 趋势 + 成本整体总结（纯文本）
     state, net = _trend_info(closes)
     if net is not None:
         if state == 'up':
-            parts.append(f'近20日趋势上行（净{net:+.1f}%），趋势市中上方密集区压力多为突破确认位、'
-                         f'下方密集区回踩可低吸，勿因恐高而中途下车。')
+            tail_parts.append(f'近20日趋势上行（净{net:+.1f}%），趋势市中上方密集区压力多为突破确认位、'
+                              f'下方密集区回踩可低吸，勿因恐高而中途下车。')
         elif state == 'down':
-            parts.append(f'近20日趋势下行（净{net:+.1f}%），弱势中下方支撑有效性弱、易被跌破，'
-                         f'反抽密集区宜减仓而非抄底。')
+            tail_parts.append(f'近20日趋势下行（净{net:+.1f}%），弱势中下方支撑有效性弱、易被跌破，'
+                              f'反抽密集区宜减仓而非抄底。')
         else:
-            parts.append(f'近20日震荡整理（净{net:+.1f}%），密集区上下沿有效性强，适合区间高抛低吸。')
+            tail_parts.append(f'近20日震荡整理（净{net:+.1f}%），密集区上下沿有效性强，适合区间高抛低吸。')
 
     m = min(60, len(closes))
     cost = _vwap_close(closes[-m:], volumes[-m:]) if closes else None
     if cost is not None:
         delta = (price - cost) / cost * 100
-        parts.append(f'近{m}日成交量加权均价（平均成本）{fmt(cost)}，现价较其'
-                     f'{("高" if delta >= 0 else "低")} {abs(delta):.1f}%，'
-                     f'持仓筹码多数{"浮盈" if delta >= 0 else "浮亏"}。')
+        tail_parts.append(f'近{m}日成交量加权均价（平均成本）{fmt(cost)}，现价较其'
+                          f'{("高" if delta >= 0 else "低")} {abs(delta):.1f}%，'
+                          f'持仓筹码多数{"浮盈" if delta >= 0 else "浮亏"}。')
 
     # ---- 行字段 ----
     item = {
@@ -547,7 +556,8 @@ def _stock_levels(s, q, k, decimals=None):
             item['hint'] = (f'现价 {fmt(price)}，贴近{n}日成交密集区支撑 {fmt(z["center"])}'
                             f'（距 -{d:.1f}%），守住可低吸，跌破则下看更远密集区')
     item['near'] = best[1] if best else None
-    item['conclusion'] = ' '.join(parts) if parts else '暂无足够已收盘K线计算关键点位。'
+    item['levels'] = levels
+    item['conclusion'] = ' '.join(tail_parts) if tail_parts else '暂无足够已收盘K线计算关键点位。'
     return item
 
 

@@ -476,6 +476,34 @@ function _srStockTable(label, items) {
             _row('周布林', it.boll_weekly) +
             '</td>';
     }
+    function _srConclusionCell(it) {
+        function _pct(val) {
+            if (val === null || val === undefined || !it.price) return null;
+            return (val - it.price) / it.price * 100;
+        }
+        function _pctTxt(pct) {
+            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)';
+        }
+        function _num(v, color) {
+            var txt = (v === null || v === undefined) ? '--' : v.toFixed(_dec(it.code, it.market));
+            return '<span style="color:' + color + ';">' + txt + '</span>' + _pctTxt(_pct(v));
+        }
+        var html = '';
+        (it.levels || []).forEach(function(lv) {
+            html += '<div style="white-space:nowrap;">' + lv.n + '日 筹码密集区 ' +
+                _num(lv.lo, '#60a5fa') + '~' + _num(lv.hi, '#fbbf24') + ' 中枢 ' + _num(lv.center, '#c084fc');
+            if (lv.note) {
+                html += '，' + lv.note;
+            } else if (lv.pressure !== null && lv.pressure !== undefined) {
+                html += '，上方压力 ' + _num(lv.pressure, '#fbbf24') + '、下方支撑 ' + _num(lv.support, '#60a5fa');
+            }
+            html += '。</div>';
+        });
+        if (it.conclusion) {
+            html += '<div style="margin-top:2px;white-space:normal;">' + it.conclusion + '</div>';
+        }
+        return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:260px;">' + html + '</td>';
+    }
     var ths = ['代码', '名称', '现价', '涨跌幅', '支撑/压力', '布林轨', '关键点位'];
     var head = '<thead><tr>';
     ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
@@ -490,7 +518,7 @@ function _srStockTable(label, items) {
             '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
             _srLevelCell(it) +
             _srBollCell(it) +
-            '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:240px;">' + (it.conclusion || '') + '</td>' +
+            _srConclusionCell(it) +
             '</tr>';
     });
     var note = '<div class="sr-note">' +
