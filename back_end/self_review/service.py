@@ -480,20 +480,20 @@ def _stock_levels(s, q, k, decimals=None):
     state, net = _trend_info(closes)
     if net is not None:
         if state == 'up':
-            tail_parts.append(f'近20日趋势上行（净{net:+.1f}%），趋势市中上方密集区压力多为突破确认位、'
+            tail_parts.append(f'近20日趋势上行（净{net:+.2f}%），趋势市中上方密集区压力多为突破确认位、'
                               f'下方密集区回踩可低吸，勿因恐高而中途下车。')
         elif state == 'down':
-            tail_parts.append(f'近20日趋势下行（净{net:+.1f}%），弱势中下方支撑有效性弱、易被跌破，'
+            tail_parts.append(f'近20日趋势下行（净{net:+.2f}%），弱势中下方支撑有效性弱、易被跌破，'
                               f'反抽密集区宜减仓而非抄底。')
         else:
-            tail_parts.append(f'近20日震荡整理（净{net:+.1f}%），密集区上下沿有效性强，适合区间高抛低吸。')
+            tail_parts.append(f'近20日震荡整理（净{net:+.2f}%），密集区上下沿有效性强，适合区间高抛低吸。')
 
     m = min(60, len(closes))
     cost = _vwap_close(closes[-m:], volumes[-m:]) if closes else None
     if cost is not None:
         delta = (price - cost) / cost * 100
         tail_parts.append(f'近{m}日成交量加权均价（平均成本）{fmt(cost)}，现价较其'
-                          f'{("高" if delta >= 0 else "低")} {abs(delta):.1f}%，'
+                          f'{("高" if delta >= 0 else "低")} {abs(delta):.2f}%，'
                           f'持仓筹码多数{"浮盈" if delta >= 0 else "浮亏"}。')
 
     # ---- 行字段 ----
@@ -551,10 +551,10 @@ def _stock_levels(s, q, k, decimals=None):
         d, kind, n, z = best
         if kind == 'pressure':
             item['hint'] = (f'现价 {fmt(price)}，贴近{n}日成交密集区压力 {fmt(z["center"])}'
-                            f'(+{d:.1f}%)，放量突破则打开空间，受阻则回踩')
+                            f'(+{d:.2f}%)，放量突破则打开空间，受阻则回踩')
         else:
             item['hint'] = (f'现价 {fmt(price)}，贴近{n}日成交密集区支撑 {fmt(z["center"])}'
-                            f'(-{d:.1f}%)，守住可低吸，跌破则下看更远密集区')
+                            f'(-{d:.2f}%)，守住可低吸，跌破则下看更远密集区')
     item['near'] = best[1] if best else None
     item['levels'] = levels
     item['conclusion'] = ' '.join(tail_parts) if tail_parts else '暂无足够已收盘K线计算关键点位。'

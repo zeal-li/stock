@@ -405,7 +405,7 @@ function _srStockSummary(summary) {
     if (!p.length && !s.length) return '';
     function hintHtml(x, color) {
         var h = (x.hint || '').replace(/(压力|支撑)\s*([\d.]+)\(([+-][\d.]+%)\)/g, function(m, kw, pt, dist) {
-            return kw + ' <span style="color:' + color + ';font-weight:600;">' + pt + '(' + dist + ')</span>';
+            return kw + ' <span style="color:' + color + ';font-weight:600;">' + pt + '</span>(' + dist + ')';
         });
         return '<span style="color:#888;font-size:12px;">' + h + '</span>';
     }
@@ -451,7 +451,7 @@ function _srStockTable(label, items) {
             return (val - it.price) / it.price * 100;
         }
         function _pctTxt(pct) {
-            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)';
+            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
         }
         var rows = [20, 60, 120].map(function(n) {
             var sup = it['support_' + n];
@@ -469,7 +469,7 @@ function _srStockTable(label, items) {
             return (val - it.price) / it.price * 100;
         }
         function _pctTxt(pct) {
-            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)';
+            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
         }
         function _row(label, b) {
             if (!b || b.mid === null || b.mid === undefined) {
@@ -491,7 +491,7 @@ function _srStockTable(label, items) {
             return (val - it.price) / it.price * 100;
         }
         function _pctTxt(pct) {
-            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%)';
+            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
         }
         function _num(v, color) {
             var txt = (v === null || v === undefined) ? '--' : v.toFixed(_dec(it.code, it.market));
