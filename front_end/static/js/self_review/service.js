@@ -436,6 +436,9 @@ function _srStockTable(label, items) {
     function _fmt(v, code, market) {
         return (v === null || v === undefined) ? '--' : v.toFixed(_dec(code, market));
     }
+    function _signed(v, code, market) {
+        return (v === null || v === undefined) ? '--' : ((v >= 0 ? '+' : '') + v.toFixed(_dec(code, market)));
+    }
     function _srLevelCell(it) {
         function _pct(val) {
             if (val === null || val === undefined || !it.price) return null;
@@ -504,7 +507,7 @@ function _srStockTable(label, items) {
         }
         return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:260px;">' + html + '</td>';
     }
-    var ths = ['代码', '名称', '现价', '涨跌幅', '支撑/压力', '布林轨', '关键点位'];
+    var ths = ['代码', '名称', '现价', '涨跌额(幅)', '支撑/压力', '布林轨', '关键点位'];
     var head = '<thead><tr>';
     ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
     head += '</tr></thead>';
@@ -515,7 +518,7 @@ function _srStockTable(label, items) {
             '<td style="color:#888;white-space:nowrap;">' + it.code + '</td>' +
             '<td style="text-align:left;white-space:nowrap;"><span style="font-weight:600;color:#eee;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + it.code + '\',\'' + it.market + '\',\'' + it.name + '\')">' + it.name + '</span></td>' +
             '<td style="color:' + col + ';font-weight:bold;">' + _fmt(it.price, it.code, it.market) + '</td>' +
-            '<td style="color:' + col + ';">' + _srPct(it.change_pct) + '</td>' +
+            '<td style="color:' + col + ';">' + _signed(it.change_val, it.code, it.market) + '(' + _srPct(it.change_pct) + ')</td>' +
             _srLevelCell(it) +
             _srBollCell(it) +
             _srConclusionCell(it) +
