@@ -1678,7 +1678,7 @@ def run_stock_review(user_id):
             items = _analyze_stocks(stocks)  # 小数位逐标的按 is_etf 判断，与分组无关
             data[key] = {'label': label, 'items': items}
             for it in items:
-                if it.get('near') == 'pressure':
+                if key == 'holdings' and it.get('near') == 'pressure':
                     summary['pressure'].append({
                         'name': it['name'], 'group': label, 'price': it['price'],
                         'hint': it['hint'], 'code': it['code'], 'market': it['market'],
