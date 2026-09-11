@@ -152,21 +152,6 @@ function _srSynergy(s) {
         '<div class="sr-conclusion">' + s.summary + '</div>');
 }
 
-// ---- 关键点位 / 压力支撑 ----
-
-function _srLevels(levels) {
-    if (!levels || !levels.length) return '';
-    var items = '';
-    levels.forEach(function(lv) {
-        items += '<div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.05);line-height:1.9;">' +
-            '<span style="color:#fff;font-weight:600;">' + lv.name + '</span>' +
-            ' <span style="color:#fbbf24;font-weight:bold;">' + _srNum(lv.price) + '</span>' +
-            ' <span style="color:#8b8b9e;font-size:12px;">' + lv.conclusion + '</span>' +
-            '</div>';
-    });
-    return _srCard('<div class="card-title sr-title">🎯 关键点位 · 压力位 / 支撑位</div>' + items);
-}
-
 // ---- 全市场涨跌家数 · 涨停/连板情绪（涨跌家数的极端分布） ----
 
 function _srBreadth(b, s) {
