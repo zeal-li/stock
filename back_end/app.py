@@ -2077,7 +2077,7 @@ def start_scheduler():
     register_scheduler_check(init_market_db_update())  # K线库每日自动更新检测
     register_scheduler_check(init_longhu_bang_update())      # 龙虎榜库每日跨天清理检测
     register_scheduler_check(init_money_flow_update())    # 资金流/指数行情轮询检测
-    register_scheduler_check(init_self_review_update())   # 每日自动复盘（开市日16:00）
+    register_scheduler_check(init_self_review_update())   # 自助复盘每日自动复盘
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
 

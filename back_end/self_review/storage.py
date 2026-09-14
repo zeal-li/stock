@@ -136,3 +136,29 @@ def list_stock_reviews(user_id, limit=30):
         (user_id, limit)).fetchall()
     conn.close()
     return [{'trade_date': r[0], 'update_time': r[1]} for r in rows]
+
+
+# ==================== 跨天清理（保留最近 N 个交易日） ====================
+
+def cleanup_old_reviews(keep_days=14):
+    """保留最近 keep_days 个交易日的复盘数据，删除更早的。
+    cutoff = market_review + stock_review 两表 trade_date 并集降序第 keep_days 个
+    （即保留的最旧交易日），删除 trade_date < cutoff 的所有行。
+    两表总交易日数不足 keep_days 个时直接返回 0（无需清理）。返回被删除的行数。"""
+    conn = _db()
+    rows = conn.execute(
+        'SELECT trade_date FROM ('
+        '  SELECT trade_date FROM market_review '
+        '  UNION '
+        '  SELECT trade_date FROM stock_review'
+        ') ORDER BY trade_date DESC LIMIT ?',
+        (keep_days,)).fetchall()
+    if len(rows) < keep_days:
+        conn.close()
+        return 0
+    cutoff = rows[-1][0]
+    c1 = conn.execute('DELETE FROM market_review WHERE trade_date < ?', (cutoff,)).rowcount
+    c2 = conn.execute('DELETE FROM stock_review WHERE trade_date < ?', (cutoff,)).rowcount
+    conn.commit()
+    conn.close()
+    return c1 + c2
