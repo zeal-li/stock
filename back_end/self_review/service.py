@@ -1,9 +1,9 @@
 """自助复盘 - 主要指数复盘分析
 
 功能：
-1. 主要指数（上证/深证成指/创业板指/沪深300/科创50/中证500）行情一览（MA5/MA20/MA60）
+1. 主要指数（上证/深证成指/创业板指/沪深300/科创50/中证500）行情一览
 2. 指数同频共振或分化研判
-3. 关键点位、重要压力位/支撑位（20日高低点、60日区间、MA5/MA20/MA60）
+3. 关键点位、重要压力位/支撑位（20/60/120日成交密集区 + 布林轨）
 4. 全市场上涨家数比例（市场宽度）
 5. 两市总成交额变化（市场温度，量能相对近期均量判断）
 6. 开盘首小时量价结构（放量上攻/滞涨/下跌）
@@ -709,15 +709,8 @@ def _is_recent(meta, days=4):
 
 # ==================== 指标计算 ====================
 
-def _sma(values, n):
-    if len(values) < n:
-        return None
-    return sum(values[-n:]) / n
-
-
 def _build_index_item(spec, q, k):
     """组合单只指数的行情 + 技术位数据"""
-    closes = k['closes']
     highs = k['highs']
     lows = k['lows']
     if q['price'] is None:
@@ -725,18 +718,8 @@ def _build_index_item(spec, q, k):
     close = q['price']
     decimals = spec.get('decimals', 2)
 
-    n20 = min(20, len(highs))
-    n60 = min(60, len(highs))
-    high_20 = max(highs[-n20:])
-    low_20 = min(lows[-n20:])
-    high_60 = max(highs[-n60:])
-    low_60 = min(lows[-n60:])
-    ma5 = _sma(closes, 5)
-    ma20 = _sma(closes, 20)
-    ma60 = _sma(closes, 60)
-
-    span = high_60 - low_60
-    pos_pct = round((close - low_60) / span * 100, 2) if span > 0 else 50.0
+    # 近20日低点（供日内形态"20日低点联动"使用）
+    low_20 = min(lows[-min(20, len(highs)):])
 
     # 复用自选复盘的成交密集区关键点位（20/60/120日筹码密集区 + 趋势/成本）
     lv = _stock_levels({'code': spec['code'], 'market': spec['secid'].split('.')[0]}, q, k, decimals=decimals)
@@ -752,17 +735,18 @@ def _build_index_item(spec, q, k):
         'high': round(q['high'], 2) if q['high'] is not None else None,
         'low': round(q['low'], 2) if q['low'] is not None else None,
         'pre_close': round(q['pre_close'], 2) if q['pre_close'] is not None else None,
-        'ma5': round(ma5, decimals) if ma5 is not None else None,
-        'ma20': round(ma20, decimals) if ma20 is not None else None,
-        'ma60': round(ma60, decimals) if ma60 is not None else None,
-        'high_20': round(high_20, decimals),
         'low_20': round(low_20, decimals),
-        'high_60': round(high_60, decimals),
-        'low_60': round(low_60, decimals),
-        'pos_pct': pos_pct,
         'market': spec['secid'].split('.')[0],
         'levels': lv['levels'],
         'conclusion': lv['conclusion'],
+        'boll_daily': lv['boll_daily'],
+        'boll_weekly': lv['boll_weekly'],
+        'pressure_20': lv.get('pressure_20'),
+        'support_20': lv.get('support_20'),
+        'pressure_60': lv.get('pressure_60'),
+        'support_60': lv.get('support_60'),
+        'pressure_120': lv.get('pressure_120'),
+        'support_120': lv.get('support_120'),
     }
 
 

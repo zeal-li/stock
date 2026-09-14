@@ -161,9 +161,61 @@ function _srCard(bodyHtml) {
 
 // ---- 主要指数行情 ----
 
+// ---- 支撑/压力、布林轨单元格（大盘指数与自选股共用） ----
+
+function _srDec(code, market) {
+    return isETF(code, market) ? 3 : 2;  // 复用 common.js 全局 isETF
+}
+
+function _srFmt(v, code, market) {
+    return (v === null || v === undefined) ? '--' : v.toFixed(_srDec(code, market));
+}
+
+function _srLevelCell(it) {
+    function _pct(val) {
+        if (val === null || val === undefined || !it.price) return null;
+        return (val - it.price) / it.price * 100;
+    }
+    function _pctTxt(pct) {
+        return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
+    }
+    var rows = [20, 60, 120].map(function(n) {
+        var sup = it['support_' + n];
+        var pre = it['pressure_' + n];
+        return '<div style="white-space:nowrap;">' + n + '日 ' +
+            '<span style="color:#60a5fa;">' + _srFmt(sup, it.code, it.market) + '</span>' + _pctTxt(_pct(sup)) + '~' +
+            '<span style="color:#fbbf24;">' + _srFmt(pre, it.code, it.market) + '</span>' + _pctTxt(_pct(pre)) + '</div>';
+    });
+    return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:nowrap;min-width:220px;">' +
+        rows.join('') + '</td>';
+}
+
+function _srBollCell(it) {
+    function _pct(val) {
+        if (val === null || val === undefined || !it.price) return null;
+        return (val - it.price) / it.price * 100;
+    }
+    function _pctTxt(pct) {
+        return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
+    }
+    function _row(label, b) {
+        if (!b || b.mid === null || b.mid === undefined) {
+            return '<div style="white-space:nowrap;">' + label + ' --</div>';
+        }
+        return '<div style="white-space:nowrap;">' + label + ' ' +
+            '<span style="color:#26a69a;">' + _srFmt(b.lower, it.code, it.market) + '</span>' + _pctTxt(_pct(b.lower)) + '~' +
+            '<span style="color:#60a5fa;">' + _srFmt(b.mid, it.code, it.market) + '</span>' + _pctTxt(_pct(b.mid)) + '~' +
+            '<span style="color:#ef5350;">' + _srFmt(b.upper, it.code, it.market) + '</span>' + _pctTxt(_pct(b.upper)) + '</div>';
+    }
+    return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:nowrap;min-width:280px;">' +
+        _row('日布林', it.boll_daily) +
+        _row('周布林', it.boll_weekly) +
+        '</td>';
+}
+
 function _srIndexTable(indices) {
     if (!indices || !indices.length) return '';
-    var ths = ['指数', '最新价', '涨跌额(幅)', '今开', '最高', '最低', 'MA5', 'MA20', 'MA60', '20日压力', '20日支撑', '60日分位', '关键点位'];
+    var ths = ['指数', '最新价', '涨跌额(幅)', '支撑/压力', '布林轨', '关键点位'];
     var head = '<thead><tr>';
     ths.forEach(function(t) { head += '<th>' + t + '</th>'; });
     head += '</tr></thead>';
@@ -175,23 +227,15 @@ function _srIndexTable(indices) {
             '<td class="col-name">' + it.name + '</td>' +
             '<td style="color:' + col + ';font-weight:bold;">' + _srNum(it.price) + '</td>' +
             '<td style="color:' + col + ';">' + _srSigned(it.change_val) + '(' + _srPct(it.change_pct) + ')</td>' +
-            '<td>' + _srNum(it.open) + '</td>' +
-            '<td>' + _srNum(it.high) + '</td>' +
-            '<td>' + _srNum(it.low) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _srNum(it.ma5) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _srNum(it.ma20) + '</td>' +
-            '<td style="color:#c4b5fd;">' + _srNum(it.ma60) + '</td>' +
-            '<td style="color:#fbbf24;">' + _srNum(it.high_20) + '</td>' +
-            '<td style="color:#60a5fa;">' + _srNum(it.low_20) + '</td>' +
-            '<td>' + (it.pos_pct !== null && it.pos_pct !== undefined ? it.pos_pct.toFixed(2) + '%' : '--') + '</td>' +
+            _srLevelCell(it) +
+            _srBollCell(it) +
             _srConclusionCell(it) +
             '</tr>';
     });
 
     var note = '<div class="sr-note">' +
-        'MA5/20/60 = 近5/20/60个交易日收盘均价（紫色），现价在均线上方说明该周期持仓多数盈利、抛压小，跌破则套牢盘增多；' +
-        '20日压力/支撑 = 近20个交易日最高/最低价（含当日），黄色为上方压力、蓝色为下方支撑参考；' +
-        '60日分位 = 现价位于近60日最高最低价区间的百分位（越低越接近区间底部）；' +
+        '支撑/压力 = 近20/60/120个交易日已收盘K线按收盘价聚合成「成交密集区」，支撑为现价下方最近区中枢、压力为现价上方最近区中枢（<span style="color:#60a5fa;">蓝=支撑</span> <span style="color:#fbbf24;">黄=压力</span>）；' +
+        '布林轨 = 日/周布林带「下轨-中轨-上轨」，现价接近上轨偏强、接近下轨偏弱；' +
         '关键点位 = 20/60/120日成交密集区（黄=压力、蓝=支撑、紫=中枢）+ 趋势与持仓成本结论。' +
         '</div>';
     return _srCard('<div class="card-title sr-title">📈 主要指数复盘</div>' +
@@ -492,54 +536,8 @@ function _srStockTable(label, items) {
         return _srCard('<div class="card-title sr-title">' + label + '</div>' +
             '<div style="color:#666;font-size:13px;">暂无数据</div>');
     }
-    function _dec(code, market) {
-        return isETF(code, market) ? 3 : 2;  // 复用 common.js 全局 isETF
-    }
-    function _fmt(v, code, market) {
-        return (v === null || v === undefined) ? '--' : v.toFixed(_dec(code, market));
-    }
     function _signed(v, code, market) {
-        return (v === null || v === undefined) ? '--' : ((v >= 0 ? '+' : '') + v.toFixed(_dec(code, market)));
-    }
-    function _srLevelCell(it) {
-        function _pct(val) {
-            if (val === null || val === undefined || !it.price) return null;
-            return (val - it.price) / it.price * 100;
-        }
-        function _pctTxt(pct) {
-            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
-        }
-        var rows = [20, 60, 120].map(function(n) {
-            var sup = it['support_' + n];
-            var pre = it['pressure_' + n];
-            return '<div style="white-space:nowrap;">' + n + '日 ' +
-                '<span style="color:#60a5fa;">' + _fmt(sup, it.code, it.market) + '</span>' + _pctTxt(_pct(sup)) + '~' +
-                '<span style="color:#fbbf24;">' + _fmt(pre, it.code, it.market) + '</span>' + _pctTxt(_pct(pre)) + '</div>';
-        });
-        return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:nowrap;min-width:220px;">' +
-            rows.join('') + '</td>';
-    }
-    function _srBollCell(it) {
-        function _pct(val) {
-            if (val === null || val === undefined || !it.price) return null;
-            return (val - it.price) / it.price * 100;
-        }
-        function _pctTxt(pct) {
-            return (pct === null) ? '' : '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)';
-        }
-        function _row(label, b) {
-            if (!b || b.mid === null || b.mid === undefined) {
-                return '<div style="white-space:nowrap;">' + label + ' --</div>';
-            }
-            return '<div style="white-space:nowrap;">' + label + ' ' +
-                '<span style="color:#26a69a;">' + _fmt(b.lower, it.code, it.market) + '</span>' + _pctTxt(_pct(b.lower)) + '~' +
-                '<span style="color:#60a5fa;">' + _fmt(b.mid, it.code, it.market) + '</span>' + _pctTxt(_pct(b.mid)) + '~' +
-                '<span style="color:#ef5350;">' + _fmt(b.upper, it.code, it.market) + '</span>' + _pctTxt(_pct(b.upper)) + '</div>';
-        }
-        return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:nowrap;min-width:280px;">' +
-            _row('日布林', it.boll_daily) +
-            _row('周布林', it.boll_weekly) +
-            '</td>';
+        return (v === null || v === undefined) ? '--' : ((v >= 0 ? '+' : '') + v.toFixed(_srDec(code, market)));
     }
     var ths = ['代码', '名称', '现价', '涨跌额(幅)', '支撑/压力', '布林轨', '关键点位'];
     var head = '<thead><tr>';
@@ -551,7 +549,7 @@ function _srStockTable(label, items) {
         rows += '<tr>' +
             '<td style="color:#888;white-space:nowrap;">' + it.code + '</td>' +
             '<td style="text-align:left;white-space:nowrap;"><span style="font-weight:600;color:#eee;cursor:pointer;text-decoration:underline;" onclick="KlinePopup.open(\'' + it.code + '\',\'' + it.market + '\',\'' + it.name + '\')">' + it.name + '</span></td>' +
-            '<td style="color:' + col + ';font-weight:bold;">' + _fmt(it.price, it.code, it.market) + '</td>' +
+            '<td style="color:' + col + ';font-weight:bold;">' + _srFmt(it.price, it.code, it.market) + '</td>' +
             '<td style="color:' + col + ';">' + _signed(it.change_val, it.code, it.market) + '(' + _srPct(it.change_pct) + ')</td>' +
             _srLevelCell(it) +
             _srBollCell(it) +
