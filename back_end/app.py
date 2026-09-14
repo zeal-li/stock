@@ -20,6 +20,7 @@ from global_market.forex import get_forex_rates
 from sector_fund.service import get_sector_fund, get_sector_stocks, get_etf_stocks
 from money_flow.storage import init_money_flow_update
 from market_db.sync import init_market_db_update
+from self_review.service import init_self_review_update
 from stock_pick.service import search_stock as do_search
 from watchlist.service import get_all, add, remove as wl_remove, update_price, reorder
 from watchlist.service import etf_get_all, etf_add, etf_remove, etf_reorder
@@ -2018,14 +2019,19 @@ def abnormal_analyze():
 
 @app.route('/api/self-review')
 def self_review():
-    """自助复盘：主要指数共振/分化、关键点位压力支撑、涨跌家数比例、成交额温度、日内形态"""
-    from self_review.service import run_review
-    return jsonify(run_review())
+    """自助复盘：读取当日已落盘的大盘复盘数据（由每日16:00定时任务生成，单一数据源不跑实时兜底）"""
+    from self_review.service import _target_trade_day
+    from self_review.storage import get_market_review
+    day = _target_trade_day().strftime('%Y-%m-%d')
+    row = get_market_review(day)
+    if not row:
+        return jsonify({'success': False, 'error': f'{day} 大盘复盘数据尚未生成（每日16:00后自动生成）'})
+    return jsonify({'success': True, 'data': row['data']})
 
 
 @app.route('/api/self-review/stocks')
 def self_review_stocks():
-    """自选复盘：自选股/场内ETF/持仓股 关键点位"""
+    """自选复盘：自选股/场内ETF/持仓股 关键点位（用户主动触发，即点即算）"""
     from self_review.service import run_stock_review
     return jsonify(run_stock_review(g.user_id))
 
@@ -2062,6 +2068,7 @@ def start_scheduler():
     register_scheduler_check(init_market_db_update())  # K线库每日自动更新检测
     register_scheduler_check(init_longhu_bang_update())      # 龙虎榜库每日跨天清理检测
     register_scheduler_check(init_money_flow_update())    # 资金流/指数行情轮询检测
+    register_scheduler_check(init_self_review_update())   # 每日自动复盘（开市日16:00）
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
 

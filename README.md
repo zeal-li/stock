@@ -34,7 +34,8 @@ stock/
 │   │   ├── login.db                   # 用户账户
 │   │   ├── config.db                  # 应用配置（secret_key 等）
 │   │   ├── longhu_bang.db             # 龙虎榜每日明细（SQLite 缓存，90 天自动清理）
-│   │   └── sector_fund.db             # 板块资金流向缓存（60s TTL）
+│   │   ├── sector_fund.db             # 板块资金流向缓存（60s TTL）
+│   │   └── self_review.db            # 自动复盘数据（大盘复盘 + 自选复盘，按交易日）
 │   │
 │   ├── market_db/                     # 全市场股票数据库
 │   │   ├── __init__.py
@@ -93,6 +94,11 @@ stock/
 │   │   ├── model.pkl                  # 当前最优模型（joblib 序列化）
 │   │   ├── feature_names.txt          # 特征名列表
 │   │   └── training_history.csv       # 每次训练记录（AUC/样本数/是否最优）
+│   │
+│   ├── self_review/                  # 自助复盘模块
+│   │   ├── __init__.py
+│   │   ├── service.py                # 大盘复盘（指数共振/宽度/成交额/情绪/资金/次日预案）+ 自选复盘（自选股/ETF/持仓股关键点位）
+│   │   └── storage.py                # 自动复盘 SQLite 持久化（按交易日）
 │   │
 │   └── watchlist/                     # 自选股 / 场内ETF / 持仓股模块
 │       ├── __init__.py
@@ -315,6 +321,31 @@ CREATE TABLE sector_fund (
     updated_at REAL NOT NULL      -- 写入时间戳（60s TTL）
 );
 ```
+
+### data/self_review.db — 自动复盘数据（大盘复盘自动生成 / 自选复盘手动触发）
+
+```sql
+-- 大盘复盘（每个交易日一条记录）
+CREATE TABLE market_review (
+    trade_date    TEXT PRIMARY KEY,        -- 复盘交易日 'YYYY-MM-DD'
+    update_time   TEXT NOT NULL,          -- 复盘生成时间 'YYYY-MM-DD HH:MM:SS'
+    market_status TEXT,                    -- 盘中 / 已收盘 / 休市
+    data          TEXT NOT NULL           -- run_review()['data'] 的 JSON 串
+);
+
+-- 自选复盘（每个交易日 + 每个用户一条记录）
+CREATE TABLE stock_review (
+    trade_date   TEXT NOT NULL,           -- 复盘交易日 'YYYY-MM-DD'
+    user_id      TEXT NOT NULL,           -- 用户 ID（关联 login.db users.id，按用户隔离）
+    update_time  TEXT NOT NULL,           -- 复盘生成时间 'YYYY-MM-DD HH:MM:SS'
+    data         TEXT NOT NULL,           -- run_stock_review()['data'] 的 JSON 串
+    PRIMARY KEY (trade_date, user_id)
+);
+
+CREATE INDEX idx_stock_review_user ON stock_review(user_id, trade_date DESC);
+```
+
+> `market_review` 按交易日唯一，存 `self_review/service.py::run_review()` 返回的整段 `data`（指数共振/宽度/成交额/日内形态/情绪/资金/次日预案）。`stock_review` 按 `(trade_date, user_id)` 唯一，存 `run_stock_review(user_id)` 返回的整段 `data`（自选股/ETF/持仓股关键点位）。同一交易日再次写入则覆盖（INSERT OR REPLACE）。读取函数取不到记录返回 `None`，不做多源兜底。
 
 ### 市场分段定义
 

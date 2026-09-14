@@ -1660,3 +1660,70 @@ def run_stock_review(user_id):
             'summary': summary,
         },
     }
+
+
+# ==================== 每日自动复盘（收盘后定时） ====================
+# 每个开市日 A股收盘后 16:00 自动跑一次大盘复盘 + 遍历所有用户跑自选复盘，
+# 结果落盘 self_review.db，供前端"打开界面即读 DB"返回。
+# 实现方式参考 market_db/sync.py 的每日自动更新：维护"下一次执行时刻"，
+# 启动时初始化为今天 16:00（若已过则次日 16:00），由公共秒级调度器每秒检测，
+# 到点执行一次并推进到次日 16:00。非开市日 / 当日 DB 已有记录则跳过，不重复跑。
+
+_AUTO_REVIEW_TIME = (16, 0)        # 触发时刻：A股 15:00 收盘后 1 小时
+_auto_review_next_run = None       # 下一次应执行自动复盘的时刻（datetime）
+
+
+def _auto_review_next_run_time(base):
+    """返回 base 当天 16:00；若已过则返回次日 16:00"""
+    cand = base.replace(hour=_AUTO_REVIEW_TIME[0], minute=_AUTO_REVIEW_TIME[1],
+                        second=0, microsecond=0)
+    if cand <= base:
+        cand = (base + datetime.timedelta(days=1)).replace(
+            hour=_AUTO_REVIEW_TIME[0], minute=_AUTO_REVIEW_TIME[1],
+            second=0, microsecond=0)
+    return cand
+
+
+def _run_auto_review():
+    """执行一次自动大盘复盘，结果落盘 self_review.db。
+    非开市日直接返回；当日 DB 已有记录则跳过，避免重复跑。
+    自选复盘不在此自动跑，留给用户主动触发（即点即算）。"""
+    today_now = datetime.datetime.now().date()
+    if not _is_workday(today_now):
+        return                        # 周末/节假日不跑
+    today = _target_trade_day()
+    today_str = today.strftime('%Y-%m-%d')
+
+    from self_review.storage import get_market_review, save_market_review
+
+    if get_market_review(today_str) is None:
+        try:
+            r = run_review()
+            if r.get('success'):
+                d = r['data']
+                save_market_review(today_str, d, d.get('market_status'))
+                print(f'[self-review] 自动大盘复盘完成: {today_str}')
+            else:
+                print(f'[self-review] 自动大盘复盘失败: {r.get("error")}')
+        except Exception as e:
+            print(f'[self-review] 自动大盘复盘异常: {type(e).__name__}: {e}')
+
+
+def check_auto_review_update():
+    """自动复盘每日检测：当前时间越过下次执行时刻后执行一次，并推进到次日。
+    由 app.py 公共秒级调度器每秒调用。"""
+    global _auto_review_next_run
+    now = datetime.datetime.now()
+    if now < _auto_review_next_run:
+        return
+    _auto_review_next_run = _auto_review_next_run_time(now)
+    _run_auto_review()
+
+
+def init_self_review_update():
+    """初始化自动复盘触发时刻，返回检测函数供公共调度器注册（由 app.py 启动时调用）。
+    下一次执行时刻初始化为今天 16:00（若已过则次日 16:00）。"""
+    global _auto_review_next_run
+    _auto_review_next_run = _auto_review_next_run_time(datetime.datetime.now())
+    print(f'[self-review] 每日自动复盘已初始化（下次执行: {_auto_review_next_run:%Y-%m-%d %H:%M}）')
+    return check_auto_review_update
