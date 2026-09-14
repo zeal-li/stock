@@ -44,7 +44,9 @@ function _srLoad(url, content, loadingText, manual, render) {
 }
 
 function loadSelfReview(manual) {
-    _srLoad('/api/self-review', document.getElementById('srContent'),
+    var url = '/api/self-review';
+    if (manual) url += '?refresh=1';   // 重新复盘：通知后端实时重跑并落盘覆盖
+    _srLoad(url, document.getElementById('srContent'),
         '正在获取行情并复盘，请稍候...', manual, renderSelfReview);
 }
 
@@ -362,7 +364,9 @@ function refreshCurrentReview() {
 }
 
 function loadStockReview(manual) {
-    _srLoad('/api/self-review/stocks', document.getElementById('srStockContent'),
+    var url = '/api/self-review/stocks';
+    if (manual) url += '?refresh=1';   // 重新复盘：通知后端实时重跑并落盘覆盖
+    _srLoad(url, document.getElementById('srStockContent'),
         '正在获取自选股并复盘，请稍候...', manual, function(data) {
             stockReviewLoaded = true;
             renderStockReview(data);

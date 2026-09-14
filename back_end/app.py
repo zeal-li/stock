@@ -2019,21 +2019,44 @@ def abnormal_analyze():
 
 @app.route('/api/self-review')
 def self_review():
-    """自助复盘：读取当日已落盘的大盘复盘数据（由每日16:00定时任务生成，单一数据源不跑实时兜底）"""
-    from self_review.service import _target_trade_day
-    from self_review.storage import get_market_review
+    """自助复盘：默认读 DB 当日落盘数据；带 ?refresh=1 时实时重跑并落盘覆盖（点"重新复盘"触发）"""
+    from self_review.service import run_review, _target_trade_day
+    from self_review.storage import get_market_review, save_market_review
     day = _target_trade_day().strftime('%Y-%m-%d')
+    if request.args.get('refresh'):
+        # 手动重新复盘：实时跑 run_review + 落盘覆盖，返回最新数据
+        r = run_review()
+        if not r.get('success'):
+            return jsonify(r)
+        d = r['data']
+        save_market_review(day, d, d.get('market_status'))
+        return jsonify({'success': True, 'data': d})
+    # 默认：读 DB 当日落盘数据
     row = get_market_review(day)
     if not row:
-        return jsonify({'success': False, 'error': f'{day} 大盘复盘数据尚未生成（每日16:00后自动生成）'})
+        return jsonify({'success': False, 'error': f'{day} 大盘复盘还没有复盘数据，点击"重新复盘"立即生成（每日16:00后自动生成）'})
     return jsonify({'success': True, 'data': row['data']})
 
 
 @app.route('/api/self-review/stocks')
 def self_review_stocks():
-    """自选复盘：自选股/场内ETF/持仓股 关键点位（用户主动触发，即点即算）"""
-    from self_review.service import run_stock_review
-    return jsonify(run_stock_review(g.user_id))
+    """自选复盘：默认读 DB 当日落盘数据；带 ?refresh=1 时实时重跑并落盘覆盖（点"重新复盘"触发）"""
+    from self_review.service import run_stock_review, _target_trade_day
+    from self_review.storage import get_stock_review, save_stock_review
+    day = _target_trade_day().strftime('%Y-%m-%d')
+    if request.args.get('refresh'):
+        # 手动重新复盘：实时跑 run_stock_review + 落盘覆盖，返回最新数据
+        r = run_stock_review(g.user_id)
+        if not r.get('success'):
+            return jsonify(r)
+        d = r['data']
+        save_stock_review(day, g.user_id, d)
+        return jsonify({'success': True, 'data': d})
+    # 默认：读 DB 当日落盘数据
+    row = get_stock_review(day, g.user_id)
+    if not row:
+        return jsonify({'success': False, 'error': f'{day} 自选复盘还没有复盘数据，点击"重新复盘"立即生成'})
+    return jsonify({'success': True, 'data': row['data']})
 
 
 # ==================== 公共秒级调度器 ====================
