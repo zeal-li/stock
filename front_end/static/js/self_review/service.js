@@ -44,10 +44,75 @@ function _srLoad(url, content, loadingText, manual, render) {
 }
 
 function loadSelfReview(manual) {
-    var url = '/api/self-review';
-    if (manual) url += '?refresh=1';   // 重新复盘：通知后端实时重跑并落盘覆盖
-    _srLoad(url, document.getElementById('srContent'),
-        '正在获取行情并复盘，请稍候...', manual, renderSelfReview);
+    if (manual) {
+        // 重新复盘最新交易日：实时重跑并落盘覆盖，返回最新数据
+        _srLoad('/api/self-review?refresh=1', document.getElementById('srContent'),
+            '正在获取行情并复盘，请稍候...', true, function(data) {
+                // 复盘完成后刷新日期列表，选中最新交易日
+                loadSRDates().then(function() {
+                    if (_srDateList && _srDateList.length) {
+                        _srCurrentDate = _srDateList[_srDateList.length - 1];
+                    }
+                    renderSRDateBar(_srCurrentDate);
+                    renderSelfReview(data);
+                });
+            });
+        return;
+    }
+    // 首次进入：先加载交易日历，默认选中最新交易日查看
+    loadSRDates().then(function() {
+        if (_srDateList && _srDateList.length) {
+            _srCurrentDate = _srDateList[_srDateList.length - 1];
+            renderSRDateBar(_srCurrentDate);
+            loadSelfReviewByDate(_srCurrentDate);
+        } else {
+            // 尚无任何落盘记录：日期栏为空，直接给出提示
+            renderSRDateBar('');
+            document.getElementById('srContent').innerHTML =
+                '<div class="error" style="padding:40px 20px;">暂无大盘复盘数据，点击"重新复盘"立即生成（每日16:00后自动生成）</div>';
+        }
+    });
+}
+
+function loadSRDates() {
+    return fetch('/api/trading-days?count=14')
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+            if (!res || res.success === false) {
+                _srDateList = [];
+            } else {
+                _srDateList = res.data.trading_days || [];
+            }
+            return _srDateList;
+        })
+        .catch(function() {
+            _srDateList = [];
+            return _srDateList;
+        });
+}
+
+function renderSRDateBar(activeDate) {
+    var bar = document.getElementById('srDateBar');
+    if (!bar || !_srDateList) return;
+    var html = '';
+    for (var i = 0; i < _srDateList.length; i++) {
+        var date = _srDateList[i];
+        var mmdd = date.slice(5);
+        var cls = (date === activeDate) ? 'sr-date-btn active' : 'sr-date-btn';
+        html += '<span class="' + cls + '" onclick="selectSRDate(\'' + date + '\')">' + mmdd + '</span>';
+    }
+    bar.innerHTML = html;
+}
+
+function selectSRDate(date) {
+    _srCurrentDate = date;
+    renderSRDateBar(date);
+    loadSelfReviewByDate(date);
+}
+
+function loadSelfReviewByDate(date) {
+    _srLoad('/api/self-review?date=' + encodeURIComponent(date), document.getElementById('srContent'),
+        '正在加载复盘数据，请稍候...', true, renderSelfReview);
 }
 
 function renderSelfReview(d) {
@@ -343,6 +408,8 @@ function _srPlan(p) {
 
 var currentReviewTab = 'market';
 var stockReviewLoaded = false;
+var _srDateList = null;    // 最近14个交易日（升序，旧→新，最新在末尾）
+var _srCurrentDate = '';   // 当前查看的复盘交易日
 
 function switchReviewTab(tab) {
     currentReviewTab = tab;
@@ -353,6 +420,8 @@ function switchReviewTab(tab) {
     }
     document.getElementById('srContent').style.display = tab === 'market' ? 'block' : 'none';
     document.getElementById('srStockContent').style.display = tab === 'stock' ? 'block' : 'none';
+    var dateBar = document.getElementById('srDateBar');
+    if (dateBar) dateBar.style.display = tab === 'market' ? 'flex' : 'none';
     if (tab === 'stock' && !stockReviewLoaded) {
         loadStockReview(false);
     }

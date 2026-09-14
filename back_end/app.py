@@ -2019,7 +2019,7 @@ def abnormal_analyze():
 
 @app.route('/api/self-review')
 def self_review():
-    """自助复盘：默认读 DB 当日落盘数据；带 ?refresh=1 时实时重跑并落盘覆盖（点"重新复盘"触发）"""
+    """自助复盘：默认读 DB 当日落盘数据；带 ?date= 读指定交易日；带 ?refresh=1 时实时重跑并落盘覆盖（点"重新复盘"触发）"""
     from self_review.service import run_review, _target_trade_day
     from self_review.storage import get_market_review, save_market_review
     day = _target_trade_day().strftime('%Y-%m-%d')
@@ -2031,6 +2031,13 @@ def self_review():
         d = r['data']
         save_market_review(day, d, d.get('market_status'))
         return jsonify({'success': True, 'data': d})
+    # 指定交易日：读 DB 该日落盘数据
+    date = request.args.get('date', '').strip()
+    if date:
+        row = get_market_review(date)
+        if not row:
+            return jsonify({'success': False, 'error': f'{date} 大盘复盘还没有复盘数据'})
+        return jsonify({'success': True, 'data': row['data']})
     # 默认：读 DB 当日落盘数据
     row = get_market_review(day)
     if not row:
