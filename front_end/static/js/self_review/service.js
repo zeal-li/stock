@@ -364,9 +364,7 @@ function refreshCurrentReview() {
 }
 
 function loadStockReview(manual) {
-    var url = '/api/self-review/stocks';
-    if (manual) url += '?refresh=1';   // 重新复盘：通知后端实时重跑并落盘覆盖
-    _srLoad(url, document.getElementById('srStockContent'),
+    _srLoad('/api/self-review/stocks', document.getElementById('srStockContent'),
         '正在获取自选股并复盘，请稍候...', manual, function(data) {
             stockReviewLoaded = true;
             renderStockReview(data);
