@@ -1617,11 +1617,13 @@ def run_stock_review(user_id):
                 if key == 'holdings' and it.get('near') == 'pressure':
                     summary['pressure'].append({
                         'name': it['name'], 'group': label, 'price': it['price'],
+                        'change_pct': it['change_pct'],
                         'hint': it['hint'], 'code': it['code'], 'market': it['market'],
                     })
                 elif it.get('near') == 'support':
                     summary['support'].append({
                         'name': it['name'], 'group': label, 'price': it['price'],
+                        'change_pct': it['change_pct'],
                         'hint': it['hint'], 'code': it['code'], 'market': it['market'],
                     })
     except Exception:

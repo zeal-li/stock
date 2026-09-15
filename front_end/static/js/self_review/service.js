@@ -563,7 +563,13 @@ function _srStockSummary(summary) {
     var s = (summary && summary.support) || [];
     if (!p.length && !s.length) return '';
     function hintHtml(x, color) {
-        var h = (x.hint || '').replace(/(压力|支撑)\s*([\d.]+)\(([+-][\d.]+%)\)/g, function(m, kw, pt, dist) {
+        // 现价按涨跌着色（红涨/绿跌/灰平），并补上涨跌幅：现价 8.829 → 现价 8.829(+1.23%)
+        var col = _srCol(x.change_pct);
+        var price = (x.price === null || x.price === undefined) ? '--' : _srFmt(x.price, x.code, x.market);
+        var priceSpan = '<span style="color:' + col + ';font-weight:600;">' + price + '</span>' +
+            '<span style="color:' + col + ';">(' + _srPct(x.change_pct) + ')</span>';
+        var h = (x.hint || '').replace(/现价\s*[\d.]+/, '现价 ' + priceSpan);
+        h = h.replace(/(压力|支撑)\s*([\d.]+)\(([+-][\d.]+%)\)/g, function(m, kw, pt, dist) {
             return kw + ' <span style="color:' + color + ';font-weight:600;">' + pt + '</span>(' + dist + ')';
         });
         return '<span style="color:#888;font-size:12px;">' + h + '</span>';
