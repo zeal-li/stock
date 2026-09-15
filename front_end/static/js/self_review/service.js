@@ -46,17 +46,18 @@ function _srLoad(url, content, loadingText, manual, render) {
 function loadSelfReview(manual) {
     if (manual) {
         // 重新复盘最新交易日：实时重跑并落盘覆盖，返回最新数据
-        _srLoad('/api/self-review?refresh=1', document.getElementById('srContent'),
-            '正在获取行情并复盘，请稍候...', true, function(data) {
-                // 复盘完成后刷新日期列表，选中最新交易日
-                loadSRDates().then(function() {
+        loadSRDates().then(function() {
+            var date = (_srDateList && _srDateList.length) ? _srDateList[_srDateList.length - 1] : '';
+            _srLoad('/api/self-review?refresh=1', document.getElementById('srContent'),
+                '正在获取' + date + '行情并复盘，请稍候...', true, function(data) {
+                    // 复盘完成后选中最新交易日
                     if (_srDateList && _srDateList.length) {
                         _srCurrentDate = _srDateList[_srDateList.length - 1];
                     }
                     renderSRDateBar(_srCurrentDate);
                     renderSelfReview(data);
                 });
-            });
+        });
         return;
     }
     // 首次进入：先加载交易日历，默认选中最新交易日查看
@@ -482,18 +483,19 @@ function refreshCurrentReview() {
 function loadStockReview(manual) {
     if (manual) {
         // 重新复盘最新交易日：实时重算并落盘覆盖，返回最新数据
-        _srLoad('/api/self-review/stocks?refresh=1', document.getElementById('srStockContent'),
-            '正在获取自选股并复盘，请稍候...', true, function(data) {
-                stockReviewLoaded = true;
-                // 复盘完成后刷新日期列表，选中最新交易日
-                loadSRDates().then(function() {
+        loadSRDates().then(function() {
+            var date = (_srDateList && _srDateList.length) ? _srDateList[_srDateList.length - 1] : '';
+            _srLoad('/api/self-review/stocks?refresh=1', document.getElementById('srStockContent'),
+                '正在获取' + date + '自选股并复盘，请稍候...', true, function(data) {
+                    stockReviewLoaded = true;
+                    // 复盘完成后选中最新交易日
                     if (_srDateList && _srDateList.length) {
                         _srStockCurrentDate = _srDateList[_srDateList.length - 1];
                     }
                     renderSRStockDateBar(_srStockCurrentDate);
                     renderStockReview(data);
                 });
-            });
+        });
         return;
     }
     // 首次进入：先加载交易日历，默认选中最新交易日查看
