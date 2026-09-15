@@ -1646,7 +1646,7 @@ def run_stock_review(user_id):
 
 # ==================== self_review 定时任务（复盘 + 跨天清理） ====================
 # 同一个检测函数维护两个独立时间戳，每秒检查各到点执行：
-# - 复盘：开市日 16:00 跑 run_review 并落盘（非开市日跳过，当日已有则跳过）
+# - 复盘：开市日 16:00 无条件复盘覆盖；非开市日仅最近交易日已有数据才跳过
 # - 清理：每日凌晨 00:30 删除超过 14 个交易日的旧数据（启动当天不触发，次日首次）
 
 _AUTO_REVIEW_TIME = (16, 0)        # 复盘触发时刻：A股 15:00 收盘后 1 小时
@@ -1675,27 +1675,30 @@ def _cleanup_next_run_time(base):
 
 def _run_auto_review():
     """执行一次自动大盘复盘，结果落盘 self_review.db。
-    非开市日直接返回；当日 DB 已有记录则跳过，避免重复跑。
+    开市日 16:00 无条件复盘覆盖；非开市日仅当最近交易日已有复盘数据才跳过。
     自选复盘不在此自动跑，留给用户主动触发（即点即算）。"""
     today_now = datetime.datetime.now().date()
-    if not _is_workday(today_now):
-        return                        # 周末/节假日不跑
+    is_workday_today = _is_workday(today_now)
     today = _target_trade_day()
     today_str = today.strftime('%Y-%m-%d')
 
     from self_review.storage import get_market_review, save_market_review
 
-    if get_market_review(today_str) is None:
-        try:
-            r = run_review()
-            if r.get('success'):
-                d = r['data']
-                save_market_review(today_str, d, d.get('market_status'))
-                print(f'[self-review] 自动大盘复盘完成: {today_str}')
-            else:
-                print(f'[self-review] 自动大盘复盘失败: {r.get("error")}')
-        except Exception as e:
-            print(f'[self-review] 自动大盘复盘异常: {type(e).__name__}: {e}')
+    # 非开市日：目标交易日（最近已收盘交易日）已有复盘数据才跳过
+    if not is_workday_today and get_market_review(today_str) is not None:
+        print(f'[self-review] 自动大盘复盘跳过: 今日 {today_now} 非开盘日，最近交易日 {today_str} 已有复盘数据')
+        return
+    # 开市日无条件复盘覆盖，或非开市日最近交易日无数据时补跑
+    try:
+        r = run_review()
+        if r.get('success'):
+            d = r['data']
+            save_market_review(today_str, d, d.get('market_status'))
+            print(f'[self-review] 自动大盘复盘完成: {today_str}')
+        else:
+            print(f'[self-review] 自动大盘复盘失败: {r.get("error")}')
+    except Exception as e:
+        print(f'[self-review] 自动大盘复盘异常: {type(e).__name__}: {e}')
 
 
 def check_self_review_update():
