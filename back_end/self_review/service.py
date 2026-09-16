@@ -1646,17 +1646,17 @@ def run_stock_review(user_id):
 
 # ==================== self_review 定时任务（复盘 + 跨天清理） ====================
 # 同一个检测函数维护两个独立时间戳，每秒检查各到点执行：
-# - 复盘：开市日 16:00 无条件复盘覆盖；非开市日仅最近交易日已有数据才跳过
+# - 复盘：开市日 17:00 无条件复盘覆盖；非开市日仅最近交易日已有数据才跳过
 # - 清理：每日凌晨 00:30 删除超过 14 个交易日的旧数据（启动当天不触发，次日首次）
 
-_AUTO_REVIEW_TIME = (16, 0)        # 复盘触发时刻：A股 15:00 收盘后 1 小时
+_AUTO_REVIEW_TIME = (17, 0)        # 复盘触发时刻：收盘 2 小时后，避开 16 点同花顺限流高峰
 _AUTO_CLEANUP_TIME = (0, 30)       # 清理触发时刻：凌晨 00:30（避开 00:00 整点高峰）
 _auto_review_next_run = None       # 下一次应执行复盘的时刻（datetime）
 _auto_cleanup_next_run = None      # 下一次应执行清理的时刻（datetime）
 
 
 def _auto_review_next_run_time(base):
-    """返回 base 当天 16:00；若已过则返回次日 16:00"""
+    """返回 base 当天 17:00；若已过则返回次日 17:00"""
     cand = base.replace(hour=_AUTO_REVIEW_TIME[0], minute=_AUTO_REVIEW_TIME[1],
                         second=0, microsecond=0)
     if cand <= base:
@@ -1675,7 +1675,7 @@ def _cleanup_next_run_time(base):
 
 def _run_auto_review():
     """执行一次自动大盘复盘，结果落盘 self_review.db。
-    开市日 16:00 无条件复盘覆盖；非开市日仅当最近交易日已有复盘数据才跳过。
+    开市日 17:00 无条件复盘覆盖；非开市日仅当最近交易日已有复盘数据才跳过。
     自选复盘不在此自动跑，留给用户主动触发（即点即算）。"""
     today_now = datetime.datetime.now().date()
     is_workday_today = _is_workday(today_now)
@@ -1721,7 +1721,7 @@ def check_self_review_update():
 
 def init_self_review_update():
     """初始化复盘+清理两个触发时刻，返回检测函数供公共调度器注册（由 app.py 启动时调用）。
-    复盘下次时刻 = 今天 16:00（若已过则次日 16:00）；
+    复盘下次时刻 = 今天 17:00（若已过则次日 17:00）；
     清理下次时刻 = 次日 00:30（启动当天不触发，避免重启反复触发）。"""
     global _auto_review_next_run, _auto_cleanup_next_run
     now = datetime.datetime.now()
