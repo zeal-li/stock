@@ -7,7 +7,8 @@ import re
 
 from common import REQUEST_PROXIES
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market, \
-    is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX, to_em_market
+    is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX, to_em_market, \
+    is_a_share_trading_day
 from common.finance import get_goodwill
 from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
 from money_flow.fund_flow import get_market_fund_flow
@@ -1632,28 +1633,23 @@ def market_db_status():
 
 @app.route('/api/is-trading-day')
 def is_trading_day():
-    """判断今天是否为A股交易日（排除周末和法定节假日）"""
+    """判断今天是否为A股交易日（排除周末和法定节假日，周末不随调休补班）"""
     import datetime as _dt
     today = _dt.date.today()
-    try:
-        from chinese_calendar import is_workday
-        result = is_workday(today)
-    except ImportError:
-        result = today.weekday() < 5
+    result = is_a_share_trading_day(today)
     return jsonify({'date': today.isoformat(), 'is_trading_day': result})
 
 
 @app.route('/api/trading-days')
 def trading_days():
-    """返回最近N个A股交易日（排除周末和法定节假日）"""
+    """返回最近N个A股交易日（排除周末和法定节假日，周末不随调休补班）"""
     import datetime as _dt
-    from chinese_calendar import is_workday
     count = request.args.get('count', 15, type=int)
 
     dates = []
     d = _dt.date.today()
     while len(dates) < count:
-        if is_workday(d):
+        if is_a_share_trading_day(d):
             dates.append(d.isoformat())
         d = d - _dt.timedelta(days=1)
     dates.reverse()

@@ -143,6 +143,16 @@ def is_a_trading_time():
     return (555 <= t <= 695) or (775 <= t <= 905)
 
 
+def is_a_share_trading_day(d):
+    """判断某日期是否为A股交易日：周一至周五且非法定节假日。
+    注意：A股周末不随调休补班，故不能用 chinese_calendar.is_workday（调休周六会误判为交易日）。"""
+    try:
+        from chinese_calendar import is_holiday
+        return d.weekday() < 5 and not is_holiday(d)
+    except ImportError:
+        return d.weekday() < 5
+
+
 def effective_today_str():
     """返回有效的"今天"日期字符串(YYYY-MM-DD)：开盘前(<9:00)退回昨天"""
     now = datetime.now()

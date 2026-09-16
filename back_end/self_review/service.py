@@ -33,7 +33,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 from common import REQUEST_PROXIES
-from common.utils import is_a_trading_time, is_etf
+from common.utils import is_a_trading_time, is_etf, is_a_share_trading_day
 from money_flow.storage import db_get, _EM_HEADERS, _EM_UT, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY
 
 # 主要指数 → 同花顺证券代码（日K数据源，与 K线弹窗同源）
@@ -1083,25 +1083,16 @@ def _analyze_minute(minute, sh_item):
 
 # ==================== 目标交易日 ====================
 
-def _is_workday(d):
-    """是否为工作日（法定节假日处理跟随项目 chinese_calendar 约定）"""
-    try:
-        from chinese_calendar import is_workday
-        return is_workday(d)
-    except ImportError:
-        return d.weekday() < 5
-
-
 def _target_trade_day():
     """复盘目标交易日：盘中（>=09:30）取当日；盘前/非交易日取最近已收盘交易日"""
     now = datetime.datetime.now()
     d = now.date()
-    while not _is_workday(d):
+    while not is_a_share_trading_day(d):
         d -= datetime.timedelta(days=1)
     # 盘前（今天尚未开盘）：今日数据未生成，回退到上一交易日
     if d == now.date() and now.hour * 60 + now.minute < 9 * 60 + 30:
         d -= datetime.timedelta(days=1)
-        while not _is_workday(d):
+        while not is_a_share_trading_day(d):
             d -= datetime.timedelta(days=1)
     return d
 
@@ -1109,7 +1100,7 @@ def _target_trade_day():
 def _cache_trade_day(meta):
     """分时缓存的时间戳 meta → 缓存内容所属交易日(date)。
     money_flow 轮询仅在交易时段写入 meta=当日；周末重启补抓会用非交易日时间戳
-    覆盖内容仍为最近交易日的缓存，因此非工作日时间戳需回溯到最近工作日。"""
+    覆盖内容仍为最近交易日的缓存，因此非交易日时间戳需回溯到最近交易日。"""
     d_str = _meta_day(meta)
     if not d_str:
         return None
@@ -1117,7 +1108,7 @@ def _cache_trade_day(meta):
         d = datetime.datetime.strptime(d_str, '%Y-%m-%d').date()
     except ValueError:
         return None
-    while not _is_workday(d):
+    while not is_a_share_trading_day(d):
         d -= datetime.timedelta(days=1)
     return d
 
@@ -1646,7 +1637,7 @@ def run_stock_review(user_id):
 
 # ==================== self_review 定时任务（复盘 + 跨天清理） ====================
 # 同一个检测函数维护两个独立时间戳，每秒检查各到点执行：
-# - 复盘：开市日 17:00 无条件复盘覆盖；非开市日仅最近交易日已有数据才跳过
+# - 复盘：交易日 17:00 无条件重跑覆盖当日（盘中落盘的数据收盘后需被最终数据覆盖）；非交易日不跑
 # - 清理：每日凌晨 00:30 删除超过 14 个交易日的旧数据（启动当天不触发，次日首次）
 
 _AUTO_REVIEW_TIME = (17, 0)        # 复盘触发时刻：收盘 2 小时后，避开 16 点同花顺限流高峰
@@ -1675,20 +1666,17 @@ def _cleanup_next_run_time(base):
 
 def _run_auto_review():
     """执行一次自动大盘复盘，结果落盘 self_review.db。
-    开市日 17:00 无条件复盘覆盖；非开市日仅当最近交易日已有复盘数据才跳过。
-    自选复盘不在此自动跑，留给用户主动触发（即点即算）。"""
+    交易日 17:00 无条件重跑覆盖当日：盘中可能已落盘过数据，收盘后需覆盖为最终数据。
+    非交易日不跑。自选复盘不在此自动跑，留给用户主动触发（即点即算）。"""
     today_now = datetime.datetime.now().date()
-    is_workday_today = _is_workday(today_now)
+    if not is_a_share_trading_day(today_now):
+        print(f'[self-review] 自动大盘复盘跳过: {today_now} 非A股交易日')
+        return
     today = _target_trade_day()
     today_str = today.strftime('%Y-%m-%d')
 
-    from self_review.storage import get_market_review, save_market_review
+    from self_review.storage import save_market_review
 
-    # 非开市日：目标交易日（最近已收盘交易日）已有复盘数据才跳过
-    if not is_workday_today and get_market_review(today_str) is not None:
-        print(f'[self-review] 自动大盘复盘跳过: 今日 {today_now} 非开盘日，最近交易日 {today_str} 已有复盘数据')
-        return
-    # 开市日无条件复盘覆盖，或非开市日最近交易日无数据时补跑
     try:
         r = run_review()
         if r.get('success'):
