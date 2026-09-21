@@ -96,17 +96,33 @@ def _fmt_pct(v):
 
 # ==================== 数据抓取 ====================
 
+def _em_ulist_get(params):
+    """东财 ulist GET：同一数据源失败重试（网络中断/非200/解析异常，非多源兜底），
+    重试耗尽抛 RuntimeError。"""
+    url = 'https://push2delay.eastmoney.com/api/qt/ulist.np/get'
+    last_err = None
+    for attempt in range(4):
+        try:
+            r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+            if r.status_code == 200:
+                return json.loads(r.content.decode('utf-8', 'replace'))
+            last_err = f'HTTP {r.status_code}'
+        except Exception as e:
+            last_err = repr(e)
+        if attempt < 3:
+            time.sleep(0.3)
+    raise RuntimeError(f'东财 ulist 请求失败（已重试3次）: {last_err}')
+
+
 def _fetch_quotes():
     """东财 ulist：主要指数实时行情 + 涨跌家数（f104/f105/f106）"""
     secids = ','.join(s['secid'] for s in MAJOR_INDICES)
-    url = 'https://push2delay.eastmoney.com/api/qt/ulist.np/get'
     params = {
         'fltt': 2, 'invt': 2, 'ut': _EM_UT,
         'fields': 'f2,f3,f4,f12,f13,f14,f15,f16,f17,f18,f104,f105,f106',
         'secids': secids,
     }
-    r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-    body = json.loads(r.content.decode('utf-8', 'replace'))
+    body = _em_ulist_get(params)
     diff = ((body.get('data') or {}).get('diff')) or []
     if not diff:
         raise RuntimeError('指数行情获取失败（东财 ulist 返回为空）')
@@ -227,14 +243,12 @@ def _fetch_stock_quotes(stocks):
     """东财 ulist 批量获取股票实时行情，返回 {原始secid: {name, price, change_pct, ...}}"""
     code_orig_market = {s['code']: s['market'] for s in stocks}
     secids = ','.join(f"{'0' if s['market'] == '2' else s['market']}.{s['code']}" for s in stocks)
-    url = 'https://push2delay.eastmoney.com/api/qt/ulist.np/get'
     params = {
         'fltt': 2, 'invt': 2, 'ut': _EM_UT,
         'fields': 'f2,f3,f4,f12,f13,f14,f15,f16,f17,f18',
         'secids': secids,
     }
-    r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-    body = json.loads(r.content.decode('utf-8', 'replace'))
+    body = _em_ulist_get(params)
     diff = ((body.get('data') or {}).get('diff')) or []
     quote_map = {}
     for row in diff:
