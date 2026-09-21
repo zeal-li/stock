@@ -73,6 +73,9 @@ def _fetch_us_stocks():
 
     print(f"[sync] 拉取 美股 列表 (NASDAQ API)...")
     for attempt in range(3):
+        if _sync_status.get('cancel'):
+            print("[sync] 拉取 美股 列表被终止")
+            return None
         try:
             r = requests.get(url, params=params, headers=headers, timeout=30)
             if r.status_code != 200:
@@ -142,6 +145,9 @@ def _fetch_stocks_by_segment(seg_key):
     page = 1
     print(f"[sync] 拉取 {label} 列表...")
     while True:
+        if _sync_status.get('cancel'):
+            print(f"[sync] 拉取 {label} 列表被终止")
+            return None
         r = None
         for attempt in range(3):
             try:
@@ -540,13 +546,16 @@ def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, late
 
 # =========== 清理退市 ===========
 
-def _cleanup_delisted():
-    active = set((s[0], s[1]) for s in stock_list_all())
+def _cleanup_delisted(seg_key):
+    """清理指定市场的退市股票：stock_info 中有、但该市场当前列表里已不存在的股票"""
+    active = set(s[0] for s in stock_list_all() if s[1] == seg_key)
     if not active:
+        # 该市场股票列表为空（可能是拉取失败被清空），此时不能清理，否则会误删全部
+        print(f"[sync] {seg_key} 股票列表为空，跳过退市清理")
         return
 
-    detail_stocks = stock_info_all()
-    delisted = [(s[0], s[1]) for s in detail_stocks if (s[0], s[1]) not in active]
+    detail_stocks = [s for s in stock_info_all() if s[1] == seg_key]
+    delisted = [(s[0], s[1]) for s in detail_stocks if s[0] not in active]
     if not delisted:
         print("[sync] 无退市股票")
         return
@@ -610,19 +619,20 @@ def _run_init(seg_key):
         print(f"[sync] 初始化: {label}")
 
         rows = _fetch_stocks_by_segment(seg_key)
+
+        if _sync_status.get('cancel'):
+            _sync_status['running'] = False
+            _sync_status['phase'] = 'cancelled'
+            _sync_status['cancel'] = False
+            print(f"[sync] {label} 加载已被终止（列表拉取已中断）")
+            return
+
         if not rows:
             _sync_status['running'] = False
             _sync_status['phase'] = 'error'
             _sync_status['error'] = f'{label} 暂不支持（API 无此市场数据）'
             _sync_status['total'] = 0
             _sync_status['done'] = 0
-            return
-
-        if _sync_status.get('cancel'):
-            _sync_status['running'] = False
-            _sync_status['phase'] = 'cancelled'
-            _sync_status['cancel'] = False
-            print(f"[sync] {label} 加载已被终止")
             return
 
         stock_list_replace_market(seg_key, rows)
@@ -695,7 +705,7 @@ def _run_init(seg_key):
             print(f"[sync] {label} K线同步已被终止，数据已回滚")
             return
 
-        _cleanup_delisted()
+        _cleanup_delisted(seg_key)
         fail_count = api_empty_count + exception_count + partial_count
         if fail_count == 0 and no_data_count == 0:
             market_sync_ts_set(seg_key, _now_ts_str())
@@ -904,18 +914,19 @@ def _run_update(seg_key):
         if need_refresh_list:
             _sync_status['phase'] = 'list'
             rows = _fetch_stocks_by_segment(seg_key)
-            if rows is None:
-                print(f"[sync] {label} 列表拉取失败")
-                _sync_status['running'] = False
-                _sync_status['phase'] = 'error'
-                _sync_status['error'] = f'{label} 列表拉取失败'
-                return
 
             if _sync_status.get('cancel'):
                 _sync_status['running'] = False
                 _sync_status['phase'] = 'cancelled'
                 _sync_status['cancel'] = False
-                print(f"[sync] {label} 更新已被终止")
+                print(f"[sync] {label} 更新已被终止（列表拉取已中断）")
+                return
+
+            if not rows:
+                print(f"[sync] {label} 列表拉取失败（返回空）")
+                _sync_status['running'] = False
+                _sync_status['phase'] = 'error'
+                _sync_status['error'] = f'{label} 列表拉取失败'
                 return
 
             stock_list_replace_market(seg_key, rows)
@@ -940,9 +951,15 @@ def _run_update(seg_key):
         to_update = [s for s in stock_list if _needs_any_update(s[0], s[1])]
 
         if not to_update:
+            if _sync_status.get('cancel'):
+                _sync_status['running'] = False
+                _sync_status['phase'] = 'cancelled'
+                _sync_status['cancel'] = False
+                print(f"[sync] {label} 更新已被终止")
+                return
             print(f"[sync] {label} K线全部已是最新 ({len(stock_list)} 只)，无需拉取")
             market_sync_ts_set(seg_key, _now_ts_str())
-            _cleanup_delisted()
+            _cleanup_delisted(seg_key)
             _sync_status['running'] = False
             _sync_status['phase'] = 'done'
             return
@@ -1019,7 +1036,7 @@ def _run_update(seg_key):
             print(f"[sync] {label} 有 {', '.join(reasons)}，本次不更新 sync_ts，下次更新将重试")
 
         # 第五步：清理退市
-        _cleanup_delisted()
+        _cleanup_delisted(seg_key)
         _sync_status['success_count'] = success_count
         _sync_status['no_data_count'] = no_data_count
         _sync_status['inactive_count'] = inactive_count
