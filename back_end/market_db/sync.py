@@ -15,7 +15,11 @@
 import datetime
 import threading
 import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# openpyxl 读取无默认样式的交易所 xlsx 时会打印 UserWarning，屏蔽以免刷屏
+warnings.filterwarnings('ignore', message='Workbook contains no default style')
 
 from .db import (
     market_all, market_sync_ts_get, market_sync_ts_set,
@@ -24,6 +28,7 @@ from .db import (
     stock_info_all, stock_info_kline_maps, stock_info_remove, stock_info_clear_market,
     stock_info_sync_atomic, klines_get, klines_count_market,
 )
+from common import BROWSER_HEADERS
 from common.utils import (
     MARKET_HOURS, is_before_open, is_after_close, is_trading_hours,
     is_cross_day, get_market_hours,
@@ -32,9 +37,9 @@ from common.utils import (
 # 市场分段 — key 用作 market 字段值（已移除北交所、新三板）
 SEGMENTS = {
     'hs_main':  {'label': '沪深A',   'prefix': ('600', '601', '603', '605', '000', '001', '002', '003')},
-    'hs_etf':   {'label': '沪深ETF',  'prefix': ('5', '159', '16', '18')},
-    'gem':      {'label': '创业板',   'prefix': ('300', '301')},
-    'star':     {'label': '科创板',   'prefix': ('688',)},
+    'hs_etf':   {'label': '沪深ETF',  'prefix': ('5', '158', '159', '16', '18')},
+    'gem':      {'label': '创业板',   'prefix': ('300', '301', '302')},
+    'star':     {'label': '科创板',   'prefix': ('688', '689')},
     'hk_main':  {'label': '港股',     'fs': 'm:116+t:3',       'api': 'eastmoney'},
     'us_main':  {'label': '美股',     'fs': 'm:105,m:106,m:107',       'api': 'eastmoney'},
 }
@@ -115,33 +120,155 @@ def _fetch_us_stocks():
     return []
 
 
-def _fetch_stocks_by_segment(seg_key):
-    """只拉取指定分段的市场股票列表"""
+# =========== A股交易所官方列表 ===========
+
+def _fetch_sse_stocks():
+    """上交所股票列表（主板 + 科创板），返回 [(code, name)]"""
+    import requests
+
+    url = 'https://query.sse.com.cn/sseQuery/commonQuery.do'
+    headers = {**BROWSER_HEADERS, 'Referer': 'https://www.sse.com.cn/assortment/stock/list/share/'}
+    result = []
+    for stock_type in ('1', '8'):
+        params = {
+            'STOCK_TYPE': stock_type,
+            'sqlId': 'COMMON_SSE_CP_GPJCTPZ_GPLB_GP_L',
+            'COMPANY_STATUS': '2,4,5,7,8',
+            'type': 'inParams',
+            'isPagination': 'true',
+            'pageHelp.pageSize': '10000',
+            'pageHelp.pageNo': '1',
+            'pageHelp.beginPage': '1',
+            'pageHelp.endPage': '1',
+            'pageHelp.cacheSize': '1',
+        }
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=15)
+            rows = (r.json().get('pageHelp') or {}).get('data') or []
+        except Exception as e:
+            print(f"[sync] 上交所股票列表拉取失败: {e}")
+            return []
+        for row in rows:
+            code = str(row.get('A_STOCK_CODE') or '').zfill(6)
+            name = str(row.get('SEC_NAME_CN') or row.get('COMPANY_ABBR') or '').strip()
+            if code and name:
+                result.append((code, name))
+    return result
+
+
+def _fetch_szse_stocks():
+    """深交所股票列表（主板 + 创业板），返回 [(code, name)]"""
+    import requests
+    import io
+    import openpyxl
+
+    url = 'https://www.szse.cn/api/report/ShowReport'
+    headers = {**BROWSER_HEADERS, 'Referer': 'https://www.szse.cn/market/product/stock/list/index.html'}
+    params = {'SHOWTYPE': 'xlsx', 'CATALOGID': '1110', 'TABKEY': 'tab1', 'random': '0.6935816432433362'}
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=20)
+        wb = openpyxl.load_workbook(io.BytesIO(r.content))
+    except Exception as e:
+        print(f"[sync] 深交所股票列表拉取失败: {e}")
+        return []
+    ws = wb.active
+    it = ws.iter_rows(values_only=True)
+    header = list(next(it))
+    idx_code = header.index('A股代码')
+    idx_name = header.index('A股简称')
+    result = []
+    for row in it:
+        code = str(int(row[idx_code])).zfill(6)
+        name = str(row[idx_name] or '').strip()
+        if code and name:
+            result.append((code, name))
+    wb.close()
+    return result
+
+
+def _fetch_sse_etf():
+    """上交所 ETF 列表，返回 [(code, name)]"""
+    import requests
+
+    url = 'https://query.sse.com.cn/commonQuery.do'
+    headers = {**BROWSER_HEADERS, 'Referer': 'https://www.sse.com.cn/'}
+    latest = _latest_possible_trading_day()
+    stat_date = f"{latest[:4]}-{latest[4:6]}-{latest[6:]}"
+    params = {
+        'isPagination': 'true',
+        'pageHelp.pageSize': '10000',
+        'pageHelp.pageNo': '1',
+        'pageHelp.beginPage': '1',
+        'pageHelp.endPage': '1',
+        'pageHelp.cacheSize': '1',
+        'sqlId': 'COMMON_SSE_ZQPZ_ETFZL_XXPL_ETFGM_SEARCH_L',
+        'STAT_DATE': stat_date,
+    }
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=15)
+        rows = r.json().get('result') or []
+    except Exception as e:
+        print(f"[sync] 上交所 ETF 列表拉取失败: {e}")
+        return []
+    return [(str(row.get('SEC_CODE') or '').zfill(6), str(row.get('SEC_NAME') or '').strip())
+            for row in rows if row.get('SEC_CODE') and row.get('SEC_NAME')]
+
+
+def _fetch_szse_etf():
+    """深交所 ETF 列表，返回 [(code, name)]"""
+    import requests
+    import io
+    import openpyxl
+
+    url = 'https://fund.szse.cn/api/report/ShowReport'
+    headers = {**BROWSER_HEADERS, 'Referer': 'https://fund.szse.cn/marketdata/fundslist/index.html'}
+    params = {'SHOWTYPE': 'xlsx', 'CATALOGID': '1000_lf', 'TABKEY': 'tab1', 'random': '0.07610353191740105'}
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=20)
+        wb = openpyxl.load_workbook(io.BytesIO(r.content))
+    except Exception as e:
+        print(f"[sync] 深交所 ETF 列表拉取失败: {e}")
+        return []
+    ws = wb.active
+    it = ws.iter_rows(values_only=True)
+    header = list(next(it))
+    idx_code = header.index('基金代码')
+    idx_name = header.index('基金简称')
+    idx_cat = header.index('基金类别')
+    result = []
+    for row in it:
+        if str(row[idx_cat] or '').strip() != 'ETF':
+            continue
+        code = str(int(row[idx_code])).zfill(6)
+        name = str(row[idx_name] or '').strip()
+        if code and name:
+            result.append((code, name))
+    wb.close()
+    return result
+
+
+def _fetch_a_share_list():
+    """A股全量列表（上交所+深交所 股票 + ETF），返回 [(code, name)]；取消时返回 None"""
+    print("[sync] 拉取 A股 列表（交易所官方）...")
+    rows = []
+    for fetch in (_fetch_sse_stocks, _fetch_szse_stocks, _fetch_sse_etf, _fetch_szse_etf):
+        if _sync_status.get('cancel'):
+            print("[sync] 拉取 A股 列表被终止")
+            return None
+        rows.extend(fetch())
+    return rows
+
+
+def _fetch_hk_stocks():
+    """港股列表（东财 clist），返回 [(code, name)]；取消时返回 None"""
     import requests
     import time as _time
 
-    seg = SEGMENTS[seg_key]
-    label = seg['label']
-
-    if seg_key == 'us_main':
-        return _fetch_us_stocks()
-
+    label = '港股'
     url = 'https://push2delay.eastmoney.com/api/qt/clist/get'
-    headers = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/'}
-
-    is_overseas = seg_key == 'hk_main'
-    if seg_key in ('hs_main', 'gem', 'star'):
-        fs_filter = 'm:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23'
-    elif seg_key in ('hs_etf',):
-        fs_filter = 'b:MK0021,b:MK0022,b:MK0023,b:MK0024'
-    elif is_overseas:
-        fs_filter = seg['fs']
-    else:
-        print(f"[sync] {label} 暂不支持（API 无此市场数据）")
-        return []
-
+    headers = {**BROWSER_HEADERS, 'Referer': 'https://data.eastmoney.com/'}
+    fs_filter = SEGMENTS['hk_main']['fs']
     all_rows = []
-    filtered_by_cap = 0
     page = 1
     print(f"[sync] 拉取 {label} 列表...")
     while True:
@@ -153,10 +280,8 @@ def _fetch_stocks_by_segment(seg_key):
             try:
                 r = requests.get(url, params={
                     'pn': page, 'pz': 1000, 'po': 1, 'np': 1,
-                    'fltt': 2, 'invt': 2,
-                    'fid': 'f12',
-                    'fs': fs_filter,
-                    'fields': 'f2,f12,f14,f20',
+                    'fltt': 2, 'invt': 2, 'fid': 'f12',
+                    'fs': fs_filter, 'fields': 'f2,f12,f14',
                     'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
                 }, headers=headers, timeout=15)
                 break
@@ -170,50 +295,40 @@ def _fetch_stocks_by_segment(seg_key):
         items = diff.values() if isinstance(diff, dict) else (diff if isinstance(diff, list) else [])
         if not items:
             break
-        total_count = data.get('total', 0)
-        if is_overseas and total_count:
-            print(f"\r[sync] {label} 第{page}页: +{len(items)} 只 (API总量 {total_count})", end='', flush=True)
         for row in items:
-            code = str(row.get('f12', ''))
+            code = str(row.get('f12', '')).strip().lstrip('0') or str(row.get('f12', '')).strip()
+            code = code.zfill(4)
             name = str(row.get('f14', ''))
             price = row.get('f2')
             if price is None or price == '-' or str(price).strip() == '':
                 continue
-            if is_overseas:
-                code = code.strip().lstrip('0') or code.strip()
-                code = code.zfill(4)
-                if not code.isdigit():
-                    continue
-            else:
-                code = code.zfill(6)
-                if len(code) != 6 or not code.isdigit():
-                    continue
-                seg_chk = _code_to_segment(code)
-                if seg_chk != seg_key:
-                    continue
-                if seg_key in ('hs_etf',):
-                    if not any(code.startswith(p) for p in SEGMENTS[seg_key]['prefix']):
-                        continue
-                    # 过滤市值小于10亿的ETF
-                    try:
-                        cap = row.get('f20')
-                        if cap is None or cap == '-' or str(cap).strip() == '':
-                            filtered_by_cap += 1
-                            continue
-                        if float(cap) < 1_000_000_000:
-                            filtered_by_cap += 1
-                            continue
-                    except (ValueError, TypeError):
-                        filtered_by_cap += 1
-                        continue
+            if not code.isdigit():
+                continue
             all_rows.append((code, name))
         page += 1
         _time.sleep(0.1)
-    if filtered_by_cap > 0 and seg_key == 'hs_etf':
-        print(f"[sync] {label}: {len(all_rows)} 只 (过滤掉市值<10亿: {filtered_by_cap} 只)")
-    else:
-        print(f"[sync] {label}: {len(all_rows)} 只")
+    print(f"[sync] {label}: {len(all_rows)} 只")
     return all_rows
+
+
+def _fetch_stocks_by_segment(seg_key):
+    """只拉取指定分段的市场股票列表"""
+    seg = SEGMENTS[seg_key]
+    label = seg['label']
+
+    if seg_key == 'us_main':
+        return _fetch_us_stocks()
+
+    if seg_key == 'hk_main':
+        return _fetch_hk_stocks()
+
+    # A 股市场（hs_main/gem/star/hs_etf）：交易所官方列表，按代码前缀分流
+    all_rows = _fetch_a_share_list()
+    if all_rows is None:
+        return None
+    result = [(code, name) for code, name in all_rows if _code_to_segment(code) == seg_key]
+    print(f"[sync] {label}: {len(result)} 只")
+    return result
 
 
 # =========== K 线获取 ===========

@@ -349,22 +349,22 @@ CREATE INDEX idx_stock_review_user ON stock_review(user_id, trade_date DESC);
 
 ### 市场分段定义
 
-| key | label | 代码前缀 / 来源 |
+| key | label | 代码前缀 / 列表来源 |
 |-----|-------|---------|
-| hs_main | 沪深A | 600/601/603/605/000/001/002/003 |
-| gem | 创业板 | 300/301 |
-| star | 科创板 | 688 |
-| hs_etf | 沪深ETF | 5/159/16/18 |
+| hs_main | 沪深A | 600/601/603/605/000/001/002/003（上交所主板 + 深交所主板） |
+| gem | 创业板 | 300/301/302（深交所） |
+| star | 科创板 | 688/689（上交所） |
+| hs_etf | 沪深ETF | 5/158/159/16/18（上交所 + 深交所） |
 | hk_main | 港股 | 东方财富 API |
-| us_main | 美股 | 东方财富 API |
+| us_main | 美股 | NASDAQ 官方 screener API |
 
-> 北交所（40/43/83/87/92 开头）股票列表引自东方财富，K线数据使用新浪财经 API。
+> A 股（hs_main/gem/star/hs_etf）股票列表引自上交所/深交所官网，港股列表引自东方财富，美股列表引自 NASDAQ 官方 screener API。
 
 ## K 线数据源
 
 | 市场 | 股票列表 | 日/周/月K线 | 分钟K线 |
 |------|---------|------------|---------|
-| A 股主板 | 东方财富 push2delay | 同花顺 d.10jqka.com.cn（前复权，含成交额/换手率） | 1min→东财，5/15/30/60min→新浪，120min→新浪60min合成 |
+| A 股主板 | 上交所/深交所官网 | 同花顺 d.10jqka.com.cn（前复权，含成交额/换手率） | 1min→东财，5/15/30/60min→新浪，120min→新浪60min合成 |
 | 北交所 | 东方财富 push2delay | 新浪财经 | — |
 | 债券 | — | 新浪财经 | — |
 | 港股 | 东方财富 push2delay | stock_lib.db 本地缓存 + Yahoo Finance 兜底 | Yahoo Finance |
@@ -379,7 +379,7 @@ CREATE INDEX idx_stock_review_user ON stock_review(user_id, trade_date DESC);
 ```
 init_segment(seg_key)
     ↓
-拉取完整股票列表（分页）
+拉取完整股票列表（A股走交易所官方，港股/美股分页）
     ↓
 stock_list_replace_market()   → 全量替换写入
     ↓
@@ -632,7 +632,7 @@ cd back_end
 | 1分钟K线 | `push2delay.eastmoney.com/api/qt/stock/kline/get` |
 | 逐笔成交明细 | `push2delay.eastmoney.com/api/qt/stock/details/get` |
 | 主力资金净流入分时 | `push2delay.eastmoney.com/api/qt/stock/fflow/kline/get` |
-| 股票列表/板块排行/成分股 | `push2delay.eastmoney.com/api/qt/clist/get` |
+| 港股股票列表/板块排行/成分股 | `push2delay.eastmoney.com/api/qt/clist/get` |
 | 股票搜索 | `searchapi.eastmoney.com/api/suggest/get` |
 | 商誉率 | `emweb.securities.eastmoney.com/PC_HSF10/FinanceAnalysis/` |
 | 质押率 + 业绩数据 | `datacenter-web.eastmoney.com/api/data/v1/get` |
@@ -640,6 +640,15 @@ cd back_end
 | 主营构成 | `emweb.securities.eastmoney.com/PC_HSF10/BusinessAnalysis/PageAjax` |
 | 公司公告 | `np-anotice-stock.eastmoney.com/api/security/ann` |
 | 全球财经资讯 | akshare → `stock_info_global_em()` |
+
+### 交易所官方
+
+| 数据 | 接口 |
+|------|------|
+| A 股股票列表（主板/科创板，上交所） | `query.sse.com.cn/sseQuery/commonQuery.do` |
+| A 股股票列表（主板/创业板，深交所） | `szse.cn/api/report/ShowReport`（xlsx） |
+| ETF 列表（上交所） | `query.sse.com.cn/commonQuery.do` |
+| ETF 列表（深交所） | `fund.szse.cn/api/report/ShowReport`（xlsx） |
 
 ### 同花顺
 
@@ -723,5 +732,6 @@ xgboost>=2.0.0
 joblib>=1.3.0
 chinese_calendar
 akshare
+openpyxl>=3.1.0
 psutil          # 打包时自动检测，非运行时必需
 ```
