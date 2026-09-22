@@ -105,7 +105,7 @@ def _is_cache_from_today(cached_row, today_str):
 # 快任务（主要指数）与慢任务（涨跌家数/分时/资金流/成交额/两融/收盘价）各自维护
 # 一个"下次更新时间戳"：初始化时均设为 now + 间隔，每次执行完再推进为 now + 间隔。
 
-_FAST_UPDATE_INTERVAL = 5    # 快任务更新间隔（秒）
+_FAST_UPDATE_INTERVAL = 60   # 快任务更新间隔（秒，与慢任务一致，指数行情无需秒级刷新）
 _SLOW_UPDATE_INTERVAL = 60   # 慢任务更新间隔（秒）
 
 _next_fast_update_ts = 0.0   # 下次快任务更新时间戳
