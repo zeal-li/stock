@@ -116,12 +116,23 @@ function loadSelfReviewByDate(date) {
         '正在加载复盘数据，请稍候...', true, renderSelfReview);
 }
 
-function renderSelfReview(d) {
+// 两个页签共用 #srMeta 显示更新时间，各自缓存最近一次渲染的 meta，
+// 切换页签时恢复（否则切到自选复盘后再切回来，显示的还是自选复盘的时间）
+var _srMetaCache = { market: '', stock: '' };
+
+function _srRenderMeta(d, tab, withStatus) {
     var metaEl = document.getElementById('srMeta');
-    if (metaEl) {
-        var dayText = d.day ? '复盘交易日 <span style="color:#fbbf24;">' + d.day + '</span> · ' : '';
-        metaEl.innerHTML = dayText + '更新于 <span style="color:#ccc;">' + d.update_time + '</span> · 市场状态：<span style="color:#ccc;">' + d.market_status + '</span>';
+    var dayText = d.day ? '复盘交易日 <span style="color:#fbbf24;">' + d.day + '</span> · ' : '';
+    var html = dayText + '更新于 <span style="color:#ccc;">' + d.update_time + '</span>';
+    if (withStatus) {
+        html += ' · 市场状态：<span style="color:#ccc;">' + d.market_status + '</span>';
     }
+    _srMetaCache[tab] = html;
+    if (metaEl) metaEl.innerHTML = html;
+}
+
+function renderSelfReview(d) {
+    _srRenderMeta(d, 'market', true);
     var html = '';
     html += _srPlan(d.plan);
     html += _srIntraday(d.minute, d.turnover, d.open_hour);
@@ -470,6 +481,9 @@ function switchReviewTab(tab) {
     if (dateBar) dateBar.style.display = tab === 'market' ? 'flex' : 'none';
     var stockDateBar = document.getElementById('srStockDateBar');
     if (stockDateBar) stockDateBar.style.display = tab === 'stock' ? 'flex' : 'none';
+    // 恢复当前页签的 meta（更新时间）：两个页签共用 #srMeta，切换时换回各自的时间
+    var metaEl = document.getElementById('srMeta');
+    if (metaEl) metaEl.innerHTML = _srMetaCache[tab] || '';
     if (tab === 'stock' && !stockReviewLoaded) {
         loadStockReview(false);
     }
@@ -541,11 +555,7 @@ function loadStockReviewByDate(date) {
 }
 
 function renderStockReview(d) {
-    var metaEl = document.getElementById('srMeta');
-    if (metaEl) {
-        var dayText = d.day ? '复盘交易日 <span style="color:#fbbf24;">' + d.day + '</span> · ' : '';
-        metaEl.innerHTML = dayText + '更新于 <span style="color:#ccc;">' + d.update_time + '</span>';
-    }
+    _srRenderMeta(d, 'stock', false);
     var html = '';
     html += _srStockSummary(d.summary);
     var groups = d.groups || {};

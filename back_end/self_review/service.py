@@ -1696,7 +1696,8 @@ def _run_auto_review():
         if r.get('success'):
             d = r['data']
             save_market_review(today_str, d, d.get('market_status'))
-            print(f'[self-review] 自动大盘复盘完成: {today_str}')
+            done_at = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            print(f'[self-review] 自动大盘复盘完成: {today_str}（执行时间 {done_at}）')
         else:
             print(f'[self-review] 自动大盘复盘失败: {r.get("error")}')
     except Exception as e:

@@ -307,15 +307,16 @@ def _run_auto_update():
     """每日 17:00 自动拉取当日龙虎榜。非交易日直接 return。"""
     today = datetime.date.today()
     if not is_a_share_trading_day(today):
-        print(f'[longhu] 17:00 自动拉取跳过: {today} 非A股交易日')
+        print(f'[longhu] 自动拉取跳过: {today} 非A股交易日')
         return
     today_str = today.strftime('%Y-%m-%d')
     # 单一数据源链路：DB 缓存命中即返回；未命中则爬取并入库。
     result = get_longhu_bang(today_str)
+    done_at = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if result.get('success'):
-        print(f'[longhu] 17:00 自动拉取完成: {today_str}')
+        print(f'[longhu] 自动拉取完成: {today_str}（执行时间 {done_at}）')
     else:
-        print(f'[longhu] 17:00 自动拉取失败: {today_str} - {result.get("error")}')
+        print(f'[longhu] 自动拉取失败: {today_str} - {result.get("error")}（执行时间 {done_at}）')
 
 
 def check_longhu_bang_update():
