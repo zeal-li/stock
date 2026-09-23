@@ -47,3 +47,14 @@ def make_http_session():
 
 # 全局共享 Session：行情/资金流等高频轮询接口复用，避免频繁握手
 HTTP_SESSION = make_http_session()
+
+
+def warmup_eastmoney_session():
+    """预热东财共享 Session：先访问一次东财页面，让 Session 获取并保存 Cookie。
+    之后所有行情/资金流请求会自动携带该 Cookie，更接近真实浏览器访问特征，
+    降低被风控识别的概率。连接层预热失败仅记录日志，不影响后续请求（各接口
+    仍各自带 User-Agent/Referer，Cookie 只是增强伪装）。"""
+    try:
+        HTTP_SESSION.get('https://quote.eastmoney.com/', timeout=10)
+    except Exception as e:
+        print(f'[warmup] 东财 Cookie 预热失败: {e}')

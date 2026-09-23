@@ -207,6 +207,8 @@ def init_money_flow_update():
     3) 返回检测函数供公共秒级调度器注册。"""
     global _next_major_ts, _next_breadth_ts, _next_sh_minute_ts
     global _next_fund_flow_ts, _next_turnover_ts, _next_daily_ts
+    from common import warmup_eastmoney_session
+    warmup_eastmoney_session()
     _full_fetch_if_stale()
     now = time.time()
     _next_major_ts = now + _rand_interval()
