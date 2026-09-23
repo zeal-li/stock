@@ -5,7 +5,7 @@ import requests
 import json
 import re
 
-from common import REQUEST_PROXIES
+from common import REQUEST_PROXIES, HTTP_SESSION
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market, \
     is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX, to_em_market, \
     is_a_share_trading_day
@@ -570,7 +570,7 @@ def stock_quotes():
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Referer': 'https://data.eastmoney.com/',
         }
-        r = requests.get(url, params=params, headers=headers, timeout=8, proxies=REQUEST_PROXIES)
+        r = HTTP_SESSION.get(url, params=params, headers=headers, timeout=8)
         diff = (r.json().get('data') or {}).get('diff') or []
         result = {}
         # 收集所有 ETF 代码，用于批量获取溢价率

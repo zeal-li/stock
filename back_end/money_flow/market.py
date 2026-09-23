@@ -2,7 +2,7 @@
 import datetime
 import time
 import requests
-from common import REQUEST_PROXIES
+from common import REQUEST_PROXIES, HTTP_SESSION
 from money_flow.storage import db_set, db_get, db_has, _EM_HEADERS, _EM_UT, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY, _DAILY_CLOSES_KEY
 
 
@@ -16,7 +16,7 @@ def _fetch_and_cache_major_indices():
             'secids': '1.000001,0.399001',
             'ut': _EM_UT,
         }
-        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=8, proxies=REQUEST_PROXIES)
+        r = HTTP_SESSION.get(url, params=params, headers=_EM_HEADERS, timeout=8)
         diff = (r.json().get('data') or {}).get('diff') or []
         if diff:
             data = []
@@ -46,7 +46,7 @@ def _fetch_and_cache_breadth():
     try:
         url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
         params = {'fltt': 2, 'invt': 2, 'fields': 'f104,f105', 'secids': '1.000001,0.399001', 'ut': _EM_UT}
-        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=8, proxies=REQUEST_PROXIES)
+        r = HTTP_SESSION.get(url, params=params, headers=_EM_HEADERS, timeout=8)
         diff = (r.json().get('data') or {}).get('diff') or []
         rise = sum(int(row.get('f104', 0)) for row in diff)
         fall = sum(int(row.get('f105', 0)) for row in diff)
@@ -62,7 +62,7 @@ def _fetch_and_cache_sh_minute():
     try:
         url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get?secid=1.000001&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13&fields2=f51,f52,f53,f54,f55,f56,f57,f58&ndays=1"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': '*/*', 'Referer': 'https://www.eastmoney.com/'}
-        r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        r = HTTP_SESSION.get(url, headers=headers, timeout=10)
         data = r.json()
         if data.get('rc') == 0 and data.get('data'):
             sd = data['data']
@@ -105,10 +105,10 @@ def _fetch_and_cache_daily_closes():
         result = {}
         for symbol in ['sh000001', 'sz399001']:
             param_val = f"{symbol},day,,,30,qfq"
-            r = requests.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+            r = HTTP_SESSION.get("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
                 params={'param': param_val},
                 headers=BROWSER_HEADERS,
-                timeout=10, proxies=REQUEST_PROXIES,
+                timeout=10,
             )
             jd = r.json()
             jd_data = (jd.get('data') or {}).get(symbol, {})

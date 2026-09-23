@@ -2,7 +2,7 @@
 import datetime
 import time
 import requests
-from common import REQUEST_PROXIES
+from common import REQUEST_PROXIES, HTTP_SESSION
 from money_flow.storage import db_set, db_get, _FUND_FLOW_KEY
 
 
@@ -23,7 +23,7 @@ def _fetch_and_cache_fund_flow():
         def _fetch(secid):
             p = dict(base_params)
             p['secid'] = secid
-            r = requests.get(url, params=p, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+            r = HTTP_SESSION.get(url, params=p, headers=headers, timeout=10)
             klines = (r.json().get('data') or {}).get('klines') or []
             result = {}
             for k in klines:

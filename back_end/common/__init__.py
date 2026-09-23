@@ -1,5 +1,7 @@
 """共享配置和工具"""
 import os
+import requests as _requests
+from requests.adapters import HTTPAdapter
 
 # 禁用系统代理
 os.environ['no_proxy'] = '*'
@@ -28,3 +30,20 @@ BROWSER_HEADERS = {
     'Sec-Ch-Ua-Mobile': '?0',
     'Sec-Ch-Ua-Platform': '"Windows"',
 }
+
+
+def make_http_session():
+    """创建一个复用 TCP 连接的 Session（keep-alive 连接池）。
+
+    避免每次请求都新建连接、短时间高频裸连被远端风控掐断。
+    """
+    s = _requests.Session()
+    s.proxies = REQUEST_PROXIES
+    adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=0)
+    s.mount('http://', adapter)
+    s.mount('https://', adapter)
+    return s
+
+
+# 全局共享 Session：行情/资金流等高频轮询接口复用，避免频繁握手
+HTTP_SESSION = make_http_session()

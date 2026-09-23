@@ -2,7 +2,7 @@
 import datetime
 import time
 import requests
-from common import REQUEST_PROXIES
+from common import REQUEST_PROXIES, HTTP_SESSION
 from money_flow.storage import db_set, _TURNOVER_MINUTE_KEY
 
 
@@ -15,7 +15,7 @@ def _fetch_and_cache_turnover():
             'Referer': 'https://www.10jqka.com.cn/',
             'Accept': 'application/json, text/plain, */*',
         }
-        r = requests.get(url, headers=headers, timeout=10, proxies=REQUEST_PROXIES)
+        r = HTTP_SESSION.get(url, headers=headers, timeout=10)
         data = r.json()
         if data.get('status_code') != 0:
             return False
