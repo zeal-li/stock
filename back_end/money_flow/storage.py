@@ -2,6 +2,7 @@
 import datetime
 import json
 import os
+import random
 import sqlite3
 import time
 from common import REQUEST_PROXIES
@@ -100,16 +101,34 @@ def _is_cache_from_today(cached_row, today_str):
 
 
 # =========== 资金流/指数行情更新（接入公共秒级调度器，不再单独开线程） ===========
-# 由 app.py 的公共秒级调度器每秒调用一次。初始化逻辑（当日数据全量补齐）单独在
-# init_money_flow_update 中执行一次，检测函数内不再做任何"首次"判断。
-# 快任务（主要指数）与慢任务（涨跌家数/分时/资金流/成交额/两融/收盘价）各自维护
-# 一个"下次更新时间戳"：初始化时均设为 now + 间隔，每次执行完再推进为 now + 间隔。
+# 由 app.py 的公共秒级调度器每秒调用一次 check_money_flow_update。
+# 不区分快/慢任务：每个 poller 各自维护一个"下次更新时间戳"，到点即执行，
+# 并把时间戳推进为 now + 随机间隔（45~75s），错峰避免多个东财请求同一秒突发。
 
-_FAST_UPDATE_INTERVAL = 60   # 快任务更新间隔（秒，与慢任务一致，指数行情无需秒级刷新）
-_SLOW_UPDATE_INTERVAL = 60   # 慢任务更新间隔（秒）
+_QUOTE_MIN_INTERVAL = 45   # 行情 poller 最小间隔（秒）
+_QUOTE_MAX_INTERVAL = 75   # 行情 poller 最大间隔（秒）
 
-_next_fast_update_ts = 0.0   # 下次快任务更新时间戳
-_next_slow_update_ts = 0.0   # 下次慢任务更新时间戳
+
+def _rand_interval():
+    return random.uniform(_QUOTE_MIN_INTERVAL, _QUOTE_MAX_INTERVAL)
+
+
+def _next_daily_run_ts():
+    """返回下一个凌晨 00:30 的时间戳，每日任务每天只在该点触发一次。"""
+    now = datetime.datetime.now()
+    target = now.replace(hour=0, minute=30, second=0, microsecond=0)
+    if target <= now:
+        target += datetime.timedelta(days=1)
+    return target.timestamp()
+
+
+# 各 poller 的下次执行时间戳
+_next_major_ts = 0.0      # 主要指数
+_next_breadth_ts = 0.0    # 涨跌家数
+_next_sh_minute_ts = 0.0  # 上证分时
+_next_fund_flow_ts = 0.0  # 资金流
+_next_turnover_ts = 0.0   # 成交额
+_next_daily_ts = 0.0      # 每日任务检查
 
 
 def _full_fetch_if_stale():
@@ -131,55 +150,69 @@ def _full_fetch_if_stale():
     _fetch_and_cache_daily_closes()
 
 
-def check_money_flow_update():
-    """资金流/指数行情更新检测：由公共秒级调度器每秒调用一次。
-    仅交易时段内工作；快/慢任务各自按下次更新时间戳判断是否执行，
-    到点即执行并把对应时间戳推进为 now + 间隔。"""
-    global _next_fast_update_ts, _next_slow_update_ts
-    now = time.time()
-    if not is_a_trading_time():
-        return
-    if now >= _next_fast_update_ts:
-        _next_fast_update_ts = now + _FAST_UPDATE_INTERVAL
-        _fast_refresh()
-    if now >= _next_slow_update_ts:
-        _next_slow_update_ts = now + _SLOW_UPDATE_INTERVAL
-        _slow_refresh()
-
-
-def _fast_refresh():
-    """快任务：仅更新主要指数行情"""
-    from money_flow.market import _fetch_and_cache_major_indices
-    _fetch_and_cache_major_indices()
-
-
-def _slow_refresh():
-    """慢任务：涨跌家数/上证分时/资金流/成交额，以及每日一次的融资融券与收盘价"""
-    from money_flow.market import _fetch_and_cache_breadth, _fetch_and_cache_sh_minute, _fetch_and_cache_daily_closes
-    from money_flow.fund_flow import _fetch_and_cache_fund_flow
-    from money_flow.turnover import _fetch_and_cache_turnover
+def _daily_once():
+    """每日任务：融资融券与指数日K收盘价（仅当日缓存缺失时抓取）"""
     from money_flow.margin import _fetch_and_cache_margin
-    _fetch_and_cache_breadth()
-    _fetch_and_cache_sh_minute()
-    _fetch_and_cache_fund_flow()
-    _fetch_and_cache_turnover()
-    _today_str = datetime.date.today().strftime('%Y-%m-%d')
+    from money_flow.market import _fetch_and_cache_daily_closes
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
     cached_margin = db_get(_MARGIN_KEY)
-    if not cached_margin or cached_margin[1] != _today_str:
+    if not cached_margin or cached_margin[1] != today_str:
         _fetch_and_cache_margin()
     cached_closes = db_get(_DAILY_CLOSES_KEY)
-    if not cached_closes or cached_closes[1] != _today_str:
+    if not cached_closes or cached_closes[1] != today_str:
         _fetch_and_cache_daily_closes()
+
+
+def check_money_flow_update():
+    """资金流/指数行情更新检测：由公共秒级调度器每秒调用一次。
+    仅交易时段内工作；各 poller 按自己的下次更新时间戳独立判断是否执行，
+    到点即执行并把时间戳推进为 now + 随机间隔（错峰，避免同秒突发）。"""
+    global _next_major_ts, _next_breadth_ts, _next_sh_minute_ts
+    global _next_fund_flow_ts, _next_turnover_ts, _next_daily_ts
+    now = time.time()
+
+    # 每日任务独立于交易时段判断：到点(00:30)执行一次，随后推进到下一天 00:30
+    if now >= _next_daily_ts:
+        _next_daily_ts = _next_daily_run_ts()
+        _daily_once()
+
+    if not is_a_trading_time():
+        return
+    if now >= _next_major_ts:
+        _next_major_ts = now + _rand_interval()
+        from money_flow.market import _fetch_and_cache_major_indices
+        _fetch_and_cache_major_indices()
+    if now >= _next_breadth_ts:
+        _next_breadth_ts = now + _rand_interval()
+        from money_flow.market import _fetch_and_cache_breadth
+        _fetch_and_cache_breadth()
+    if now >= _next_sh_minute_ts:
+        _next_sh_minute_ts = now + _rand_interval()
+        from money_flow.market import _fetch_and_cache_sh_minute
+        _fetch_and_cache_sh_minute()
+    if now >= _next_fund_flow_ts:
+        _next_fund_flow_ts = now + _rand_interval()
+        from money_flow.fund_flow import _fetch_and_cache_fund_flow
+        _fetch_and_cache_fund_flow()
+    if now >= _next_turnover_ts:
+        _next_turnover_ts = now + _rand_interval()
+        from money_flow.turnover import _fetch_and_cache_turnover
+        _fetch_and_cache_turnover()
 
 
 def init_money_flow_update():
     """初始化资金流/指数行情更新（由 app.py 启动时调用）：
     1) 先执行启动初始化：当日数据缺失则全量抓取一轮；
-    2) 再把快/慢任务的下次更新时间戳均设为 now + 间隔；
+    2) 为各 poller 设置随机错峰的"下次更新时间戳"；
     3) 返回检测函数供公共秒级调度器注册。"""
-    global _next_fast_update_ts, _next_slow_update_ts
+    global _next_major_ts, _next_breadth_ts, _next_sh_minute_ts
+    global _next_fund_flow_ts, _next_turnover_ts, _next_daily_ts
     _full_fetch_if_stale()
     now = time.time()
-    _next_fast_update_ts = now + _FAST_UPDATE_INTERVAL
-    _next_slow_update_ts = now + _SLOW_UPDATE_INTERVAL
+    _next_major_ts = now + _rand_interval()
+    _next_breadth_ts = now + _rand_interval()
+    _next_sh_minute_ts = now + _rand_interval()
+    _next_fund_flow_ts = now + _rand_interval()
+    _next_turnover_ts = now + _rand_interval()
+    _next_daily_ts = 0  # 启动后第一次 tick 立即触发 _daily_once，确保当日数据缺失时能立刻补抓
     return check_money_flow_update
