@@ -272,17 +272,15 @@ def get_longhu_bang(trade_date: str = None):
     return {"success": True, "data": data}
 
 
-# =========== 每日 17:00 自动拉取当日龙虎榜 + 每日跨天清理（定时检测） ===========
-# 17:00 自动拉取：交易日 17:00 自动请求一次当日龙虎榜数据，非交易日直接跳过；
+# =========== 每日 17:00 定时任务：先清理旧数据，再自动拉取当日龙虎榜 ===========
+# 17:00 触发时：先执行清理（删除 3 个月前的数据），再自动拉取当日龙虎榜数据。
+#   自动拉取仅交易日执行，非交易日跳过；清理每天 17:00 都执行（与是否交易日无关）。
 #   复用 get_longhu_bang 单一链路（DB 缓存 → 缺失则爬取并入库），不另开数据源。
-# 跨天清理：每天跨天（00:00 之后）执行一次：删除 3 个月前的龙虎榜数据。
-# 实现方式：维护各自的"下一次执行时刻"，启动时初始化；调度器每秒检测，
+# 实现方式：维护"下一次执行时刻"，启动时初始化；调度器每秒检测，
 # 越过该时刻就执行一次并把下一次执行时刻推进，如此每天一次。
 
-_AUTO_UPDATE_TIME = (17, 0)      # 17:00 自动拉取触发时刻（时, 分）
-_AUTO_CLEANUP_TIME = (0, 0)      # 跨天清理触发时刻（时, 分）——每日 00:00
-_auto_next_update = None         # 下一次应执行 17:00 自动拉取的 datetime
-_auto_next_cleanup = None        # 下一次应执行清理的 datetime
+_AUTO_UPDATE_TIME = (17, 0)      # 17:00 触发时刻（时, 分）
+_auto_next_update = None         # 下一次应执行 17:00 任务的 datetime
 
 
 def _next_update_time(base):
@@ -294,13 +292,6 @@ def _next_update_time(base):
             hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
             second=0, microsecond=0)
     return cand
-
-
-def _next_cleanup_time(base):
-    """返回 base 下一天的 00:00（每日跨天清理应执行的时刻）"""
-    nxt = base + datetime.timedelta(days=1)
-    return nxt.replace(
-        hour=_AUTO_CLEANUP_TIME[0], minute=_AUTO_CLEANUP_TIME[1], second=0, microsecond=0)
 
 
 def _run_auto_update():
@@ -320,31 +311,25 @@ def _run_auto_update():
 
 
 def check_longhu_bang_update():
-    """龙虎榜定时检测：每秒检查 17:00 自动拉取与跨天清理两个时间戳，到点各自执行并推进。
+    """龙虎榜定时检测：每秒检查 17:00 触发时刻，到点先清理旧数据、再自动拉取，然后推进。
     由 app.py 的公共秒级调度器每秒调用一次。"""
-    global _auto_next_update, _auto_next_cleanup
+    global _auto_next_update
     now = datetime.datetime.now()
     if now >= _auto_next_update:
         # 以当前时间（而非原计划时刻）为基准推下一次 17:00：
         # 即使某次因故迟醒跨越了多个执行点，也只会补跑一次，不会连环补跑
         _auto_next_update = _next_update_time(now)
-        _run_auto_update()
-    if now >= _auto_next_cleanup:
-        # 以当前时间（而非原计划时刻）为基准推次日 00:00
-        _auto_next_cleanup = _next_cleanup_time(now)
-        cleanup_old_data()
+        cleanup_old_data()   # 先清理 3 个月前旧数据（每天 17:00 执行，与是否交易日无关）
+        _run_auto_update()   # 再自动拉取当日龙虎榜（仅交易日）
 
 
 def init_longhu_bang_update():
-    """初始化 17:00 自动拉取 + 每日跨天清理两个触发时刻，返回合并后的检测函数供公共调度器注册（由 app.py 启动时调用）。
+    """初始化 17:00 定时任务触发时刻，返回检测函数供公共调度器注册（由 app.py 启动时调用）。
 
-    17:00 自动拉取下次时刻：今天 17:00（若已过则次日 17:00）
-    跨天清理下次时刻：次日 00:00（启动当天不触发）
+    17:00 任务下次时刻：今天 17:00（若已过则次日 17:00）
     """
-    global _auto_next_update, _auto_next_cleanup
+    global _auto_next_update
     now = datetime.datetime.now()
     _auto_next_update = _next_update_time(now)
-    _auto_next_cleanup = _next_cleanup_time(now)
-    print(f"[longhu] 龙虎榜定时任务已初始化（17:00 自动拉取下次: {_auto_next_update:%Y-%m-%d %H:%M}, "
-          f"跨天清理下次: {_auto_next_cleanup:%Y-%m-%d %H:%M}）")
+    print(f"[longhu] 龙虎榜定时任务已初始化（17:00 自动拉取下次: {_auto_next_update:%Y-%m-%d %H:%M}）")
     return check_longhu_bang_update

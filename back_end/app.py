@@ -2100,7 +2100,7 @@ def _scheduler_loop():
 def start_scheduler():
     """启动公共秒级调度器守护线程，并注册所有内置定时检测"""
     register_scheduler_check(init_market_db_update())  # K线库每日自动更新检测
-    register_scheduler_check(init_longhu_bang_update())      # 龙虎榜库每日跨天清理检测
+    register_scheduler_check(init_longhu_bang_update())      # 龙虎榜每日 17:00 清理+自动拉取
     register_scheduler_check(init_money_flow_update())    # 资金流/指数行情轮询检测
     register_scheduler_check(init_self_review_update())   # 自助复盘每日自动复盘
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
