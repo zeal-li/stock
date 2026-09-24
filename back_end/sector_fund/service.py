@@ -3,9 +3,8 @@
 import re
 import time
 import json
-import requests
 from bs4 import BeautifulSoup
-from common import REQUEST_PROXIES
+from common import HTTP_SESSION
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_a_share, is_hk, is_us
 from money_flow.storage import _EM_HEADERS, _EM_UT
 from sector_fund.storage import cache_get, cache_set
@@ -59,7 +58,7 @@ def _request_top(fs: str, period: str, po: str) -> list:
         "fields": _FIELDS,
         "ut": _EM_UT,
     }
-    r = requests.get(_API_URL, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+    r = HTTP_SESSION.get(_API_URL, params=params, headers=_EM_HEADERS, timeout=10)
     data = r.json()
     if not data.get("data") or not data["data"].get("diff"):
         return []
@@ -160,7 +159,7 @@ def get_sector_stocks(sector_code: str) -> dict:
         "fields": _STOCK_FIELDS,
         "ut": _EM_UT,
     }
-    r = requests.get(_API_URL, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+    r = HTTP_SESSION.get(_API_URL, params=params, headers=_EM_HEADERS, timeout=10)
     data = r.json()
     if not data.get("data") or not data["data"].get("diff"):
         return {"success": True, "stocks": [], "total": 0}
@@ -210,10 +209,10 @@ def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> li
         "month": "",
         "rt": "0.5",
     }
-    r = requests.get("https://fundf10.eastmoney.com/FundArchivesDatas.aspx",
-                      params=params,
-                      headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fund.eastmoney.com/"},
-                      timeout=15, proxies=REQUEST_PROXIES)
+    r = HTTP_SESSION.get("https://fundf10.eastmoney.com/FundArchivesDatas.aspx",
+                         params=params,
+                         headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fund.eastmoney.com/"},
+                         timeout=15)
     if r.status_code != 200:
         return []
 
@@ -327,7 +326,7 @@ def get_etf_stocks(code: str, market: str) -> dict:
             "secids": secids,
             "ut": _EM_UT,
         }
-        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
+        r = HTTP_SESSION.get(url, params=params, headers=_EM_HEADERS, timeout=10)
         try:
             diff = (r.json().get("data") or {}).get("diff") or []
             for row in diff:
@@ -341,9 +340,9 @@ def get_etf_stocks(code: str, market: str) -> dict:
     if us_holdings:
         us_codes = ",".join(f"gb_{h['code'].lower()}" for h in us_holdings)
         us_url = f"https://hq.sinajs.cn/list={us_codes}"
-        r_us = requests.get(us_url,
+        r_us = HTTP_SESSION.get(us_url,
             headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"},
-            timeout=10, proxies=REQUEST_PROXIES)
+            timeout=10)
         r_us.encoding = "gb2312"
         for line in r_us.text.strip().split("\n"):
             if '=""' in line or '="' not in line:
