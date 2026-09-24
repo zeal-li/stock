@@ -25,16 +25,14 @@
 （首小时量价/情绪/资金）取不到则对应字段置空并在前端标注，不拼接替代数据。
 """
 import datetime
-import json
 import time
 import traceback
-import requests
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-from common import REQUEST_PROXIES
+from common.http import get_json, get_realtime_quotes, get_ths_klines, HEADERS_EM_DATA
 from common.utils import is_a_trading_time, is_etf, is_a_share_trading_day
-from money_flow.storage import db_get, _EM_HEADERS, _EM_UT, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY
+from money_flow.storage import db_get, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY
 
 # 主要指数 → 同花顺证券代码（日K数据源，与 K线弹窗同源）
 _THS_SYMBOLS = {
@@ -96,56 +94,28 @@ def _fmt_pct(v):
 
 # ==================== 数据抓取 ====================
 
-def _em_ulist_get(params):
-    """东财 ulist GET：同一数据源失败重试（网络中断/非200/解析异常，非多源兜底），
-    重试耗尽抛 RuntimeError。"""
-    url = 'https://push2delay.eastmoney.com/api/qt/ulist.np/get'
-    last_err = None
-    for attempt in range(4):
-        try:
-            r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-            if r.status_code == 200:
-                return json.loads(r.content.decode('utf-8', 'replace'))
-            last_err = f'HTTP {r.status_code}'
-        except Exception as e:
-            last_err = repr(e)
-        if attempt < 3:
-            time.sleep(0.3)
-    raise RuntimeError(f'东财 ulist 请求失败（已重试3次）: {last_err}')
-
 
 def _fetch_quotes():
-    """东财 ulist：主要指数实时行情 + 涨跌家数（f104/f105/f106）"""
+    """主要指数实时行情 + 涨跌家数（走 common.http.get_realtime_quotes，字段名固定）"""
     secids = ','.join(s['secid'] for s in MAJOR_INDICES)
-    params = {
-        'fltt': 2, 'invt': 2, 'ut': _EM_UT,
-        'fields': 'f2,f3,f4,f12,f13,f14,f15,f16,f17,f18,f104,f105,f106',
-        'secids': secids,
-    }
-    body = _em_ulist_get(params)
-    diff = ((body.get('data') or {}).get('diff')) or []
-    if not diff:
+    quotes = get_realtime_quotes(secids)
+    if not quotes:
         raise RuntimeError('指数行情获取失败（东财 ulist 返回为空）')
 
     quote_map = {}
-    for row in diff:
-        mkt = _num(row.get('f13'))
-        code = str(row.get('f12') or '').strip()
-        if mkt is None or not code:
-            continue
-        secid = f"{int(mkt)}.{code}"
+    for secid, q in quotes.items():
         quote_map[secid] = {
-            'name': str(row.get('f14') or ''),
-            'price': _num(row.get('f2')),
-            'change_pct': _num(row.get('f3')),
-            'change_val': _num(row.get('f4')),
-            'open': _num(row.get('f17')),
-            'high': _num(row.get('f15')),
-            'low': _num(row.get('f16')),
-            'pre_close': _num(row.get('f18')),
-            'rise': _num(row.get('f104')),
-            'fall': _num(row.get('f105')),
-            'flat': _num(row.get('f106')),
+            'name': q['name'],
+            'price': q['price'],
+            'change_pct': q['pct'],
+            'change_val': q['change'],
+            'open': q['open'],
+            'high': q['high'],
+            'low': q['low'],
+            'pre_close': q['pre_close'],
+            'rise': q['rise'],
+            'fall': q['fall'],
+            'flat': q['flat'],
         }
 
     missing = [s['name'] for s in MAJOR_INDICES if s['secid'] not in quote_map]
@@ -154,63 +124,22 @@ def _fetch_quotes():
     return quote_map
 
 
-_THS_KLINE_URL = 'https://d.10jqka.com.cn/v4/line/{symbol}/01/{year}.js'
-_THS_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Referer': 'https://www.10jqka.com.cn/',
-}
-
-
 def _fetch_kline(symbol, min_bars=120):
     """同花顺 v4/line 日K：最近若干交易日（日期/收盘/最高/最低/成交量），与 K线弹窗同源。
-    symbol 如 sh_1A0001 / sz_399001 / sh_600519；502/504 为限流，失败重试 3 次。
+    symbol 如 sh_1A0001 / sz_399001 / sh_600519；走 common.http.get_ths_klines（同源重试）。
     最多回看 3 年，凑够 min_bars 根即停（默认 120；120日周期等更长窗口由调用方调大）。
     返回 {dates, closes, highs, lows, volumes}，均按日期升序。"""
     year = datetime.datetime.now().year
     dates, closes, highs, lows, volumes = [], [], [], [], []
     for y in range(year, year - 3, -1):  # 最多回看 3 年，凑够 min_bars 根即停
-        raw = None
-        for attempt in range(4):
-            try:
-                r = requests.get(_THS_KLINE_URL.format(symbol=symbol, year=y),
-                                 headers=_THS_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-                if r.status_code == 404:
-                    raw = ''
-                    break
-                if r.status_code == 200:
-                    text = r.text
-                    s, e = text.find('(') + 1, text.rfind(')')
-                    if s > 0 and e > s:
-                        raw = json.loads(text[s:e]).get('data', '')
-                        break
-            except Exception:
-                pass
-            if attempt < 3:
-                time.sleep(0.3)
-        if raw is None:
-            raise RuntimeError(f'同花顺日K获取失败: {symbol}（{y}年）')
-
+        rows = get_ths_klines(symbol, 'day', y)
         y_dates, y_closes, y_highs, y_lows, y_vols = [], [], [], [], []
-        for line in raw.split(';'):
-            parts = line.split(',')
-            if len(parts) < 5:
-                continue
-            close = _num(parts[4])  # 同花顺字段: date,open,high,low,close,volume,amount
-            high = _num(parts[2])
-            low = _num(parts[3])
-            if close is None or close <= 0:
-                continue
-            # 同花顺对部分指数当日行可能只给收盘价（如沪深300/中证500盘中），
-            # 开/高低缺失或为0时用收盘价补齐，与 K线弹窗解析一致，避免当日行被跳过
-            if high is None or high <= 0:
-                high = close
-            if low is None or low <= 0:
-                low = close
-            y_dates.append(str(parts[0]))
-            y_closes.append(close)
-            y_highs.append(high)
-            y_lows.append(low)
-            y_vols.append(_num(parts[5]) if len(parts) > 5 else None)
+        for row in rows:
+            y_dates.append(row['date'])
+            y_closes.append(row['close'])
+            y_highs.append(row['high'])
+            y_lows.append(row['low'])
+            y_vols.append(row['volume'])
         dates = y_dates + dates       # 更早年份插到最前，保证整体按日期升序
         closes = y_closes + closes
         highs = y_highs + highs
@@ -240,31 +169,26 @@ def _stock_ths_symbol(code, market):
 
 
 def _fetch_stock_quotes(stocks):
-    """东财 ulist 批量获取股票实时行情，返回 {原始secid: {name, price, change_pct, ...}}"""
+    """东财 ulist 批量获取股票实时行情（走 common.http.get_realtime_quotes，固定字段）。
+    返回 {原始secid: {name, price, change_pct, change_val, open, high, low, pre_close}}"""
     code_orig_market = {s['code']: s['market'] for s in stocks}
     secids = ','.join(f"{'0' if s['market'] == '2' else s['market']}.{s['code']}" for s in stocks)
-    params = {
-        'fltt': 2, 'invt': 2, 'ut': _EM_UT,
-        'fields': 'f2,f3,f4,f12,f13,f14,f15,f16,f17,f18',
-        'secids': secids,
-    }
-    body = _em_ulist_get(params)
-    diff = ((body.get('data') or {}).get('diff')) or []
+    quotes = get_realtime_quotes(secids)
     quote_map = {}
-    for row in diff:
-        code = str(row.get('f12') or '').strip()
+    for em_secid, q in quotes.items():
+        code = q['code']
         if not code or code not in code_orig_market:
             continue
         secid = f"{code_orig_market[code]}.{code}"
         quote_map[secid] = {
-            'name': str(row.get('f14') or ''),
-            'price': _num(row.get('f2')),
-            'change_pct': _num(row.get('f3')),
-            'change_val': _num(row.get('f4')),
-            'open': _num(row.get('f17')),
-            'high': _num(row.get('f15')),
-            'low': _num(row.get('f16')),
-            'pre_close': _num(row.get('f18')),
+            'name': q['name'],
+            'price': q['price'],
+            'change_pct': q['pct'],
+            'change_val': q['change'],
+            'open': q['open'],
+            'high': q['high'],
+            'low': q['low'],
+            'pre_close': q['pre_close'],
         }
     return quote_map
 
@@ -641,34 +565,13 @@ def _fetch_recent_turnover(n=_TURNOVER_RECENT_N):
     for y in (year, year - 1):
         for market, code in _THS_INDEX_DAILY:
             symbol = f'{market}_{code}'
-            raw = None
-            for attempt in range(4):
-                try:
-                    r = requests.get(_THS_KLINE_URL.format(symbol=symbol, year=y),
-                                     headers=_THS_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-                    if r.status_code == 404:
-                        raw = ''
-                        break
-                    if r.status_code == 200:
-                        text = r.text
-                        s, e = text.find('(') + 1, text.rfind(')')
-                        if s > 0 and e > s:
-                            raw = json.loads(text[s:e]).get('data', '')
-                            break
-                except Exception:
-                    pass
-                if attempt < 3:
-                    time.sleep(0.3)
-            if raw is None:
-                raise RuntimeError(f'同花顺指数日K获取失败: {symbol}（{y}年）')
-            for line in raw.split(';'):
-                parts = line.split(',')
-                if len(parts) < 7:
-                    continue
-                amount = _num(parts[6])
+            rows = get_ths_klines(symbol, 'day', y)
+            for row in rows:
+                d = row['date']
+                amount = row['amount']
                 if amount is None or amount <= 0:
                     continue
-                daily[parts[0]] = daily.get(parts[0], 0.0) + amount / 1e8
+                daily[d] = daily.get(d, 0.0) + amount / 1e8
         if len(daily) >= n + 1:
             break
     if not daily:
@@ -1218,14 +1121,13 @@ def _analyze_open_hour(day):
 # ==================== 市场情绪（涨停/跌停/连板） ====================
 
 def _fetch_limit_pool(url, sort, day_str, label):
-    """东财涨停池/跌停池单次抓取，返回规整后的 pool 列表"""
+    """东财涨停池/跌停池单次抓取（走 common.http），返回规整后的 pool 列表"""
     params = {
         'ut': _EM_ZT_UT, 'dpt': 'wz.ztzt',
         'Pageindex': '0', 'pagesize': '6000',
         'sort': sort, 'date': day_str,
     }
-    r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=10, proxies=REQUEST_PROXIES)
-    body = r.json()
+    body = get_json(url, params=params, headers=HEADERS_EM_DATA, timeout=10)
     data = body.get('data') or None
     if data is None:
         raise RuntimeError(f'{label}数据为空（东财 {url}）')

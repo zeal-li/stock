@@ -3,15 +3,9 @@ import datetime
 import json
 import os
 import sqlite3
-import requests
 from bs4 import BeautifulSoup
-from common import REQUEST_PROXIES
+from common.http import get_text, HEADERS_THS_LONGHU
 from common.utils import is_a_share_trading_day
-
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Referer': 'https://data.10jqka.com.cn/market/longhu/',
-}
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'longhu_bang.db')
 
@@ -44,9 +38,9 @@ def _fetch_longhu_bang(trade_date: str = None):
         trade_date = datetime.date.today().strftime("%Y-%m-%d")
 
     url = f"https://data.10jqka.com.cn/ifmarket/lhbggxq/report/{trade_date}/"
-    r = requests.get(url, params={'stock': 'all', 'tab': 'all'},
-                     headers=HEADERS, timeout=15, proxies=REQUEST_PROXIES)
-    soup = BeautifulSoup(r.text, 'html.parser')
+    text = get_text(url, params={'stock': 'all', 'tab': 'all'},
+                    headers=HEADERS_THS_LONGHU, timeout=15)
+    soup = BeautifulSoup(text, 'html.parser')
 
     # --- 1. 解析 leftcol 股票汇总表 ---
     leftcol = soup.select_one('.leftcol')

@@ -1,16 +1,7 @@
 """财务数据（商誉率/质押率等）"""
-import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from . import REQUEST_PROXIES
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Referer': 'https://emweb.securities.eastmoney.com/',
-}
-PLEDGE_HEADERS = {
-    'User-Agent': HEADERS['User-Agent'],
-    'Referer': 'https://data.eastmoney.com/',
-}
+from .http import get_json, em_datacenter_get, HEADERS_EM_F10, HEADERS_EM_DATA
 
 
 def _get_goodwill_rate(code):
@@ -18,23 +9,21 @@ def _get_goodwill_rate(code):
     prefix = 'SH' if code.startswith(('6', '9')) else 'SZ'
     symbol = f"{prefix}{code}"
     try:
-        r = requests.get(
+        dates = get_json(
             "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/zcfzbDateAjaxNew",
             params={"companyType": "4", "reportDateType": "0", "code": symbol},
-            headers=HEADERS, timeout=10, proxies=REQUEST_PROXIES,
-        )
-        dates = (r.json().get('data') or [])
+            headers=HEADERS_EM_F10, timeout=10,
+        ).get('data') or []
         if not dates:
             return None
         latest_date = dates[0]['REPORT_DATE'].split(' ')[0]
 
-        r = requests.get(
+        rows = get_json(
             "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/zcfzbAjaxNew",
             params={"companyType": "4", "reportDateType": "0", "reportType": "1",
                     "dates": latest_date, "code": symbol},
-            headers=HEADERS, timeout=10, proxies=REQUEST_PROXIES,
-        )
-        rows = (r.json().get('data') or [])
+            headers=HEADERS_EM_F10, timeout=10,
+        ).get('data') or []
         if not rows:
             return None
         row = rows[0]
@@ -53,20 +42,13 @@ def _get_pledge_rates(codes):
         return {}
     try:
         code_list = ','.join(f'"{c}"' for c in codes)
-        r = requests.get(
-            "https://datacenter-web.eastmoney.com/api/data/v1/get",
-            params={
-                "reportName": "RPT_CSDC_LIST",
-                "columns": "SECURITY_CODE,PLEDGE_RATIO",
-                "filter": f'(SECURITY_CODE in ({code_list}))',
-                "pageSize": len(codes),
-                "sortColumns": "TRADE_DATE",
-                "sortTypes": "-1",
-            },
-            headers=PLEDGE_HEADERS, timeout=10, proxies=REQUEST_PROXIES,
+        rows = em_datacenter_get(
+            "RPT_CSDC_LIST",
+            "SECURITY_CODE,PLEDGE_RATIO",
+            f'(SECURITY_CODE in ({code_list}))',
+            page_size=len(codes),
+            sort_columns="TRADE_DATE",
         )
-        data = r.json()
-        rows = (data.get('result') or {}).get('data') or []
         result = {}
         for row in rows:
             code = row.get('SECURITY_CODE', '')

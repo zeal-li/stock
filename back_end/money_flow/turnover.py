@@ -1,22 +1,15 @@
 """成交额分时数据"""
 import datetime
 import time
-import requests
-from common import REQUEST_PROXIES, HTTP_SESSION
+from common.http import get_json, HEADERS_THS
 from money_flow.storage import db_set, _TURNOVER_MINUTE_KEY
 
 
 def _fetch_and_cache_turnover():
-    """抓取成交额分时数据并写入缓存"""
+    """抓取成交额分时数据并写入缓存（走 common.http）"""
     try:
         url = "https://dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data?chart_key=turnover_minute"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://www.10jqka.com.cn/',
-            'Accept': 'application/json, text/plain, */*',
-        }
-        r = HTTP_SESSION.get(url, headers=headers, timeout=10)
-        data = r.json()
+        data = get_json(url, headers=HEADERS_THS, timeout=10)
         if data.get('status_code') != 0:
             return False
         chart_data = data.get('data', {}).get('charts', {})

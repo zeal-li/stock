@@ -1,6 +1,5 @@
 """股票搜索 & 行情查询"""
-import requests
-from common import REQUEST_PROXIES
+from common.http import get_json, get_realtime_quotes, HEADERS_EM_QUOTE
 from common.utils import is_etf
 
 
@@ -20,12 +19,7 @@ def search_stock(keyword):
             'pageIndex': 1,
             'pageSize': 10,
         }
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://quote.eastmoney.com/',
-        }
-        r = requests.get(url, params=params, headers=headers, timeout=8, proxies=REQUEST_PROXIES)
-        data = r.json()
+        data = get_json(url, params=params, headers=HEADERS_EM_QUOTE, timeout=8)
 
         items = data.get('result') or []
         # 过滤：只保留深A/沪A/基金（含ETF），排除债券/指数/港股/英股等
@@ -62,35 +56,18 @@ def search_stock(keyword):
 
 
 def _fetch_quotes(secids):
-    """批量获取股票实时行情"""
+    """批量获取股票实时行情（走 common.http.get_realtime_quotes，返回字段固定为 price/pct/change 等）"""
     try:
-        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-        params = {
-            'fltt': 2, 'invt': 2,
-            'fields': 'f2,f3,f4,f12,f13',
-            'secids': ','.join(secids),
-            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-        }
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://data.eastmoney.com/',
-        }
-        r = requests.get(url, params=params, headers=headers, timeout=8, proxies=REQUEST_PROXIES)
-        diff = (r.json().get('data') or {}).get('diff') or []
+        quotes = get_realtime_quotes(','.join(secids))
         result = {}
-        for row in diff:
-            key = f"{row.get('f13', '')}.{row.get('f12', '')}"
-            price = row.get('f2')
-            pct = row.get('f3')
-            change = row.get('f4')
-            if row.get('f12'):
-                etf = is_etf(row.get('f12'), row.get('f13'))
-                decimals = 3 if etf else 2
-                result[key] = {
-                    'price': f"{float(price):.{decimals}f}" if price else '-',
-                    'pct': f"{float(pct):.2f}%" if pct is not None else '-',
-                    'change': f"{float(change):.{decimals}f}" if change is not None else '-',
-                }
+        for key, q in quotes.items():
+            etf = is_etf(q['code'], q['market'])
+            decimals = 3 if etf else 2
+            result[key] = {
+                'price': f"{q['price']:.{decimals}f}" if q['price'] is not None else '-',
+                'pct': f"{q['pct']:.2f}%" if q['pct'] is not None else '-',
+                'change': f"{q['change']:.{decimals}f}" if q['change'] is not None else '-',
+            }
         return result
     except Exception:
         return {}

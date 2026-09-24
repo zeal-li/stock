@@ -29,6 +29,9 @@ from .db import (
     stock_info_sync_atomic, klines_get, klines_count_market,
 )
 from common import BROWSER_HEADERS
+from common.http import (
+    get_json, get_response, get_ths_klines, get_yahoo_chart, HEADERS_THS,
+)
 from common.utils import (
     MARKET_HOURS, is_before_open, is_after_close, is_trading_hours,
     is_cross_day, get_market_hours,
@@ -64,8 +67,7 @@ def _code_to_segment(code):
 # =========== 拉取股票列表 ===========
 
 def _fetch_us_stocks():
-    """从 NASDAQ 官方 screener API 拉取全量美股列表"""
-    import requests
+    """从 NASDAQ 官方 screener API 拉取全量美股列表（走 common.http.get_json）"""
     import time as _time
 
     url = 'https://api.nasdaq.com/api/screener/stocks'
@@ -82,14 +84,7 @@ def _fetch_us_stocks():
             print("[sync] 拉取 美股 列表被终止")
             return None
         try:
-            r = requests.get(url, params=params, headers=headers, timeout=30)
-            if r.status_code != 200:
-                if attempt < 2:
-                    _time.sleep(3 * (attempt + 1))
-                    continue
-                print(f"[sync] 美股 NASDAQ API HTTP {r.status_code}")
-                return []
-            jd = r.json()
+            jd = get_json(url, params=params, headers=headers, timeout=30)
             rows = (jd.get('data') or {}).get('rows') or []
             if not rows:
                 print(f"[sync] 美股 NASDAQ API 返回空")
@@ -123,9 +118,7 @@ def _fetch_us_stocks():
 # =========== A股交易所官方列表 ===========
 
 def _fetch_sse_stocks():
-    """上交所股票列表（主板 + 科创板），返回 [(code, name)]"""
-    import requests
-
+    """上交所股票列表（主板 + 科创板），返回 [(code, name)]（走 common.http.get_json）"""
     url = 'https://query.sse.com.cn/sseQuery/commonQuery.do'
     headers = {**BROWSER_HEADERS, 'Referer': 'https://www.sse.com.cn/assortment/stock/list/share/'}
     result = []
@@ -143,8 +136,8 @@ def _fetch_sse_stocks():
             'pageHelp.cacheSize': '1',
         }
         try:
-            r = requests.get(url, params=params, headers=headers, timeout=15)
-            rows = (r.json().get('pageHelp') or {}).get('data') or []
+            jd = get_json(url, params=params, headers=headers, timeout=15)
+            rows = (jd.get('pageHelp') or {}).get('data') or []
         except Exception as e:
             print(f"[sync] 上交所股票列表拉取失败: {e}")
             return []
@@ -158,7 +151,6 @@ def _fetch_sse_stocks():
 
 def _fetch_szse_stocks():
     """深交所股票列表（主板 + 创业板），返回 [(code, name)]"""
-    import requests
     import io
     import openpyxl
 
@@ -166,7 +158,7 @@ def _fetch_szse_stocks():
     headers = {**BROWSER_HEADERS, 'Referer': 'https://www.szse.cn/market/product/stock/list/index.html'}
     params = {'SHOWTYPE': 'xlsx', 'CATALOGID': '1110', 'TABKEY': 'tab1', 'random': '0.6935816432433362'}
     try:
-        r = requests.get(url, params=params, headers=headers, timeout=20)
+        r = get_response(url, params=params, headers=headers, timeout=20)
         wb = openpyxl.load_workbook(io.BytesIO(r.content))
     except Exception as e:
         print(f"[sync] 深交所股票列表拉取失败: {e}")
@@ -187,9 +179,7 @@ def _fetch_szse_stocks():
 
 
 def _fetch_sse_etf():
-    """上交所 ETF 列表，返回 [(code, name)]"""
-    import requests
-
+    """上交所 ETF 列表，返回 [(code, name)]（走 common.http.get_json）"""
     url = 'https://query.sse.com.cn/commonQuery.do'
     headers = {**BROWSER_HEADERS, 'Referer': 'https://www.sse.com.cn/'}
     latest = _latest_possible_trading_day()
@@ -205,8 +195,8 @@ def _fetch_sse_etf():
         'STAT_DATE': stat_date,
     }
     try:
-        r = requests.get(url, params=params, headers=headers, timeout=15)
-        rows = r.json().get('result') or []
+        jd = get_json(url, params=params, headers=headers, timeout=15)
+        rows = jd.get('result') or []
     except Exception as e:
         print(f"[sync] 上交所 ETF 列表拉取失败: {e}")
         return []
@@ -216,7 +206,6 @@ def _fetch_sse_etf():
 
 def _fetch_szse_etf():
     """深交所 ETF 列表，返回 [(code, name)]"""
-    import requests
     import io
     import openpyxl
 
@@ -224,7 +213,7 @@ def _fetch_szse_etf():
     headers = {**BROWSER_HEADERS, 'Referer': 'https://fund.szse.cn/marketdata/fundslist/index.html'}
     params = {'SHOWTYPE': 'xlsx', 'CATALOGID': '1000_lf', 'TABKEY': 'tab1', 'random': '0.07610353191740105'}
     try:
-        r = requests.get(url, params=params, headers=headers, timeout=20)
+        r = get_response(url, params=params, headers=headers, timeout=20)
         wb = openpyxl.load_workbook(io.BytesIO(r.content))
     except Exception as e:
         print(f"[sync] 深交所 ETF 列表拉取失败: {e}")
@@ -260,8 +249,7 @@ def _fetch_a_share_list():
 
 
 def _fetch_hk_stocks():
-    """港股列表（东财 clist），返回 [(code, name)]；取消时返回 None"""
-    import requests
+    """港股列表（东财 clist，走 common.http.get_json），返回 [(code, name)]；取消时返回 None"""
     import time as _time
 
     label = '港股'
@@ -275,10 +263,10 @@ def _fetch_hk_stocks():
         if _sync_status.get('cancel'):
             print(f"[sync] 拉取 {label} 列表被终止")
             return None
-        r = None
+        jd = None
         for attempt in range(3):
             try:
-                r = requests.get(url, params={
+                jd = get_json(url, params={
                     'pn': page, 'pz': 1000, 'po': 1, 'np': 1,
                     'fltt': 2, 'invt': 2, 'fid': 'f12',
                     'fs': fs_filter, 'fields': 'f2,f12,f14',
@@ -287,10 +275,10 @@ def _fetch_hk_stocks():
                 break
             except Exception:
                 if attempt < 2: _time.sleep(2 * (attempt + 1))
-        if r is None:
+        if jd is None:
             print(f"[sync] {label} 第{page}页请求失败（已重试3次）")
             break
-        data = r.json().get('data') or {}
+        data = jd.get('data') or {}
         diff = data.get('diff') or {}
         items = diff.values() if isinstance(diff, dict) else (diff if isinstance(diff, list) else [])
         if not items:
@@ -340,9 +328,7 @@ def _parse_date(date_str):
 
 
 def _fetch_kline(code, seg_key, period, start_date, end_date):
-    """获取 K 线：A股用同花顺 v4 逐年拉取，港股/美股用 Yahoo Finance"""
-    import requests as _rq
-    import json as _json
+    """获取 K 线：A股用同花顺 v4 逐年拉取（common.http.get_ths_klines），港股/美股用 Yahoo Finance"""
     import datetime as _dt
 
     if seg_key in ('hk_main', 'us_main'):
@@ -351,7 +337,7 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     global _sync_fail_count
 
     c = str(code)
-    ths_period_code = {'daily': '01', 'weekly': '11', 'monthly': '21'}.get(period, '01')
+    period_name = {'daily': 'day', 'weekly': 'week', 'monthly': 'month'}.get(period, 'day')
     current_year = _dt.datetime.now().year
 
     # 同花顺前缀：按交易所区分
@@ -362,94 +348,40 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     else:
         ths_prefix = 'sz'
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://www.10jqka.com.cn/',
-    }
-
-    # 4线程×3周期×2年份=24并发，默认连接池10不够，建Session扩到30
-    _session = _rq.Session()
-    _adapter = _rq.adapters.HTTPAdapter(pool_connections=30, pool_maxsize=30)
-    _session.mount('https://', _adapter)
-    _session.mount('http://', _adapter)
-
     # 全量：v4 逐年拉 5 年；增量：v4 只拉当年
     if start_date and start_date[:4] == str(current_year):
-        urls = [f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{c}/{ths_period_code}/{current_year}.js"]
+        years = [current_year]
     else:
-        urls = [f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{c}/{ths_period_code}/{y}.js"
-                for y in range(current_year, current_year - 5, -1)]
-
-    def _fetch_one(url):
-        for attempt in range(3):
-            try:
-                r = _session.get(url, headers=headers, timeout=5)
-                if r.status_code != 200:
-                    if attempt < 2:
-                        continue
-                    break
-                text = r.text
-                s = text.find('(') + 1
-                e = text.rfind(')')
-                if s <= 0 or e <= s:
-                    break
-                jd = _json.loads(text[s:e])
-                return jd.get('data', '')
-            except Exception:
-                if attempt < 2:
-                    continue
-        return None
-
-    # 各年2并发请求（4×3×2=24并发，同花顺可承受）
-    from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
-    all_raw = []
-    with _TPE(max_workers=2) as pool:
-        futs = {pool.submit(_fetch_one, u): u for u in urls}
-        for fut in _ac(futs):
-            raw = fut.result()
-            if raw:
-                all_raw.append(raw)
-
-    if not all_raw:
-        return []
+        years = list(range(current_year, current_year - 5, -1))
 
     rows = []
-    for raw in all_raw:
-        for line in raw.split(';'):
-            parts = line.split(',')
-            if len(parts) < 8:
-                continue
-            date_str = parts[0]
+    for y in years:
+        try:
+            klines = get_ths_klines(f"{ths_prefix}_{c}", period_name, y)
+        except Exception as e:
+            with _sync_fail_lock:
+                _sync_fail_count += 1
+            print(f"[sync] 同花顺K线 {c} {y}年 {period} 拉取失败: {e}")
+            continue
+        for k in klines:
+            date_str = k['date']
             if start_date and date_str < start_date:
                 continue
             if end_date and date_str > end_date:
                 continue
-            o = float(parts[1]) if parts[1] else 0
-            h = float(parts[2]) if parts[2] else 0
-            l = float(parts[3]) if parts[3] else 0
-            c = float(parts[4]) if parts[4] else 0
-            if c <= 0:
+            o, h, l, c2 = k['open'], k['high'], k['low'], k['close']
+            if c2 <= 0:
                 continue
-            # 开/高/低为空或为0时，用收盘价补上
-            if o <= 0:
-                o = c
-            if h <= 0:
-                h = c
-            if l <= 0:
-                l = c
-            volume = float(parts[5]) if parts[5] else 0
-            amount = float(parts[6]) if parts[6] else 0
-            turnover = round(float(parts[7]) if parts[7] else 0, 2)
             rows.append((
                 code, seg_key, period,
                 date_str,
                 o,
                 h,
                 l,
-                c,
-                volume,
-                amount,
-                turnover,
+                c2,
+                k['volume'] or 0,
+                k['amount'] or 0,
+                k['turnover'] or 0,
             ))
     return rows
 
@@ -471,11 +403,9 @@ _syncing_markets_lock = threading.Lock()
 
 
 def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
-    """Yahoo Finance K 线（港股/美股）"""
+    """Yahoo Finance K 线（港股/美股，走 common.http.get_yahoo_chart）"""
     global _yahoo_last_req, _sync_fail_count
-    import requests as _rq
     import datetime as _dt
-    import os as _os
 
     if seg_key == 'hk_main':
         symbol = str(int(code)).zfill(4) + '.HK'
@@ -491,33 +421,13 @@ def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
                 time.sleep(_YAHOO_MIN_INTERVAL - elapsed)
             _yahoo_last_req = time.time()
 
-        _old_no = _os.environ.pop('no_proxy', None)
-        _old_NO = _os.environ.pop('NO_PROXY', None)
         try:
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=max&interval={yh_intv}"
-            r = _rq.get(url, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            }, timeout=15)
-
-            if r.status_code == 404:
-                return []
-
-            if r.status_code != 200:
-                if attempt < 2:
-                    time.sleep(2 * (attempt + 1))
-                    continue
-                return []
-
-            result = (r.json().get('chart', {}).get('result') or [None])[0]
-            if not result:
-                return []
-            timestamps = result.get('timestamp') or []
-            quotes = (result.get('indicators', {}).get('quote') or [None])[0]
-            if not quotes or not timestamps:
+            yh = get_yahoo_chart(symbol, 'max', yh_intv)
+            if not yh:
                 return []
             rows = []
-            for i, ts in enumerate(timestamps):
-                o = quotes['open'][i]
+            for i, ts in enumerate(yh['timestamps']):
+                o = yh['open'][i]
                 if o is None:
                     continue
                 dt_val = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
@@ -526,15 +436,17 @@ def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
                     continue
                 if end_date and date_str > end_date:
                     continue
+                close_i = yh['close'][i] or 0
+                vol_i = int(yh['volume'][i] or 0)
                 rows.append((
                     code, seg_key, period,
                     date_str,
                     round(float(o), 3),
-                    round(float(quotes['high'][i] or 0), 3),
-                    round(float(quotes['low'][i] or 0), 3),
-                    round(float(quotes['close'][i] or 0), 3),
-                    int(quotes['volume'][i] or 0),
-                    round(float(quotes['close'][i] or 0) * int(quotes['volume'][i] or 0), 2),
+                    round(float(yh['high'][i] or 0), 3),
+                    round(float(yh['low'][i] or 0), 3),
+                    round(float(close_i), 3),
+                    vol_i,
+                    round(float(close_i) * vol_i, 2),
                     None,
                 ))
             return rows
@@ -544,11 +456,6 @@ def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
             else:
                 with _sync_fail_lock:
                     _sync_fail_count += 1
-        finally:
-            if _old_no is not None:
-                _os.environ['no_proxy'] = _old_no
-            if _old_NO is not None:
-                _os.environ['NO_PROXY'] = _old_NO
     return []
 
 

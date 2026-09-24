@@ -4,9 +4,8 @@ import re
 import time
 import json
 from bs4 import BeautifulSoup
-from common import HTTP_SESSION
+from common.http import get_json, get_text, get_realtime_quotes, get_sina_hq, HEADERS_EM_DATA, EM_UT
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_a_share, is_hk, is_us
-from money_flow.storage import _EM_HEADERS, _EM_UT
 from sector_fund.storage import cache_get, cache_set
 
 _API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
@@ -56,10 +55,9 @@ def _request_top(fs: str, period: str, po: str) -> list:
         "fid": cfg["fid"],
         "fs": fs,
         "fields": _FIELDS,
-        "ut": _EM_UT,
+        "ut": EM_UT,
     }
-    r = HTTP_SESSION.get(_API_URL, params=params, headers=_EM_HEADERS, timeout=10)
-    data = r.json()
+    data = get_json(_API_URL, params=params, headers=HEADERS_EM_DATA, timeout=10)
     if not data.get("data") or not data["data"].get("diff"):
         return []
 
@@ -157,10 +155,9 @@ def get_sector_stocks(sector_code: str) -> dict:
         "fid": "f3",
         "fs": f"b:{sector_code}",
         "fields": _STOCK_FIELDS,
-        "ut": _EM_UT,
+        "ut": EM_UT,
     }
-    r = HTTP_SESSION.get(_API_URL, params=params, headers=_EM_HEADERS, timeout=10)
-    data = r.json()
+    data = get_json(_API_URL, params=params, headers=HEADERS_EM_DATA, timeout=10)
     if not data.get("data") or not data["data"].get("diff"):
         return {"success": True, "stocks": [], "total": 0}
 
@@ -209,15 +206,12 @@ def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> li
         "month": "",
         "rt": "0.5",
     }
-    r = HTTP_SESSION.get("https://fundf10.eastmoney.com/FundArchivesDatas.aspx",
-                         params=params,
-                         headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fund.eastmoney.com/"},
-                         timeout=15)
-    if r.status_code != 200:
-        return []
+    text = get_text("https://fundf10.eastmoney.com/FundArchivesDatas.aspx",
+                    params=params,
+                    headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fund.eastmoney.com/"},
+                    timeout=15)
 
     # 响应格式: var apidata={ content:"...", ...}  — 从中提取 HTML content
-    text = r.text
     match = re.search(r'var apidata\s*=\s*\{.*?content:"(.*?)".*?\}', text, re.DOTALL)
     if not match:
         return []
@@ -316,60 +310,43 @@ def get_etf_stocks(code: str, market: str) -> dict:
     em_holdings = [h for h in holdings if is_a_share(h["market"]) or is_hk(h["market"])]
     us_holdings = [h for h in holdings if is_us(h["market"])]
 
-    # 1) A股 + 港股 → 东方财富 ulist.np/get
+    # 1) A股 + 港股 → 东方财富 ulist.np/get（统一走 get_realtime_quotes，字段 price/pct/name）
     if em_holdings:
         secids = ",".join(f"{h['market']}.{h['code']}" for h in em_holdings)
-        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-        params = {
-            "fltt": "2", "invt": "2",
-            "fields": "f2,f3,f4,f12,f13,f14",
-            "secids": secids,
-            "ut": _EM_UT,
-        }
-        r = HTTP_SESSION.get(url, params=params, headers=_EM_HEADERS, timeout=10)
         try:
-            diff = (r.json().get("data") or {}).get("diff") or []
-            for row in diff:
-                key = f"{row.get('f13', '')}.{row.get('f12', '')}"
-                if row.get("f12"):
-                    quote_data[key] = row
+            quotes = get_realtime_quotes(secids)
+            for key, q in quotes.items():
+                quote_data[key] = q
         except Exception:
             pass
 
-    # 2) 美股 → 新浪 gb_ API（ulist.np/get 不支持美股）
+    # 2) 美股 → 新浪 gb_ API（ulist.np/get 不支持美股，统一走 get_sina_hq）
     if us_holdings:
-        us_codes = ",".join(f"gb_{h['code'].lower()}" for h in us_holdings)
-        us_url = f"https://hq.sinajs.cn/list={us_codes}"
-        r_us = HTTP_SESSION.get(us_url,
-            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn/"},
-            timeout=10)
-        r_us.encoding = "gb2312"
-        for line in r_us.text.strip().split("\n"):
-            if '=""' in line or '="' not in line:
-                continue
-            # var hq_str_gb_pdd="拼多多,82.53,-1.44,..." → pdd
-            sina_code = line.split("var hq_str_gb_")[1].split("=")[0]
-            parts = line.split('="')[1].rstrip('";').split(",")
+        us_codes = [f"gb_{h['code'].lower()}" for h in us_holdings]
+        sina_hq = get_sina_hq(us_codes)
+        for sina_code, payload in sina_hq.items():
+            parts = payload.split(",")
             if len(parts) < 5:
                 continue
             # gb_ 格式: name(0), price(1), change_pct%(2), datetime(3), change_val(4)
-            quote_data[f"106.{sina_code.upper()}"] = {
-                "f2": parts[1],
-                "f3": parts[2],
-                "f12": sina_code.upper(),
-                "f13": "106",
-                "f14": parts[0],
+            us_code = sina_code.split("gb_")[-1].upper()
+            quote_data[f"106.{us_code}"] = {
+                "price": parts[1],
+                "pct": parts[2],
+                "code": us_code,
+                "market": "106",
+                "name": parts[0],
             }
 
-    # 合并持仓 + 行情
+    # 合并持仓 + 行情（统一字段 price/pct/name）
     stocks = []
     for h in holdings:
         key = f"{h['market']}.{h['code']}"
         q = quote_data.get(key)
 
-        change_pct = _safe_float(q.get("f3", 0)) if q else None
-        price = _safe_float(q.get("f2", 0)) if q else None
-        name = (q.get("f14") or h["name"]) if q else h["name"]
+        change_pct = _safe_float(q.get("pct", 0)) if q else None
+        price = _safe_float(q.get("price", 0)) if q else None
+        name = (q.get("name") or h["name"]) if q else h["name"]
 
         etf = is_etf(h["code"], h["market"])
 

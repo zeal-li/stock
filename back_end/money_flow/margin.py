@@ -1,6 +1,6 @@
 """融资融券数据 — 上交所/深交所直接拉取"""
 import datetime
-import requests as _rq
+from common.http import get_json
 from money_flow.storage import db_set, db_get
 
 _MARGIN_HEADERS = {
@@ -17,14 +17,14 @@ def _fetch_and_cache_margin():
     # 上交所
     sse_rows = []
     try:
-        r = _rq.get('https://query.sse.com.cn/marketdata/tradedata/queryMargin.do', params={
+        jd = get_json('https://query.sse.com.cn/marketdata/tradedata/queryMargin.do', params={
             'isPagination': 'true',
             'beginDate': start_str,
             'endDate': end_str,
             'pageHelp.pageSize': '5000',
             'pageHelp.pageNo': '1',
         }, headers={**_MARGIN_HEADERS, 'Referer': 'https://www.sse.com.cn/'}, timeout=10)
-        sse_rows = r.json().get('result', [])
+        sse_rows = jd.get('result', [])
     except Exception as e:
         print(f'[margin] SSE error: {e}')
 
@@ -44,20 +44,17 @@ def _fetch_and_cache_margin():
     # 深交所 — 按 SSE 已有日期逐日查询，字段名 jrrzye/jrrjye/jrrzrjye/jrrzmr，单位已是亿
     szse_dates = sorted(combined.keys())
     try:
-        session = _rq.Session()
-        session.headers.update({**_MARGIN_HEADERS, 'Referer': 'https://www.szse.cn/'})
         for d in szse_dates:
             fmt_date = d[:4] + '-' + d[4:6] + '-' + d[6:8]
             try:
-                r_sz = session.get('https://www.szse.cn/api/report/ShowReport/data', params={
+                sz_data = get_json('https://www.szse.cn/api/report/ShowReport/data', params={
                     'SHOWTYPE': 'json',
                     'CATALOGID': '1837_xxpl',
                     'txtDate': fmt_date,
                     'tab1PAGENO': '1',
                     'tab1PAGESIZE': '500',
                     'random': '0.5',
-                }, timeout=10)
-                sz_data = r_sz.json()
+                }, headers={**_MARGIN_HEADERS, 'Referer': 'https://www.szse.cn/'}, timeout=10)
                 if isinstance(sz_data, list) and len(sz_data) > 0:
                     rows = sz_data[0].get('data', [])
                     if rows:

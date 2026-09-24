@@ -1,6 +1,5 @@
 """全球大宗商品行情（新浪财经 hq.sinajs.cn）"""
-import requests
-from common import BROWSER_HEADERS
+from common.http import get_sina_hq
 from global_market.indices import get_global_indices
 
 COMMODITIES = [
@@ -97,10 +96,7 @@ COMMODITIES = [
     {"code": None,       "name": "",           "unit": "",           "source": "gap"},
 ]
 
-SINA_HEADERS = {
-    **BROWSER_HEADERS,
-    'Referer': 'https://finance.sina.com.cn',
-}
+SINA_HEADERS = None  # 兼容历史导入方：已迁到 common.http.get_sina_hq
 
 
 def _make_url(code: str) -> str:
@@ -175,25 +171,20 @@ def _parse_nf(item: str, cfg: dict) -> dict:
 def get_global_commodities() -> dict:
     """批量获取所有大宗商品行情（单次请求）"""
     real_items = [c for c in COMMODITIES if c["source"] != "gap"]
-    codes = ",".join(c["code"] for c in real_items)
-    url = "https://hq.sinajs.cn/list=" + codes
-    r = requests.get(url, headers=SINA_HEADERS, timeout=10)
-    r.encoding = "gb2312"
+    codes = [c["code"] for c in real_items]
+    hq = get_sina_hq(codes)
 
-    raw_lines = r.text.strip().split("\n")
-    if len(raw_lines) != len(real_items):
-        return {"success": False, "data": [], "error": f"响应行数不匹配: {len(raw_lines)} vs {len(real_items)}"}
+    if len(hq) != len(real_items):
+        return {"success": False, "data": [], "error": f"响应行数不匹配: {len(hq)} vs {len(real_items)}"}
 
     result = {"success": True, "data": []}
-    real_idx = 0
 
     for i, cfg in enumerate(COMMODITIES):
         if cfg["source"] == "gap":
             result["data"].append({"name": "", "price": "", "change": "", "change_pct": "", "unit": "", "url": "", "gap": True})
             continue
-        data_str = raw_lines[real_idx].split('"')[1]
-        real_idx += 1
-        if not data_str.strip():
+        data_str = hq.get(cfg["code"])
+        if not data_str or not data_str.strip():
             return {"success": False, "data": [], "error": f"{cfg['name']} 无数据"}
 
         if cfg["source"] == "nf":

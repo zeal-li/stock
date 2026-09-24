@@ -1,12 +1,6 @@
 """全球指数实时行情 - 统一新浪财经 hq.sinajs.cn"""
 
-import requests
-from common import BROWSER_HEADERS
-
-_SINA_HEADERS = {
-    **BROWSER_HEADERS,
-    'Referer': 'https://finance.sina.com.cn',
-}
+from common.http import get_sina_hq
 
 # A股指数：名称, 新浪代码（第一排）
 A_INDEX_LIST = [
@@ -72,16 +66,10 @@ def get_global_indices():
     """返回 12 列扁平列表，A股第一排 + 空格 + 美股第二排"""
     try:
         all_codes = [code for _, code in A_INDEX_LIST] + [code for _, code in US_INDEX_LIST]
-        url = "https://hq.sinajs.cn/list=" + ','.join(all_codes)
-        r = requests.get(url, headers=_SINA_HEADERS, timeout=10)
-        r.encoding = "gb2312"
+        hq = get_sina_hq(all_codes)
 
         parsed = {}
-        for line in r.text.strip().split("\n"):
-            if '=""' in line or '="' not in line:
-                continue
-            code = line.split('var hq_str_')[1].split('="')[0]
-            payload = line.split('="')[1].rstrip('";')
+        for code, payload in hq.items():
             parts = payload.split(',')
             if len(parts) < 4:
                 continue

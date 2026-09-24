@@ -1,12 +1,6 @@
 """全球外汇汇率行情（新浪财经 hq.sinajs.cn）"""
 
-import requests
-from common import BROWSER_HEADERS
-
-_SINA_HEADERS = {
-    **BROWSER_HEADERS,
-    'Referer': 'https://finance.sina.com.cn',
-}
+from common.http import get_sina_hq
 
 FOREX_LIST = [
     # 第一排：离岸/在岸人民币（6个 + 6个空位 = 12格）
@@ -77,25 +71,20 @@ def _parse_forex(item: str, cfg: dict) -> dict:
 def get_forex_rates() -> dict:
     """批量获取外汇汇率行情（单次请求）"""
     real_items = [c for c in FOREX_LIST if c.get("source") != "gap"]
-    codes = ",".join(c["code"] for c in real_items)
-    url = "https://hq.sinajs.cn/list=" + codes
-    r = requests.get(url, headers=_SINA_HEADERS, timeout=10)
-    r.encoding = "gb2312"
+    codes = [c["code"] for c in real_items]
+    hq = get_sina_hq(codes)
 
-    raw_lines = r.text.strip().split("\n")
-    if len(raw_lines) != len(real_items):
-        return {"success": False, "data": [], "error": f"响应行数不匹配: {len(raw_lines)} vs {len(real_items)}"}
+    if len(hq) != len(real_items):
+        return {"success": False, "data": [], "error": f"响应行数不匹配: {len(hq)} vs {len(real_items)}"}
 
     result = {"success": True, "data": []}
-    real_idx = 0
 
     for cfg in FOREX_LIST:
         if cfg.get("source") == "gap":
             result["data"].append({"name": "", "price": "", "change": "", "change_pct": "", "url": "", "gap": True})
             continue
-        data_str = raw_lines[real_idx].split('"')[1]
-        real_idx += 1
-        if not data_str.strip():
+        data_str = hq.get(cfg["code"])
+        if not data_str or not data_str.strip():
             return {"success": False, "data": [], "error": f"{cfg['name']} 无数据"}
 
         parsed = _parse_forex(data_str, cfg)

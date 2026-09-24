@@ -1,9 +1,7 @@
 """市场恐慌指数"""
-import time
-import requests
 from concurrent.futures import ThreadPoolExecutor
-from common import REQUEST_PROXIES
-from money_flow.storage import db_get, _cache_set, _cached, _EM_HEADERS, _EM_UT, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _FUND_FLOW_KEY
+from common.http import get_realtime_quotes
+from money_flow.storage import db_get, _cache_set, _cached, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _FUND_FLOW_KEY
 from money_flow.market import get_sh000001_minute_data
 from money_flow.fund_flow import get_market_fund_flow
 
@@ -138,17 +136,13 @@ def get_fear_index():
 
 
 def _fetch_idx_changes():
-    """东财获取沪深指数涨跌幅"""
+    """东财获取沪深指数涨跌幅（走 common.http.get_realtime_quotes）"""
     changes = []
     try:
-        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-        params = {'fltt': 2, 'invt': 2, 'fields': 'f3', 'secids': '1.000001,0.399001', 'ut': _EM_UT}
-        r = requests.get(url, params=params, headers=_EM_HEADERS, timeout=8, proxies=REQUEST_PROXIES)
-        for row in (r.json().get('data') or {}).get('diff') or []:
-            try:
-                changes.append(float(row.get('f3', 0)))
-            except Exception:
-                pass
+        quotes = get_realtime_quotes('1.000001,0.399001')
+        for q in quotes.values():
+            if q['pct'] is not None:
+                changes.append(q['pct'])
     except Exception:
         pass
     return changes

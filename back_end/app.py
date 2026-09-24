@@ -1,11 +1,14 @@
 """鑫多多 - 股票行情仪表盘"""
 from flask import Flask, jsonify, render_template, request, session, g
 from flask_cors import CORS
-import requests
 import json
 import re
 
-from common import REQUEST_PROXIES, HTTP_SESSION
+from common.http import (
+    get_realtime_quotes, get_em_stock_fields, get_em_trade_details, get_em_trends,
+    get_em_kline, get_sina_hq, get_sina_klines, get_ths_klines, get_yahoo_chart,
+    get_etf_nav, em_datacenter_get, get_json, HEADERS_EM_F10, HEADERS_EM_DATA,
+)
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market, \
     is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX, to_em_market, \
     is_a_share_trading_day
@@ -558,79 +561,54 @@ def stock_quotes():
                 else:
                     _mapped.append(s)
         secids = ','.join(_mapped)
-        url = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
-        params = {
-            'fltt': 2, 'invt': 2,
-            # f115=市盈率TTM(滚动市盈率), f15=最高, f16=最低, f17=今开, f18=昨收, f38=总股本, f39=流通股本
-            'fields': 'f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f23,f38,f39,f100,f115',
-            'secids': secids,
-            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-        }
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://data.eastmoney.com/',
-        }
-        r = HTTP_SESSION.get(url, params=params, headers=headers, timeout=8)
-        diff = (r.json().get('data') or {}).get('diff') or []
+        quotes = get_realtime_quotes(secids)
         result = {}
         # 收集所有 ETF 代码，用于批量获取溢价率
         etf_codes = []
-        for row in diff:
-            code = row.get('f12', '')
+        for q in quotes.values():
+            code = q['code']
             if not code:
                 continue
-            orig_mkt = _code_orig_market.get(code, str(row.get('f13', '')))
+            orig_mkt = _code_orig_market.get(code, q['market'])
             key = f"{orig_mkt}.{code}"
             # ETF 价格/涨跌额显示三位小数
             etf = is_etf(code, orig_mkt)
-            # 只取滚动市盈率TTM(f115)，没有则显示-
-            pe = row.get('f115')
             result[key] = {
-                'name': row.get('f14', ''),
-                'price': fmt(row.get('f2'), etf),
-                'pct': fmt_pct(row.get('f3')),
-                'change': fmt(row.get('f4'), etf),
-                'volume': fmt_volume(row.get('f5'), orig_mkt),
-                'amount': fmt_amount(row.get('f6')),
-                'amount_raw': row.get('f6'),
-                'amplitude': fmt_pct(row.get('f7')),
-                'turnover': fmt_pct(row.get('f8')),
-                'turnover_raw': row.get('f8'),
-                'pe': fmt(pe),
-                'pb': fmt(row.get('f23')),
-                'high': fmt(row.get('f15'), etf),
-                'low': fmt(row.get('f16'), etf),
-                'open': fmt(row.get('f17'), etf),
-                'pre_close': fmt(row.get('f18'), etf),
-                'total_cap': fmt_cap(row.get('f20')),
-                'float_cap': fmt_cap(row.get('f21')),
-                'total_shares': fmt_cap(row.get('f38')),
-                'float_shares': fmt_cap(row.get('f39')),
-                'industry': row.get('f100', '').replace('、', '·') if row.get('f100') else '',
+                'name': q['name'],
+                'price': fmt(q['price'], etf),
+                'pct': fmt_pct(q['pct']),
+                'change': fmt(q['change'], etf),
+                'volume': fmt_volume(q['volume'], orig_mkt),
+                'amount': fmt_amount(q['amount']),
+                'amount_raw': q['amount'],
+                'amplitude': fmt_pct(q['amplitude']),
+                'turnover': fmt_pct(q['turnover']),
+                'turnover_raw': q['turnover'],
+                # 只取滚动市盈率TTM，没有则显示-
+                'pe': fmt(q['pe']),
+                'pb': fmt(q['pb']),
+                'high': fmt(q['high'], etf),
+                'low': fmt(q['low'], etf),
+                'open': fmt(q['open'], etf),
+                'pre_close': fmt(q['pre_close'], etf),
+                'total_cap': fmt_cap(q['total_cap']),
+                'float_cap': fmt_cap(q['float_cap']),
+                'total_shares': fmt_cap(q['total_shares']),
+                'float_shares': fmt_cap(q['float_shares']),
+                'industry': q['industry'],
                 # ETF 价格原始值，用于后续溢价率计算
-                '_price_raw': float(row.get('f2')) if etf and row.get('f2') not in (None, '-', '') else None,
+                '_price_raw': q['price'] if etf else None,
             }
-            if etf and row.get('f2') not in (None, '-', ''):
+            if etf and q['price'] is not None:
                 etf_codes.append((key, code))
         # 为 ETF 并发获取最新净值，计算溢价率
         if etf_codes:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             def _fetch_etf_nav(etf_code):
                 try:
-                    r_nav = requests.get(
-                        'https://api.fund.eastmoney.com/f10/lsjz',
-                        params={'callback': 'jQuery', 'fundCode': etf_code, 'pageIndex': 1, 'pageSize': 1},
-                        headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://fundf10.eastmoney.com/'},
-                        timeout=5
-                    )
-                    json_str = re.sub(r'^jQuery\(|\)$', '', r_nav.text)
-                    data = json.loads(json_str)
-                    nav_list = (data.get('Data') or {}).get('LSJZList') or []
-                    if nav_list:
-                        return float(nav_list[0]['DWJZ'])
+                    return get_etf_nav(etf_code)
                 except Exception:
-                    pass
-                return None
+                    return None
             nav_map = {}
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = {executor.submit(_fetch_etf_nav, c): k for k, c in etf_codes}
@@ -665,16 +643,7 @@ def stock_extra():
     if not code or not market:
         return jsonify({'success': False, 'error': '缺少参数'})
     try:
-        url = "https://push2delay.eastmoney.com/api/qt/stock/get"
-        params = {
-            'secid': f"{to_em_market(market)}.{code}",
-            'fields': 'f50,f191',
-            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-        }
-        r = requests.get(url, params=params, headers={
-            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/',
-        }, timeout=8, proxies=REQUEST_PROXIES)
-        d = (r.json().get('data') or {})
+        d = get_em_stock_fields(f"{to_em_market(market)}.{code}", 'f50,f191')
         vr = d.get('f50')
         br = d.get('f191')
         if not is_a_share(market): br = None
@@ -699,16 +668,11 @@ def stock_depth():
         return jsonify({'success': False, 'error': '仅支持A股'})
     try:
         prefix = 'sh' if str(market) in ('1', '2') else 'sz'
-        url = f"https://hq.sinajs.cn/list={prefix}{code}"
-        r = requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/',
-        }, timeout=8, proxies=REQUEST_PROXIES)
-        r.encoding = 'gbk'
-        raw = r.text
-        if not raw or '=""' in raw:
+        raw = get_sina_hq(f"{prefix}{code}").get(f"{prefix}{code}")
+        if not raw:
             return jsonify({'success': True, 'data': {'bids': [], 'asks': []}})
         # 解析：字段 10-29 为买一量/买一价 ... 买五量/买五价, 卖一量/卖一价 ... 卖五量/卖五价
-        parts = raw.split('"')[1].split(',')
+        parts = raw.split(',')
         def _p(idx):
             v = parts[idx] if idx < len(parts) else ''
             try:
@@ -754,31 +718,7 @@ def stock_trade_detail():
     if not is_a_share(market):
         return jsonify({'success': False, 'error': '仅支持A股'})
     try:
-        url = "https://push2delay.eastmoney.com/api/qt/stock/details/get"
-        params = {
-            'secid': f"{to_em_market(market)}.{code}",
-            'fields1': 'f1,f2,f3,f4',
-            'fields2': 'f51,f52,f53,f54,f55',
-            'pos': '-0',
-            'wbp2u': '|0|0|0|web',
-            'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
-        }
-        r = requests.get(url, params=params, headers={
-            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://data.eastmoney.com/',
-        }, timeout=8, proxies=REQUEST_PROXIES)
-        details = (r.json().get('data') or {}).get('details') or []
-        trades = []
-        for item in details:
-            parts = item.split(',')
-            if len(parts) < 5:
-                continue
-            side = int(parts[4]) if parts[4].isdigit() else 0
-            trades.append({
-                'time': parts[0],
-                'price': float(parts[1]),
-                'volume': int(float(parts[2])),
-                'side': side,
-            })
+        trades = get_em_trade_details(f"{to_em_market(market)}.{code}")
         return jsonify({'success': True, 'data': trades})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
@@ -798,10 +738,7 @@ def stock_concepts():
     try:
         prefix = EM_F10_PREFIX.get(str(market), 'SZ')
         url = f"https://emweb.securities.eastmoney.com/PC_HSF10/CoreConception/PageAjax?code={prefix}{code}"
-        r = requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.eastmoney.com/',
-        }, timeout=10, proxies=REQUEST_PROXIES)
-        d = r.json()
+        d = get_json(url, headers=HEADERS_EM_F10, timeout=10)
         hxtc = d.get('hxtc', [])
         # 取核心题材关键词，排除"经营范围"和KEYWORD==KEY_CLASSIF的占位标签
         keywords = [x.get('KEYWORD', '') for x in hxtc
@@ -824,10 +761,7 @@ def stock_biz_comp():
     try:
         prefix = EM_F10_PREFIX.get(str(market), 'SZ')
         url = f"https://emweb.securities.eastmoney.com/PC_HSF10/BusinessAnalysis/PageAjax?code={prefix}{code}"
-        r = requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0', 'Referer': 'https://emweb.eastmoney.com/',
-        }, timeout=10, proxies=REQUEST_PROXIES)
-        data = r.json()
+        data = get_json(url, headers=HEADERS_EM_F10, timeout=10)
         zygcfx = data.get('zygcfx', [])
         if not zygcfx:
             return jsonify({'success': True, 'data': []})
@@ -891,39 +825,21 @@ def stock_minute():
     try:
         if days <= 1:
             # 单日：东财 push2delay trends2
-            url = "https://push2delay.eastmoney.com/api/qt/stock/trends2/get"
-            params = {
-                'secid': f"{to_em_market(market)}.{code}",
-                'fields1': 'f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13',
-                'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
-                'ndays': 1,
-            }
-            r = requests.get(url, params=params,
-                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
-                timeout=10, proxies=REQUEST_PROXIES,
-            )
-            d = r.json()
-            trends = (d.get('data') or {}).get('trends') or []
-            pre_close = (d.get('data') or {}).get('preClose', 0)
+            trends_data = get_em_trends(f"{to_em_market(market)}.{code}")
+            pre_close = trends_data['pre_close']
             # 先按原始顺序收集所有数据点
             raw_points = []
-            prevAmt = 0
-            for t in trends:
-                parts = t.split(',')
-                if len(parts) >= 2:
-                    full_tm = parts[0]
-                    tm = full_tm.split(' ')[-1] if ' ' in full_tm else full_tm
-                    if is_a_share(market) or is_hk(market):
-                        if tm < '09:30': continue
-                    curVol = int(float(parts[5])) if len(parts) > 5 and parts[5] else 0
-                    curAmt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
-                    raw_points.append({
-                        'tm': tm,
-                        'full_tm': full_tm,
-                        'price': float(parts[1]),
-                        'vol': curVol,       # f56 是每分钟增量，不差值
-                        'amt': curAmt,       # f57 也是每分钟增量
-                    })
+            for p in trends_data['points']:
+                tm = p['time']
+                if is_a_share(market) or is_hk(market):
+                    if tm < '09:30': continue
+                raw_points.append({
+                    'tm': tm,
+                    'full_tm': p['full_time'],
+                    'price': p['price'],
+                    'vol': int(p['volume']),   # f56 是每分钟增量，不差值
+                    'amt': p['amount'],        # f57 也是每分钟增量
+                })
 
 
             # 按分钟聚合：同一分钟的多条数据合并 vol/amt，价格取最后一条
@@ -950,87 +866,69 @@ def stock_minute():
                 i = j
         elif is_overseas(market):
             # 港股/美股多日：Yahoo Finance 5分钟K线
-            import os as _os2, datetime as _dt2
+            import datetime as _dt2
             from datetime import timezone as _tz, timedelta as _td
-            _old_no2 = _os2.environ.pop('no_proxy', None)
-            _old_NO2 = _os2.environ.pop('NO_PROXY', None)
-            try:
-                symbol = to_yahoo_symbol(code, market)
-                _yh_tz = _tz(_td(hours=8)) if is_hk(market) else _tz(_td(hours=-5))  # HK UTC+8 / 美股 UTC-5
+            symbol = to_yahoo_symbol(code, market)
+            _yh_tz = _tz(_td(hours=8)) if is_hk(market) else _tz(_td(hours=-5))  # HK UTC+8 / 美股 UTC-5
 
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=5d&interval=5m"
-                r_yh = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-                result = (r_yh.json().get('chart', {}).get('result') or [None])[0]
-                if not result:
-                    return jsonify({'success': False, 'error': '无数据'})
+            yh = get_yahoo_chart(symbol, '5d', '5m')
+            if not yh:
+                return jsonify({'success': False, 'error': '无数据'})
 
-                yh_ts = result.get('timestamp') or []
-                yh_quotes = (result.get('indicators', {}).get('quote') or [None])[0]
-                if not yh_quotes:
-                    return jsonify({'success': False, 'error': '无数据'})
+            raw_points = []
+            for i, ts in enumerate(yh['timestamps']):
+                c = yh['close'][i]
+                v = yh['volume'][i]
+                if c is None:
+                    continue
+                dt = _dt2.datetime.fromtimestamp(ts, tz=_yh_tz)
+                raw_points.append({
+                    'date': dt.strftime('%Y-%m-%d'),
+                    'time': dt.strftime('%H:%M'),
+                    'price': round(float(c), 3),
+                    'volume': int(v or 0)
+                })
 
-                raw_points = []
-                for i, ts in enumerate(yh_ts):
-                    c = yh_quotes['close'][i]
-                    v = yh_quotes['volume'][i]
-                    if c is None:
-                        continue
-                    dt = _dt2.datetime.fromtimestamp(ts, tz=_yh_tz)
-                    raw_points.append({
-                        'date': dt.strftime('%Y-%m-%d'),
-                        'time': dt.strftime('%H:%M'),
-                        'price': round(float(c), 3),
-                        'volume': int(v or 0)
-                    })
+            if not raw_points:
+                return jsonify({'success': False, 'error': '无数据'})
 
-                if not raw_points:
-                    return jsonify({'success': False, 'error': '无数据'})
+            # 按日期去重排序，取最近 days 个交易日
+            all_dates = []
+            seen_dates = set()
+            for p in raw_points:
+                if p['date'] not in seen_dates:
+                    all_dates.append(p['date'])
+                    seen_dates.add(p['date'])
+            keep_dates = set(all_dates[-days:])
 
-                # 按日期去重排序，取最近 days 个交易日
-                all_dates = []
-                seen_dates = set()
-                for p in raw_points:
-                    if p['date'] not in seen_dates:
-                        all_dates.append(p['date'])
-                        seen_dates.add(p['date'])
-                keep_dates = set(all_dates[-days:])
+            # preClose：最后一个非保留日的收盘价
+            pre_close = 0
+            for p in reversed(raw_points):
+                if p['date'] not in keep_dates:
+                    pre_close = p['price']
+                    break
 
-                # preClose：最后一个非保留日的收盘价
-                pre_close = 0
-                for p in reversed(raw_points):
-                    if p['date'] not in keep_dates:
-                        pre_close = p['price']
-                        break
-
-                times, prices, volumes, amounts = [], [], [], []
-                for p in raw_points:
-                    if p['date'] not in keep_dates:
-                        continue
-                    times.append(p['date'] + ' ' + p['time'])
-                    prices.append(p['price'])
-                    volumes.append(p['volume'])
-                    amounts.append(round(p['price'] * p['volume'], 2))
-            finally:
-                if _old_no2 is not None: _os2.environ['no_proxy'] = _old_no2
-                if _old_NO2 is not None: _os2.environ['NO_PROXY'] = _old_NO2
+            times, prices, volumes, amounts = [], [], [], []
+            for p in raw_points:
+                if p['date'] not in keep_dates:
+                    continue
+                times.append(p['date'] + ' ' + p['time'])
+                prices.append(p['price'])
+                volumes.append(p['volume'])
+                amounts.append(round(p['price'] * p['volume'], 2))
         else:
             # 多日：A股 新浪 5分钟K线（多日分时图新浪API仅支持 sh/sz）
             if not is_a_share(market):
                 return jsonify({'success': False, 'error': '该市场暂不支持多日分时'})
             sina_prefix = 'sh' if str(market) in ('1', '2') else 'sz'
-            sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale=5&datalen={days*60}"
-            sr = requests.get(sina_url,
-                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
-                timeout=15,
-            )
-            srows = sr.json()
+            srows = get_sina_klines(f"{sina_prefix}{code}", 5, days * 60)
             times, prices, volumes, amounts = [], [], [], []
             pre_close = 0
-            if isinstance(srows, list) and len(srows) > 0:
+            if srows:
                 # 先收集所有日期，取最后 days 个
                 all_dates = []
                 for row in srows:
-                    dt = row.get('day', '')
+                    dt = row['datetime']
                     if dt:
                         ds = dt.split(' ')[0]
                         if not all_dates or all_dates[-1] != ds:
@@ -1039,17 +937,17 @@ def stock_minute():
                 # preClose: 最近一天的前一日收盘价
                 prev_close = 0
                 for row in srows:
-                    dt = row.get('day', '')
-                    close_v = float(row.get('close', 0))
+                    dt = row['datetime']
+                    close_v = row['close']
                     if not dt or not close_v: continue
                     ds = dt.split(' ')[0]
                     if ds not in keep_dates:
                         prev_close = close_v  # 不断覆盖为最后一个非保留日的收盘价
                 pre_close = prev_close
                 for row in srows:
-                    dt = row.get('day', '')
-                    close_v = row.get('close', 0)
-                    vol_v = row.get('volume', 0)
+                    dt = row['datetime']
+                    close_v = row['close']
+                    vol_v = row['volume']
                     if not dt or not close_v: continue
                     if dt.split(' ')[0] not in keep_dates: continue
                     if ':' in dt and dt.count(':') == 2:
@@ -1090,106 +988,50 @@ def stock_kline():
             yh_range, yh_intv = _YAHOO_RANGE_INTV[period]
             # A股 1min → 东财push2delay（固定240条，刚好1天，够用且快）
             if is_a_share(market) and period == '1min':
-                url = "https://push2delay.eastmoney.com/api/qt/stock/kline/get"
-                params = {
-                    'secid': f"{to_em_market(market)}.{code}",
-                    'klt': '1',
-                    'fqt': '1', 'beg': '0', 'end': '20500101', 'lmt': '240',
-                    'fields1': 'f1,f2,f3,f4,f5,f6',
-                    'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
-                }
-                r = requests.get(url, params=params,
-                    headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://quote.eastmoney.com/'},
-                    timeout=10, proxies=REQUEST_PROXIES)
-                d = r.json()
-                klines = (d.get('data') or {}).get('klines') or []
+                bars = get_em_kline(f"{to_em_market(market)}.{code}", 1, 240)
                 tz_cn = _dt.timezone(_dt.timedelta(hours=8))
-                for line in klines:
-                    parts = line.split(',')
-                    if len(parts) < 6:
-                        continue
-                    dt_str = parts[0]
-                    o = float(parts[1]) if parts[1] else 0
-                    c = float(parts[2]) if parts[2] else 0
-                    h = float(parts[3]) if parts[3] else 0
-                    l = float(parts[4]) if parts[4] else 0
-                    vol = int(float(parts[5]) if parts[5] else 0)
-                    amt = float(parts[6]) if len(parts) > 6 and parts[6] else 0
-                    if c <= 0:
-                        continue
-                    if o <= 0: o = c
-                    if h <= 0: h = c
-                    if l <= 0: l = c
-                    dt_obj = _dt.datetime.strptime(dt_str, '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                for bar in bars:
+                    dt_obj = _dt.datetime.strptime(bar['datetime'], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
                     rows.append({
                         'time': int(dt_obj.timestamp()),
-                        'open': o, 'close': c,
-                        'high': h, 'low': l,
-                        'volume': vol * 100,
-                        'amount': amt,
-                        'turnover': round(float(parts[10]) if len(parts) > 10 and parts[10] else 0, 2),
+                        'open': bar['open'], 'close': bar['close'],
+                        'high': bar['high'], 'low': bar['low'],
+                        'volume': bar['volume'],
+                        'amount': bar['amount'],
+                        'turnover': bar['turnover'],
                     })
             # A股 5/15/30/60min → 新浪
             elif market in SINA_PREFIX and period in _SINA_SCALE:
                 sina_sym = SINA_PREFIX[market] + code
-                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale={_SINA_SCALE[period]}&ma=no&datalen={_SINA_DATALEN[period]}"
-                r_sina = requests.get(sina_url,
-                    headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
-                    timeout=10, proxies=REQUEST_PROXIES)
-                d_sina = r_sina.json()
-                if not d_sina or not isinstance(d_sina, list):
+                d_sina = get_sina_klines(sina_sym, _SINA_SCALE[period], _SINA_DATALEN[period])
+                if not d_sina:
                     return jsonify({'success': False, 'error': '暂无分钟K线数据'})
                 tz_cn = _dt.timezone(_dt.timedelta(hours=8))
                 for bar in d_sina:
-                    dt_str = bar.get('day', '')
-                    if not dt_str:
+                    if bar['close'] <= 0:
                         continue
-                    o = float(bar.get('open') or 0)
-                    c = float(bar.get('close') or 0)
-                    h = float(bar.get('high') or 0)
-                    l = float(bar.get('low') or 0)
-                    vol = int(float(bar.get('volume') or 0))
-                    if c <= 0:
-                        continue
-                    if o <= 0: o = c
-                    if h <= 0: h = c
-                    if l <= 0: l = c
-                    dt_obj = _dt.datetime.strptime(dt_str[:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                    dt_obj = _dt.datetime.strptime(bar['datetime'][:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
                     rows.append({
                         'time': int(dt_obj.timestamp()),
-                        'open': o, 'close': c,
-                        'high': h, 'low': l,
-                        'volume': vol,
+                        'open': bar['open'], 'close': bar['close'],
+                        'high': bar['high'], 'low': bar['low'],
+                        'volume': int(bar['volume']),
                         'amount': 0,
                     })
             # A股 120min → 新浪 60min 两两合并合成
             elif market in SINA_PREFIX and period == '120min':
                 sina_sym = SINA_PREFIX[market] + code
-                sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_sym}&scale=60&ma=no&datalen=480"
-                r_sina = requests.get(sina_url,
-                    headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
-                    timeout=10, proxies=REQUEST_PROXIES)
-                d_sina = r_sina.json()
-                if not d_sina or not isinstance(d_sina, list) or len(d_sina) < 2:
+                d_sina = get_sina_klines(sina_sym, 60, 480)
+                if len(d_sina) < 2:
                     return jsonify({'success': False, 'error': '暂无120分钟K线数据'})
                 tz_cn = _dt.timezone(_dt.timedelta(hours=8))
                 bars_60 = []
                 for bar in d_sina:
-                    dt_str = bar.get('day', '')
-                    if not dt_str:
+                    if bar['close'] <= 0:
                         continue
-                    o = float(bar.get('open') or 0)
-                    c = float(bar.get('close') or 0)
-                    h = float(bar.get('high') or 0)
-                    l = float(bar.get('low') or 0)
-                    vol = int(float(bar.get('volume') or 0))
-                    if c <= 0:
-                        continue
-                    if o <= 0: o = c
-                    if h <= 0: h = c
-                    if l <= 0: l = c
-                    dt_obj = _dt.datetime.strptime(dt_str[:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
-                    bars_60.append({'time': int(dt_obj.timestamp()), 'open': o, 'close': c, 'high': h, 'low': l, 'volume': vol})
+                    dt_obj = _dt.datetime.strptime(bar['datetime'][:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                    bars_60.append({'time': int(dt_obj.timestamp()), 'open': bar['open'], 'close': bar['close'],
+                                    'high': bar['high'], 'low': bar['low'], 'volume': int(bar['volume'])})
                 i = 0
                 while i + 1 < len(bars_60):
                     t1, t2 = bars_60[i]['time'], bars_60[i + 1]['time']
@@ -1208,36 +1050,23 @@ def stock_kline():
                     i += 2
             elif is_overseas(market):
                 # 港股/美股用 Yahoo Finance 分钟K线
-                import os as _os
-                _old_no = _os.environ.pop('no_proxy', None)
-                _old_NO = _os.environ.pop('NO_PROXY', None)
-                try:
-                    symbol = to_yahoo_symbol(code, market)
-                    yh_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range={yh_range}&interval={yh_intv}"
-                    r_yh = requests.get(yh_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-                    result = (r_yh.json().get('chart', {}).get('result') or [None])[0]
-                    if not result:
-                        return jsonify({'success': False, 'error': '无数据'})
-                    timestamps = result.get('timestamp') or []
-                    quotes = (result.get('indicators', {}).get('quote') or [None])[0]
-                    if not quotes:
-                        return jsonify({'success': False, 'error': '无数据'})
-                    for i, ts in enumerate(timestamps):
-                        o = quotes['open'][i]
-                        if o is None:
-                            continue
-                        rows.append({
-                            'time': int(ts),
-                            'open': round(float(o), 3),
-                            'close': round(float(quotes['close'][i] or 0), 3),
-                            'high': round(float(quotes['high'][i] or 0), 3),
-                            'low': round(float(quotes['low'][i] or 0), 3),
-                            'volume': int(quotes['volume'][i] or 0),
-                            'amount': 0,
-                        })
-                finally:
-                    if _old_no is not None: _os.environ['no_proxy'] = _old_no
-                    if _old_NO is not None: _os.environ['NO_PROXY'] = _old_NO
+                symbol = to_yahoo_symbol(code, market)
+                yh = get_yahoo_chart(symbol, yh_range, yh_intv)
+                if not yh:
+                    return jsonify({'success': False, 'error': '无数据'})
+                for i, ts in enumerate(yh['timestamps']):
+                    o = yh['open'][i]
+                    if o is None:
+                        continue
+                    rows.append({
+                        'time': int(ts),
+                        'open': round(float(o), 3),
+                        'close': round(float(yh['close'][i] or 0), 3),
+                        'high': round(float(yh['high'][i] or 0), 3),
+                        'low': round(float(yh['low'][i] or 0), 3),
+                        'volume': int(yh['volume'][i] or 0),
+                        'amount': 0,
+                    })
             else:
                 return jsonify({'success': False, 'error': '暂不支持该市场分钟K线'})
             rows.sort(key=lambda r: r['time'])
@@ -1251,66 +1080,34 @@ def stock_kline():
             _SINA_SCALE_BOND = {'day': 240, 'week': 1200, 'month': 6000}
             sina_scale = _SINA_SCALE_BOND.get(period, 240)
             sina_prefix = SINA_PREFIX.get(str(market), 'sz')
-            sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale={sina_scale}&ma=no&datalen=800"
-            r_sina = requests.get(sina_url,
-                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
-                timeout=10, proxies=REQUEST_PROXIES)
-            d_sina = r_sina.json()
-            if d_sina and isinstance(d_sina, list):
-                for bar in d_sina:
-                    dt_str = bar.get('day', '')
-                    if not dt_str:
-                        continue
-                    o = float(bar.get('open') or 0)
-                    c = float(bar.get('close') or 0)
-                    h = float(bar.get('high') or 0)
-                    l = float(bar.get('low') or 0)
-                    vol = int(float(bar.get('volume') or 0))
-                    if c <= 0:
-                        continue
-                    if o <= 0: o = c
-                    if h <= 0: h = c
-                    if l <= 0: l = c
-                    rows.append({
-                        'time': dt_str,
-                        'open': o, 'close': c,
-                        'high': h, 'low': l,
-                        'volume': vol,
-                        'amount': 0,
-                    })
+            d_sina = get_sina_klines(f"{sina_prefix}{code}", sina_scale, 800)
+            for bar in d_sina:
+                if bar['close'] <= 0:
+                    continue
+                rows.append({
+                    'time': bar['datetime'],
+                    'open': bar['open'], 'close': bar['close'],
+                    'high': bar['high'], 'low': bar['low'],
+                    'volume': int(bar['volume']),
+                    'amount': 0,
+                })
             rows.sort(key=lambda r: r['time'])
         elif str(market) == '2':
             # 北交所 K 线：同花顺不支持，走新浪
             _SINA_SCALE = {'day': 240, 'week': 1200, 'month': 6000}
             sina_scale = _SINA_SCALE.get(period, 240)
             sina_prefix = SINA_PREFIX.get('2', 'bj')
-            sina_url = f"https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={sina_prefix}{code}&scale={sina_scale}&ma=no&datalen=800"
-            r_sina = requests.get(sina_url,
-                headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.sina.com.cn/'},
-                timeout=10, proxies=REQUEST_PROXIES)
-            d_sina = r_sina.json()
-            if d_sina and isinstance(d_sina, list):
-                for bar in d_sina:
-                    dt_str = bar.get('day', '')
-                    if not dt_str:
-                        continue
-                    o = float(bar.get('open') or 0)
-                    c = float(bar.get('close') or 0)
-                    h = float(bar.get('high') or 0)
-                    l = float(bar.get('low') or 0)
-                    vol = int(float(bar.get('volume') or 0))
-                    if c <= 0:
-                        continue
-                    if o <= 0: o = c
-                    if h <= 0: h = c
-                    if l <= 0: l = c
-                    rows.append({
-                        'time': dt_str,
-                        'open': o, 'close': c,
-                        'high': h, 'low': l,
-                        'volume': vol,
-                        'amount': 0,
-                    })
+            d_sina = get_sina_klines(f"{sina_prefix}{code}", sina_scale, 800)
+            for bar in d_sina:
+                if bar['close'] <= 0:
+                    continue
+                rows.append({
+                    'time': bar['datetime'],
+                    'open': bar['open'], 'close': bar['close'],
+                    'high': bar['high'], 'low': bar['low'],
+                    'volume': int(bar['volume']),
+                    'amount': 0,
+                })
             rows.sort(key=lambda r: r['time'])
         elif is_a_share(market):
             # A 股日/周/月K：优先读本地 K 线库（stock_klines），缺失年份才向同花顺请求，
@@ -1339,73 +1136,12 @@ def stock_kline():
             # 市场是否已在技术选股页加载（stock_market 有记录）；seg_key 为空（如北交所）或未加载时不读/写库
             market_loaded = bool(seg_key) and market_get(seg_key) is not None
 
-            ths_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://www.10jqka.com.cn/',
-            }
             ths_prefix = THS_PREFIX.get(str(market), 'sh')
 
-            # 单年份拉取：失败重试（同一数据源，非多源兜底）。
-            # 返回 None 表示请求失败（需重试）；返回 '' 表示该年份确实无数据（正常跳过）。
-            # 404 也视为该年无数据（如 ETF 上市前的年份），返回 ''。
-            def _fetch_year(y, retries=3):
-                url = f"https://d.10jqka.com.cn/v4/line/{ths_prefix}_{code}/{ths_period_code}/{y}.js"
-                last_err = None
-                for attempt in range(retries + 1):
-                    try:
-                        r = requests.get(url, headers=ths_headers, timeout=10, proxies=REQUEST_PROXIES)
-                        if r.status_code == 404:
-                            return ''
-                        if r.status_code == 200:
-                            text = r.text
-                            s = text.find('(') + 1; e = text.rfind(')')
-                            if s > 0 and e > s:
-                                jd = json.loads(text[s:e])
-                                return jd.get('data', '')
-                            last_err = '响应格式异常'
-                        else:
-                            last_err = f'HTTP {r.status_code}'
-                    except Exception as ex:
-                        last_err = str(ex)
-                    # 失败统一退避后再重试（502/504/格式异常/网络异常都走这里）
-                    if attempt < retries:
-                        _time.sleep(0.3)
-                print(f'[stock-kline] {code} {period} 年份 {y} 拉取失败: {last_err}')
-                return None
-
-            # 解析同花顺年文件 raw 字符串 → [{date, open, high, low, close, volume, amount, turnover}]
-            def _parse_year_raw(raw):
-                out = []
-                seen = set()
-                for line in raw.split(';'):
-                    parts = line.split(',')
-                    if len(parts) < 8:
-                        continue
-                    d = parts[0]
-                    if d in seen:
-                        continue
-                    seen.add(d)
-                    c = float(parts[4]) if parts[4] else 0
-                    if c <= 0:
-                        continue
-                    o = float(parts[1]) if parts[1] else 0
-                    h = float(parts[2]) if parts[2] else 0
-                    l = float(parts[3]) if parts[3] else 0
-                    # 开/高/低为空或为 0 时，用收盘价补上（同花顺当天可能只有收盘价）
-                    if o <= 0:
-                        o = c
-                    if h <= 0:
-                        h = c
-                    if l <= 0:
-                        l = c
-                    out.append({
-                        'date': d,
-                        'open': o, 'high': h, 'low': l, 'close': c,
-                        'volume': int(float(parts[5]) if parts[5] else 0),
-                        'amount': float(parts[6]) if parts[6] else 0,
-                        'turnover': round(float(parts[7]) if parts[7] else 0, 2),
-                    })
-                return out
+            # 单年份拉取（common/http 内统一同源重试）：
+            # 404 视为该年无数据（如 ETF 上市前的年份）→ 空列表；重试耗尽抛异常。
+            def _fetch_year(y):
+                return get_ths_klines(f"{ths_prefix}_{code}", period, y)
 
             # 判断某条K线是否属于当前未完结周期（仅当年文件、今天交易日时为 True）
             def _is_unfinished(d_str):
@@ -1444,14 +1180,11 @@ def stock_kline():
             years_to_fetch = miss_hist + ([current_year] if need_current else [])
 
             # 3. 拉取缺失年份 + 当年（若需要）
-            fetched = {}  # {year: [parsed rows]}
+            # 某年请求失败（重试耗尽）时 get_ths_klines 抛异常，由外层统一返回失败，
+            # 避免把残缺K线给前端
+            fetched = {}  # {year: [K线rows]}
             for y in years_to_fetch:
-                raw = _fetch_year(y)
-                if raw is None:
-                    # 该年份请求失败（重试耗尽），数据已不完整，整体返回失败，避免把残缺K线给前端
-                    return jsonify({'success': False, 'error': f'年份 {y} K线拉取失败，请稍后重试'})
-                if raw:
-                    fetched[y] = _parse_year_raw(raw)
+                fetched[y] = _fetch_year(y)
                 _time.sleep(0.1)  # 串行间隔，避免同花顺限流
 
             # 4. 回写库（仅当市场已加载）：剔除未完结周期后入库 + 更新 stock_info 时间戳
@@ -1525,37 +1258,24 @@ def stock_kline():
                     })
             else:
                 # 本地无数据，实时拉 Yahoo
-                import os as _os
-                _old_no = _os.environ.pop('no_proxy', None)
-                _old_NO = _os.environ.pop('NO_PROXY', None)
-                try:
-                    symbol = to_yahoo_symbol(code, market)
-                    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval={yh_intv}"
-                    r = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
-                    result = (r.json().get('chart', {}).get('result') or [None])[0]
-                    if not result:
-                        return jsonify({'success': False, 'error': '无数据'})
-                    timestamps = result.get('timestamp') or []
-                    quotes = (result.get('indicators', {}).get('quote') or [None])[0]
-                    if not quotes:
-                        return jsonify({'success': False, 'error': '无数据'})
-                    for i, ts in enumerate(timestamps):
-                        o = quotes['open'][i]
-                        if o is None:
-                            continue
-                        dt = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
-                        rows.append({
-                            'time': dt.strftime('%Y-%m-%d'),
-                            'open': round(float(o), 3),
-                            'close': round(float(quotes['close'][i] or 0), 3),
-                            'high': round(float(quotes['high'][i] or 0), 3),
-                            'low': round(float(quotes['low'][i] or 0), 3),
-                            'volume': int(quotes['volume'][i] or 0),
-                            'amount': 0,
-                        })
-                finally:
-                    if _old_no is not None: _os.environ['no_proxy'] = _old_no
-                    if _old_NO is not None: _os.environ['NO_PROXY'] = _old_NO
+                symbol = to_yahoo_symbol(code, market)
+                yh = get_yahoo_chart(symbol, '1y', yh_intv)
+                if not yh:
+                    return jsonify({'success': False, 'error': '无数据'})
+                for i, ts in enumerate(yh['timestamps']):
+                    o = yh['open'][i]
+                    if o is None:
+                        continue
+                    dt = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
+                    rows.append({
+                        'time': dt.strftime('%Y-%m-%d'),
+                        'open': round(float(o), 3),
+                        'close': round(float(yh['close'][i] or 0), 3),
+                        'high': round(float(yh['high'][i] or 0), 3),
+                        'low': round(float(yh['low'][i] or 0), 3),
+                        'volume': int(yh['volume'][i] or 0),
+                        'amount': 0,
+                    })
         else:
             return jsonify({'success': False, 'error': '暂不支持该市场K线'})
 
@@ -1681,10 +1401,6 @@ def announcements_list():
         from datetime import datetime as _dt, timedelta
         cutoff = (_dt.now() - timedelta(days=15)).strftime('%Y-%m-%d')
 
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://data.eastmoney.com/',
-        }
         result = []
         for page in (1, 2):
             params = {
@@ -1695,9 +1411,8 @@ def announcements_list():
                 'f_node': 0,
                 'stock_list': ','.join(sorted(target_codes)),
             }
-            r = requests.get('https://np-anotice-stock.eastmoney.com/api/security/ann',
-                            params=params, headers=headers, timeout=15, proxies=REQUEST_PROXIES)
-            data = r.json()
+            data = get_json('https://np-anotice-stock.eastmoney.com/api/security/ann',
+                            params=params, headers=HEADERS_EM_DATA, timeout=15)
             items = (data.get('data') or {}).get('list') or []
             if not items:
                 break
@@ -1809,10 +1524,6 @@ def earnings_list():
         if not target_codes:
             return jsonify({'success': True, 'data': []})
 
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': 'https://data.eastmoney.com/',
-        }
         code_list_str = ','.join(f'"{c}"' for c in sorted(target_codes))
 
         from datetime import datetime as _dt
@@ -1829,19 +1540,12 @@ def earnings_list():
         result = []
 
         # ① 业绩预告
-        params1 = {
-            'reportName': 'RPT_PUBLIC_OP_NEWPREDICT',
-            'columns': 'SECURITY_CODE,SECURITY_NAME_ABBR,NOTICE_DATE,REPORT_DATE,PREDICT_TYPE,PREDICT_AMT_LOWER,PREDICT_AMT_UPPER,PREYEAR_SAME_PERIOD,PREDICT_CONTENT',
-            'filter': f'(SECURITY_CODE in ({code_list_str}))',
-            'pageSize': 500,
-            'pageNumber': 1,
-            'sortColumns': 'NOTICE_DATE',
-            'sortTypes': '-1',
-        }
-        r1 = requests.get('https://datacenter-web.eastmoney.com/api/data/v1/get',
-                         params=params1, headers=headers, timeout=15, proxies=REQUEST_PROXIES)
-        data1 = r1.json()
-        items1 = (data1.get('result') or {}).get('data') or []
+        items1 = em_datacenter_get(
+            'RPT_PUBLIC_OP_NEWPREDICT',
+            'SECURITY_CODE,SECURITY_NAME_ABBR,NOTICE_DATE,REPORT_DATE,PREDICT_TYPE,PREDICT_AMT_LOWER,PREDICT_AMT_UPPER,PREYEAR_SAME_PERIOD,PREDICT_CONTENT',
+            f'(SECURITY_CODE in ({code_list_str}))',
+            sort_columns='NOTICE_DATE',
+        )
 
         # 过滤掉"每股收益"行；同(code,report_date)只保留一条
         seen = set()
@@ -1881,19 +1585,12 @@ def earnings_list():
             })
 
         # ② 业绩快报
-        params2 = {
-            'reportName': 'RPT_FCI_PERFORMANCEE',
-            'columns': 'SECURITY_CODE,SECURITY_NAME_ABBR,REPORT_DATE,UPDATE_DATE,BASIC_EPS,PARENT_NETPROFIT,TOTAL_OPERATE_INCOME,YSTZ,JLRTBZCL',
-            'filter': f'(SECURITY_CODE in ({code_list_str})) AND (REPORT_DATE in ({rpt_dates_str}))',
-            'pageSize': 500,
-            'pageNumber': 1,
-            'sortColumns': 'UPDATE_DATE',
-            'sortTypes': '-1',
-        }
-        r2 = requests.get('https://datacenter-web.eastmoney.com/api/data/v1/get',
-                         params=params2, headers=headers, timeout=15, proxies=REQUEST_PROXIES)
-        data2 = r2.json()
-        items2 = (data2.get('result') or {}).get('data') or []
+        items2 = em_datacenter_get(
+            'RPT_FCI_PERFORMANCEE',
+            'SECURITY_CODE,SECURITY_NAME_ABBR,REPORT_DATE,UPDATE_DATE,BASIC_EPS,PARENT_NETPROFIT,TOTAL_OPERATE_INCOME,YSTZ,JLRTBZCL',
+            f'(SECURITY_CODE in ({code_list_str})) AND (REPORT_DATE in ({rpt_dates_str}))',
+            sort_columns='UPDATE_DATE',
+        )
 
         seen2 = set()
         for item in items2:
@@ -1929,19 +1626,12 @@ def earnings_list():
             })
 
         # ③ 业绩报表
-        params3 = {
-            'reportName': 'RPT_LICO_FN_CPD',
-            'columns': 'SECURITY_CODE,SECURITY_NAME_ABBR,REPORTDATE,UPDATE_DATE,BASIC_EPS,PARENT_NETPROFIT,TOTAL_OPERATE_INCOME,YSTZ,SJLTZ',
-            'filter': f'(SECURITY_CODE in ({code_list_str})) AND (REPORTDATE in ({rpt_dates_str}))',
-            'pageSize': 500,
-            'pageNumber': 1,
-            'sortColumns': 'REPORTDATE',
-            'sortTypes': '-1',
-        }
-        r3 = requests.get('https://datacenter-web.eastmoney.com/api/data/v1/get',
-                         params=params3, headers=headers, timeout=15, proxies=REQUEST_PROXIES)
-        data3 = r3.json()
-        items3 = (data3.get('result') or {}).get('data') or []
+        items3 = em_datacenter_get(
+            'RPT_LICO_FN_CPD',
+            'SECURITY_CODE,SECURITY_NAME_ABBR,REPORTDATE,UPDATE_DATE,BASIC_EPS,PARENT_NETPROFIT,TOTAL_OPERATE_INCOME,YSTZ,SJLTZ',
+            f'(SECURITY_CODE in ({code_list_str})) AND (REPORTDATE in ({rpt_dates_str}))',
+            sort_columns='REPORTDATE',
+        )
 
         seen3 = set()
         for item in items3:

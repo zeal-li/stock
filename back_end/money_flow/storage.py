@@ -5,7 +5,6 @@ import os
 import random
 import sqlite3
 import time
-from common import REQUEST_PROXIES
 from common.utils import is_a_trading_time, effective_today_str
 
 # 数据库路径（与 watchlist.db 同级在 data/ 目录下）
@@ -52,14 +51,6 @@ def db_has(key):
     row = conn.execute('SELECT 1 FROM market_data WHERE key = ?', (key,)).fetchone()
     conn.close()
     return row is not None
-
-
-# 东方财富通用配置
-_EM_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Referer': 'https://data.eastmoney.com/',
-}
-_EM_UT = 'bd1d9ddb04089700cf9c27f6f7426281'
 
 
 def _cached(key, ttl=5):

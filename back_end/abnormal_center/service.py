@@ -1,7 +1,6 @@
 """异动中心 - 数据服务层"""
-import requests
 import logging
-from common import REQUEST_PROXIES
+from common.http import get_json, get_tx_kline
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +15,7 @@ HEADERS = {
 def get_prediction():
     """获取异动预测列表（接近异常波动阈值的股票）"""
     try:
-        r = requests.get(PREDICTION_API, headers=HEADERS, timeout=15, proxies=REQUEST_PROXIES)
-        data = r.json()
+        data = get_json(PREDICTION_API, headers=HEADERS, timeout=15)
         if data.get('success'):
             return {'success': True, 'data': data['data'], 'count': data.get('count', len(data['data']))}
         return {'success': False, 'error': 'API返回失败'}
@@ -29,8 +27,7 @@ def get_prediction():
 def get_monitor():
     """获取异动监控列表（已触发异常波动的股票）"""
     try:
-        r = requests.get(MONITOR_API, headers=HEADERS, timeout=15, proxies=REQUEST_PROXIES)
-        data = r.json()
+        data = get_json(MONITOR_API, headers=HEADERS, timeout=15)
         if data.get('success'):
             return {
                 'success': True,
@@ -64,16 +61,10 @@ def analyze_stock(code, market=''):
             else:
                 return {'success': False, 'error': '无法判断市场，请提供market参数'}
 
-        # 拉取K线（最近80天）
-        kline_url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get"
+        # 拉取K线（最近80天，统一走 common.http.get_tx_kline）
         prefix = 'sh' if market in ('1', '2') else 'sz'
-        params = {'param': f"{prefix}{code},day,,,80,qfq"}
-        r = requests.get(kline_url, params=params,
-                         headers={'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.qq.com/'},
-                         timeout=10, proxies=REQUEST_PROXIES)
-        jd = r.json()
-        jd_data = (jd.get('data') or {}).get(f"{prefix}{code}", {})
-        klines = jd_data.get('qfqday') or jd_data.get('day') or []
+        kline = get_tx_kline(f"{prefix}{code}", 80, 'qfq')
+        klines = kline['rows']
 
         if not klines:
             return {'success': False, 'error': '无法获取K线数据'}
@@ -84,16 +75,15 @@ def analyze_stock(code, market=''):
         lows = []
         dates = []
         for k in klines:
-            if len(k) >= 6:
-                dates.append(k[0])
-                closes.append(float(k[2]))
-                highs.append(float(k[3]))
-                lows.append(float(k[4]))
+            dates.append(k['date'])
+            closes.append(k['close'])
+            highs.append(k['high'])
+            lows.append(k['low'])
 
         if len(closes) < 5:
             return {'success': False, 'error': 'K线数据不足'}
 
-        name = jd_data.get('qt', {}).get(f"{prefix}{code}", [None, ''])[1] if isinstance(jd_data.get('qt', {}).get(f"{prefix}{code}"), list) else code
+        name = kline['name'] or code
 
         # ---- 分析项 ----
         warnings = []
