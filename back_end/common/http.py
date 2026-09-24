@@ -130,30 +130,168 @@ def get_realtime_quotes_ulist(secids):
         if not code or mkt is None or str(mkt) == '':
             continue
         result[f"{mkt}.{code}"] = {
-            'code': code,
-            'market': str(mkt),
-            'name': str(row.get('f14') or ''),
-            'price': _num(row.get('f2')),
-            'pct': _num(row.get('f3')),
-            'change': _num(row.get('f4')),
-            'volume': _num(row.get('f5')),
-            'amount': _num(row.get('f6')),
-            'amplitude': _num(row.get('f7')),
-            'turnover': _num(row.get('f8')),
-            'pe': _num(row.get('f115')),
-            'pb': _num(row.get('f23')),
-            'high': _num(row.get('f15')),
-            'low': _num(row.get('f16')),
-            'open': _num(row.get('f17')),
-            'pre_close': _num(row.get('f18')),
-            'total_cap': _num(row.get('f20')),
-            'float_cap': _num(row.get('f21')),
-            'total_shares': _num(row.get('f38')),
-            'float_shares': _num(row.get('f39')),
-            'industry': str(row.get('f100') or '').replace('、', '·'),
-            'rise': _num(row.get('f104')),
-            'fall': _num(row.get('f105')),
-            'flat': _num(row.get('f106')),
+            'code': code,                          # 股票代码（f12）
+            'market': str(mkt),                    # 市场标识（f13：0深/1沪/2北/90板块/116港/105-107美）
+            'name': str(row.get('f14') or ''),     # 名称（f14）
+            'price': _num(row.get('f2')),          # 最新价（f2，元）
+            'pct': _num(row.get('f3')),            # 涨跌幅（f3，%）
+            'change': _num(row.get('f4')),         # 涨跌额（f4，元）
+            'volume': _num(row.get('f5')),         # 成交量（f5，手）
+            'amount': _num(row.get('f6')),         # 成交额（f6，元）
+            'amplitude': _num(row.get('f7')),      # 振幅（f7，%）
+            'turnover': _num(row.get('f8')),       # 换手率（f8，%）
+            'pe': _num(row.get('f115')),           # 市盈率TTM（f115）
+            'pb': _num(row.get('f23')),            # 市净率（f23）
+            'high': _num(row.get('f15')),          # 最高价（f15，元）
+            'low': _num(row.get('f16')),           # 最低价（f16，元）
+            'open': _num(row.get('f17')),          # 今开（f17，元）
+            'pre_close': _num(row.get('f18')),     # 昨收（f18，元）
+            'total_cap': _num(row.get('f20')),     # 总市值（f20，元）
+            'float_cap': _num(row.get('f21')),     # 流通市值（f21，元）
+            'total_shares': _num(row.get('f38')),  # 总股本（f38，股）
+            'float_shares': _num(row.get('f39')),  # 流通股本（f39，股）
+            'industry': str(row.get('f100') or '').replace('、', '·'),  # 所属行业（f100）
+            'rise': _num(row.get('f104')),         # 上涨家数（f104，仅指数）
+            'fall': _num(row.get('f105')),         # 下跌家数（f105，仅指数）
+            'flat': _num(row.get('f106')),         # 平盘家数（f106，仅指数）
+        }
+    return result
+
+
+# ---- 实时行情：腾讯 qt.gtimg.cn / 新浪 hq.sinajs.cn ----
+# 契约同 get_realtime_quotes_ulist（23 字段），业务侧换源时只需改调用的函数名。
+
+_TX_GTIMG_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj', '90': 'sz',
+                    '116': 'hk', '105': 'us', '106': 'us', '107': 'us'}
+_SINA_HQ_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj', '90': 'sz'}
+
+
+def _secids_to_codes(secids, prefix_map):
+    """东财 secids（market.code）→ {源原生code: secid}。"""
+    mapping = {}
+    for s in secids.split(','):
+        s = s.strip()
+        if '.' not in s:
+            continue
+        mkt, code = s.split('.', 1)
+        prefix = prefix_map.get(mkt)
+        if not prefix:
+            continue
+        if mkt == '116':  # 港股代码补零到 5 位
+            code = code.zfill(5)
+        elif mkt in ('105', '106', '107'):  # 美股：新浪 gb_ 小写，腾讯 us 大写
+            code = code.lower() if prefix.startswith('gb') else code.upper()
+        mapping[f'{prefix}{code}'] = s
+    return mapping
+
+
+def get_realtime_quotes_gtimg(secids):
+    """批量实时行情（腾讯 qt.gtimg.cn）→ {secid: 行情dict}，字段契约同 get_realtime_quotes_ulist。
+
+    腾讯无 industry / rise / fall / flat / total_shares / float_shares，这些字段为 None / ''。
+    单位对齐东财：volume 手、amount 万元→元、total_cap/float_cap 亿元→元。
+    """
+    mapping = _secids_to_codes(secids, _TX_GTIMG_PREFIX)
+    if not mapping:
+        return {}
+    text = get_text('https://qt.gtimg.cn/q=' + ','.join(mapping),
+                    headers=HEADERS_TX, timeout=8, encoding='gbk')
+    result = {}
+    for line in text.strip().split('\n'):
+        if '="' not in line:
+            continue
+        gt_code = line.split('="')[0].split('v_')[-1].strip()
+        secid = mapping.get(gt_code)
+        if not secid:
+            continue
+        parts = line.split('="')[1].rstrip('";').split('~')
+        if len(parts) < 6:
+            continue
+
+        def _g(i):
+            return _num(parts[i]) if i < len(parts) else None
+
+        amount = _g(37)        # 成交额（万元）
+        float_cap = _g(44)     # 流通市值（亿元）
+        total_cap = _g(45)     # 总市值（亿元）
+        result[secid] = {
+            'code': parts[2] or secid.split('.', 1)[1],  # 股票代码（~2）
+            'market': secid.split('.', 1)[0],            # 市场标识（f13 转来）
+            'name': parts[1],                            # 名称（~1）
+            'price': _g(3),                              # 最新价（~3，元）
+            'pct': _g(32),                               # 涨跌幅（~32，%）
+            'change': _g(31),                            # 涨跌额（~31，元）
+            'volume': _g(6),                             # 成交量（~6，手）
+            'amount': amount * 1e4 if amount is not None else None,  # 成交额（~37，万元→元）
+            'amplitude': _g(43),                         # 振幅（~43，%）
+            'turnover': _g(38),                          # 换手率（~38，%）
+            'pe': _g(39),                                # 市盈率TTM（~39）
+            'pb': _g(46),                                # 市净率（~46）
+            'high': _g(33),                              # 最高价（~33，元）
+            'low': _g(34),                               # 最低价（~34，元）
+            'open': _g(5),                               # 今开（~5，元）
+            'pre_close': _g(4),                          # 昨收（~4，元）
+            'total_cap': total_cap * 1e8 if total_cap is not None else None,  # 总市值（~45，亿元→元）
+            'float_cap': float_cap * 1e8 if float_cap is not None else None,  # 流通市值（~44，亿元→元）
+            'total_shares': None,                        # 总股本（腾讯无）
+            'float_shares': None,                        # 流通股本（腾讯无）
+            'industry': '',                              # 所属行业（腾讯无）
+            'rise': None,                                # 上涨家数（腾讯无）
+            'fall': None,                                # 下跌家数（腾讯无）
+            'flat': None,                                # 平盘家数（腾讯无）
+        }
+    return result
+
+
+def get_realtime_quotes_sina(secids):
+    """批量实时行情（新浪 hq.sinajs.cn）→ {secid: 行情dict}，字段契约同 get_realtime_quotes_ulist。
+
+    仅支持 A 股（沪/深/北/板块）。新浪仅有名称/今开/昨收/现价/最高/最低/量/额，
+    涨跌额与涨跌幅由现价-昨收自算；振幅/换手/市盈率/市净率/市值/股本/行业/涨跌家数为 None / ''。
+    单位对齐东财：volume 股→手，amount 为元。
+    """
+    mapping = _secids_to_codes(secids, _SINA_HQ_PREFIX)
+    if not mapping:
+        return {}
+    hq = get_sina_hq(list(mapping))
+    result = {}
+    for sina_code, payload in hq.items():
+        secid = mapping.get(sina_code)
+        if not secid:
+            continue
+        parts = payload.split(',')
+        if len(parts) < 6:
+            continue
+        price = _num(parts[3])
+        pre_close = _num(parts[2])
+        change = round(price - pre_close, 2) if (price is not None and pre_close) else None
+        pct = round((price - pre_close) / pre_close * 100, 2) if (price is not None and pre_close) else None
+        volume = _num(parts[8]) if len(parts) > 8 else None
+        result[secid] = {
+            'code': secid.split('.', 1)[1],              # 股票代码
+            'market': secid.split('.', 1)[0],            # 市场标识（f13 转来）
+            'name': parts[0],                            # 名称（idx0）
+            'price': price,                              # 最新价（idx3，元）
+            'pct': pct,                                  # 涨跌幅（现价-昨收，%）
+            'change': change,                            # 涨跌额（现价-昨收，元）
+            'volume': volume / 100 if volume is not None else None,  # 成交量（idx8，股→手）
+            'amount': _num(parts[9]) if len(parts) > 9 else None,    # 成交额（idx9，元）
+            'amplitude': None,                           # 振幅（新浪无）
+            'turnover': None,                            # 换手率（新浪无）
+            'pe': None,                                  # 市盈率TTM（新浪无）
+            'pb': None,                                  # 市净率（新浪无）
+            'high': _num(parts[4]),                      # 最高价（idx4，元）
+            'low': _num(parts[5]),                       # 最低价（idx5，元）
+            'open': _num(parts[1]),                      # 今开（idx1，元）
+            'pre_close': pre_close,                      # 昨收（idx2，元）
+            'total_cap': None,                           # 总市值（新浪无）
+            'float_cap': None,                           # 流通市值（新浪无）
+            'total_shares': None,                        # 总股本（新浪无）
+            'float_shares': None,                        # 流通股本（新浪无）
+            'industry': '',                              # 所属行业（新浪无）
+            'rise': None,                                # 上涨家数（新浪无）
+            'fall': None,                                # 下跌家数（新浪无）
+            'flat': None,                                # 平盘家数（新浪无）
         }
     return result
 
