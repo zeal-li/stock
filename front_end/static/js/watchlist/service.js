@@ -207,7 +207,7 @@ async function watchlistPickStock(code, market) {
     // 获取加入时的价格
     var addPrice = '';
     try {
-        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(market + '.' + code));
+        var res = await fetch('/api/stock-quotes-gtimg?secids=' + encodeURIComponent(market + '.' + code));
         var d = await res.json();
         if (d.success) {
             var q = d.data[market + '.' + code];
@@ -284,7 +284,7 @@ async function refreshWatchlistQuotes() {
     if (watchlistStocks.length === 0) return;
     var secids = watchlistStocks.map(function(s) { return s.market + '.' + s.code; }).join(',');
     try {
-        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(secids));
+        var res = await fetch('/api/stock-quotes-gtimg?secids=' + encodeURIComponent(secids));
         var data = await res.json();
         if (data.success) {
             watchlistStocks.forEach(function(s) {
@@ -420,7 +420,7 @@ async function refreshEtfQuotes() {
     if (etfStocks.length === 0) return;
     var secids = etfStocks.map(function(s) { return s.market + '.' + s.code; }).join(',');
     try {
-        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(secids));
+        var res = await fetch('/api/stock-quotes-gtimg?secids=' + encodeURIComponent(secids));
         var data = await res.json();
         if (data.success) {
             etfStocks.forEach(function(s) {
@@ -964,7 +964,7 @@ async function refreshHoldingsQuotes() {
     if (holdingsStocks.length === 0) return;
     var secids = holdingsStocks.map(function(s) { return s.market + '.' + s.code; }).join(',');
     try {
-        var res = await fetch('/api/stock-quotes?secids=' + encodeURIComponent(secids));
+        var res = await fetch('/api/stock-quotes-gtimg?secids=' + encodeURIComponent(secids));
         var data = await res.json();
         if (data.success) {
             holdingsStocks.forEach(function(s) {

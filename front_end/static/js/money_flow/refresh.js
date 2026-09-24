@@ -201,12 +201,15 @@ async function refreshRealtimeData() {
 
     // ---- 选股页：刷新行情（仅选股页 + 交易时段） ----
     if (currentNavPage === 'stock-pick') refreshPickedQuotes();
-    // ---- 自选股页：只刷新当前激活 tab 的行情 ----
-    if (currentNavPage === 'watchlist') {
-        if (_currentWatchlistTab === 'watchlist') refreshWatchlistQuotes();
-        else if (_currentWatchlistTab === 'etf') refreshEtfQuotes();
-        else if (_currentWatchlistTab === 'holdings') refreshHoldingsQuotes();
-    }
+}
+
+// ---- 自选股页定时刷新：1 分钟一次（仅交易时段 + 当前激活 tab） ----
+function refreshWatchlistPeriodic() {
+    if (!isInTradingHours()) return;
+    if (currentNavPage !== 'watchlist') return;
+    if (_currentWatchlistTab === 'watchlist') refreshWatchlistQuotes();
+    else if (_currentWatchlistTab === 'etf') refreshEtfQuotes();
+    else if (_currentWatchlistTab === 'holdings') refreshHoldingsQuotes();
 }
 
 // 工具：按 id 更新文本，值为 null 时显示 '--'

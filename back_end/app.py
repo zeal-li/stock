@@ -5,7 +5,7 @@ import json
 import re
 
 from common.http import (
-    get_realtime_quotes_ulist, get_em_stock_fields, get_em_trade_details, get_em_trends,
+    get_realtime_quotes_ulist, get_realtime_quotes_gtimg, get_em_stock_fields, get_em_trade_details, get_em_trends,
     get_em_kline, get_sina_hq, get_sina_klines, get_ths_klines, get_yahoo_chart,
     get_etf_nav, em_datacenter_get, get_json, HEADERS_EM_F10, HEADERS_EM_DATA,
 )
@@ -539,9 +539,81 @@ def holdings_reorder_route():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+def _format_stock_quotes(quotes, code_orig_market=None):
+    """把统一契约的行情 dict 格式化为前端字段；code_orig_market 用于恢复原始 market key（东财北交所映射用）"""
+    result = {}
+    etf_codes = []
+    for q in quotes.values():
+        code = q['code']
+        if not code:
+            continue
+        if code_orig_market is not None:
+            orig_mkt = code_orig_market.get(code, q['market'])
+        else:
+            orig_mkt = q['market']
+        key = f"{orig_mkt}.{code}"
+        # ETF 价格/涨跌额显示三位小数
+        etf = is_etf(code, orig_mkt)
+        result[key] = {
+            'name': q['name'],
+            'price': fmt(q['price'], etf),
+            'pct': fmt_pct(q['pct']),
+            'change': fmt(q['change'], etf),
+            'volume': fmt_volume(q['volume'], orig_mkt),
+            'amount': fmt_amount(q['amount']),
+            'amount_raw': q['amount'],
+            'amplitude': fmt_pct(q['amplitude']),
+            'turnover': fmt_pct(q['turnover']),
+            'turnover_raw': q['turnover'],
+            # 只取滚动市盈率TTM，没有则显示-
+            'pe': fmt(q['pe']),
+            'pb': fmt(q['pb']),
+            'high': fmt(q['high'], etf),
+            'low': fmt(q['low'], etf),
+            'open': fmt(q['open'], etf),
+            'pre_close': fmt(q['pre_close'], etf),
+            'total_cap': fmt_cap(q['total_cap']),
+            'float_cap': fmt_cap(q['float_cap']),
+            'total_shares': fmt_cap(q['total_shares']),
+            'float_shares': fmt_cap(q['float_shares']),
+            'industry': q['industry'],
+            # ETF 价格原始值，用于后续溢价率计算
+            '_price_raw': q['price'] if etf else None,
+        }
+        if etf and q['price'] is not None:
+            etf_codes.append((key, code))
+    # 为 ETF 并发获取最新净值，计算溢价率
+    if etf_codes:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        def _fetch_etf_nav(etf_code):
+            try:
+                return get_etf_nav(etf_code)
+            except Exception:
+                return None
+        nav_map = {}
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_fetch_etf_nav, c): k for k, c in etf_codes}
+            for future in as_completed(futures):
+                k = futures[future]
+                nav = future.result()
+                if nav is not None:
+                    nav_map[k] = nav
+        # 计算溢价率: (最新价 / 单位净值 - 1) * 100
+        for key, price_raw in [(k, result[k]['_price_raw']) for k in result if result[k].get('_price_raw') is not None]:
+            nav = nav_map.get(key)
+            if nav and nav > 0:
+                result[key]['premium_rate'] = round((price_raw / nav - 1) * 100, 2)
+            else:
+                result[key]['premium_rate'] = None
+    # 清理内部字段
+    for k in result:
+        result[k].pop('_price_raw', None)
+    return result
+
+
 @app.route('/api/stock-quotes')
 def stock_quotes():
-    """批量获取股票实时行情"""
+    """批量获取股票实时行情（东财 ulist）"""
     secids = request.args.get('secids', '')
     if not secids:
         return jsonify({'success': False, 'data': {}})
@@ -562,74 +634,21 @@ def stock_quotes():
                     _mapped.append(s)
         secids = ','.join(_mapped)
         quotes = get_realtime_quotes_ulist(secids)
-        result = {}
-        # 收集所有 ETF 代码，用于批量获取溢价率
-        etf_codes = []
-        for q in quotes.values():
-            code = q['code']
-            if not code:
-                continue
-            orig_mkt = _code_orig_market.get(code, q['market'])
-            key = f"{orig_mkt}.{code}"
-            # ETF 价格/涨跌额显示三位小数
-            etf = is_etf(code, orig_mkt)
-            result[key] = {
-                'name': q['name'],
-                'price': fmt(q['price'], etf),
-                'pct': fmt_pct(q['pct']),
-                'change': fmt(q['change'], etf),
-                'volume': fmt_volume(q['volume'], orig_mkt),
-                'amount': fmt_amount(q['amount']),
-                'amount_raw': q['amount'],
-                'amplitude': fmt_pct(q['amplitude']),
-                'turnover': fmt_pct(q['turnover']),
-                'turnover_raw': q['turnover'],
-                # 只取滚动市盈率TTM，没有则显示-
-                'pe': fmt(q['pe']),
-                'pb': fmt(q['pb']),
-                'high': fmt(q['high'], etf),
-                'low': fmt(q['low'], etf),
-                'open': fmt(q['open'], etf),
-                'pre_close': fmt(q['pre_close'], etf),
-                'total_cap': fmt_cap(q['total_cap']),
-                'float_cap': fmt_cap(q['float_cap']),
-                'total_shares': fmt_cap(q['total_shares']),
-                'float_shares': fmt_cap(q['float_shares']),
-                'industry': q['industry'],
-                # ETF 价格原始值，用于后续溢价率计算
-                '_price_raw': q['price'] if etf else None,
-            }
-            if etf and q['price'] is not None:
-                etf_codes.append((key, code))
-        # 为 ETF 并发获取最新净值，计算溢价率
-        if etf_codes:
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            def _fetch_etf_nav(etf_code):
-                try:
-                    return get_etf_nav(etf_code)
-                except Exception:
-                    return None
-            nav_map = {}
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = {executor.submit(_fetch_etf_nav, c): k for k, c in etf_codes}
-                for future in as_completed(futures):
-                    k = futures[future]
-                    nav = future.result()
-                    if nav is not None:
-                        nav_map[k] = nav
-            # 计算溢价率: (最新价 / 单位净值 - 1) * 100
-            for key, price_raw in [(k, result[k]['_price_raw']) for k in result if result[k].get('_price_raw') is not None]:
-                nav = nav_map.get(key)
-                if nav and nav > 0:
-                    result[key]['premium_rate'] = round((price_raw / nav - 1) * 100, 2)
-                else:
-                    result[key]['premium_rate'] = None
-            # 清理内部字段
-            for k in result:
-                result[k].pop('_price_raw', None)
-        else:
-            for k in result:
-                result[k].pop('_price_raw', None)
+        result = _format_stock_quotes(quotes, _code_orig_market)
+        return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'data': {}})
+
+
+@app.route('/api/stock-quotes-gtimg')
+def stock_quotes_gtimg():
+    """批量获取股票实时行情（腾讯 qt.gtimg.cn，自选股列表专用）"""
+    secids = request.args.get('secids', '')
+    if not secids:
+        return jsonify({'success': False, 'data': {}})
+    try:
+        quotes = get_realtime_quotes_gtimg(secids)
+        result = _format_stock_quotes(quotes)
         return jsonify({'success': True, 'data': result})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e), 'data': {}})
