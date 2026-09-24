@@ -1,5 +1,5 @@
 """股票搜索 & 行情查询"""
-from common.http import get_json, get_realtime_quotes, HEADERS_EM_QUOTE
+from common.http import get_json, get_realtime_quotes_ulist, HEADERS_EM_QUOTE
 from common.utils import is_etf
 
 
@@ -56,9 +56,9 @@ def search_stock(keyword):
 
 
 def _fetch_quotes(secids):
-    """批量获取股票实时行情（走 common.http.get_realtime_quotes，返回字段固定为 price/pct/change 等）"""
+    """批量获取股票实时行情（走 common.http.get_realtime_quotes_ulist，返回字段固定为 price/pct/change 等）"""
     try:
-        quotes = get_realtime_quotes(','.join(secids))
+        quotes = get_realtime_quotes_ulist(','.join(secids))
         result = {}
         for key, q in quotes.items():
             etf = is_etf(q['code'], q['market'])

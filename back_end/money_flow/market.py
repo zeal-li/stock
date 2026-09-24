@@ -1,14 +1,14 @@
 """大盘行情、分时走势、涨跌家数、日K收盘价"""
 import datetime
 import time
-from common.http import get_realtime_quotes, get_em_trends, get_tx_kline
+from common.http import get_realtime_quotes_ulist, get_em_trends, get_tx_kline
 from money_flow.storage import db_set, db_get, db_has, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY, _DAILY_CLOSES_KEY
 
 
 def _fetch_and_cache_major_indices():
-    """抓取沪深指数行情并写入缓存（走 common.http.get_realtime_quotes）"""
+    """抓取沪深指数行情并写入缓存（走 common.http.get_realtime_quotes_ulist）"""
     try:
-        quotes = get_realtime_quotes('1.000001,0.399001')
+        quotes = get_realtime_quotes_ulist('1.000001,0.399001')
         if quotes:
             data = []
             for q in quotes.values():
@@ -31,9 +31,9 @@ def _fetch_and_cache_major_indices():
 
 
 def _fetch_and_cache_breadth():
-    """抓取沪深涨跌家数并写入缓存（走 common.http.get_realtime_quotes）"""
+    """抓取沪深涨跌家数并写入缓存（走 common.http.get_realtime_quotes_ulist）"""
     try:
-        quotes = get_realtime_quotes('1.000001,0.399001')
+        quotes = get_realtime_quotes_ulist('1.000001,0.399001')
         rise = sum(int(q['rise'] or 0) for q in quotes.values())
         fall = sum(int(q['fall'] or 0) for q in quotes.values())
         db_set(_MARKET_BREADTH_KEY, [rise, fall], time.time())

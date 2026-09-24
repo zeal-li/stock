@@ -4,7 +4,7 @@ import re
 import time
 import json
 from bs4 import BeautifulSoup
-from common.http import get_json, get_text, get_realtime_quotes, get_sina_hq, HEADERS_EM_DATA, EM_UT
+from common.http import get_json, get_text, get_realtime_quotes_ulist, get_sina_hq, HEADERS_EM_DATA, EM_UT
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_a_share, is_hk, is_us
 from sector_fund.storage import cache_get, cache_set
 
@@ -310,11 +310,11 @@ def get_etf_stocks(code: str, market: str) -> dict:
     em_holdings = [h for h in holdings if is_a_share(h["market"]) or is_hk(h["market"])]
     us_holdings = [h for h in holdings if is_us(h["market"])]
 
-    # 1) A股 + 港股 → 东方财富 ulist.np/get（统一走 get_realtime_quotes，字段 price/pct/name）
+    # 1) A股 + 港股 → 东方财富 ulist.np/get（统一走 get_realtime_quotes_ulist，字段 price/pct/name）
     if em_holdings:
         secids = ",".join(f"{h['market']}.{h['code']}" for h in em_holdings)
         try:
-            quotes = get_realtime_quotes(secids)
+            quotes = get_realtime_quotes_ulist(secids)
             for key, q in quotes.items():
                 quote_data[key] = q
         except Exception:

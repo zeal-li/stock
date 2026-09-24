@@ -30,7 +30,7 @@ import traceback
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-from common.http import get_json, get_realtime_quotes, get_ths_klines, HEADERS_EM_DATA
+from common.http import get_json, get_realtime_quotes_ulist, get_ths_klines, HEADERS_EM_DATA
 from common.utils import is_a_trading_time, is_etf, is_a_share_trading_day
 from money_flow.storage import db_get, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY
 
@@ -96,9 +96,9 @@ def _fmt_pct(v):
 
 
 def _fetch_quotes():
-    """主要指数实时行情 + 涨跌家数（走 common.http.get_realtime_quotes，字段名固定）"""
+    """主要指数实时行情 + 涨跌家数（走 common.http.get_realtime_quotes_ulist，字段名固定）"""
     secids = ','.join(s['secid'] for s in MAJOR_INDICES)
-    quotes = get_realtime_quotes(secids)
+    quotes = get_realtime_quotes_ulist(secids)
     if not quotes:
         raise RuntimeError('指数行情获取失败（东财 ulist 返回为空）')
 
@@ -169,11 +169,11 @@ def _stock_ths_symbol(code, market):
 
 
 def _fetch_stock_quotes(stocks):
-    """东财 ulist 批量获取股票实时行情（走 common.http.get_realtime_quotes，固定字段）。
+    """东财 ulist 批量获取股票实时行情（走 common.http.get_realtime_quotes_ulist，固定字段）。
     返回 {原始secid: {name, price, change_pct, change_val, open, high, low, pre_close}}"""
     code_orig_market = {s['code']: s['market'] for s in stocks}
     secids = ','.join(f"{'0' if s['market'] == '2' else s['market']}.{s['code']}" for s in stocks)
-    quotes = get_realtime_quotes(secids)
+    quotes = get_realtime_quotes_ulist(secids)
     quote_map = {}
     for em_secid, q in quotes.items():
         code = q['code']

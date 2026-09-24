@@ -1,6 +1,6 @@
 """市场恐慌指数"""
 from concurrent.futures import ThreadPoolExecutor
-from common.http import get_realtime_quotes
+from common.http import get_realtime_quotes_ulist
 from money_flow.storage import db_get, _cache_set, _cached, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _FUND_FLOW_KEY
 from money_flow.market import get_sh000001_minute_data
 from money_flow.fund_flow import get_market_fund_flow
@@ -136,10 +136,10 @@ def get_fear_index():
 
 
 def _fetch_idx_changes():
-    """东财获取沪深指数涨跌幅（走 common.http.get_realtime_quotes）"""
+    """东财获取沪深指数涨跌幅（走 common.http.get_realtime_quotes_ulist）"""
     changes = []
     try:
-        quotes = get_realtime_quotes('1.000001,0.399001')
+        quotes = get_realtime_quotes_ulist('1.000001,0.399001')
         for q in quotes.values():
             if q['pct'] is not None:
                 changes.append(q['pct'])

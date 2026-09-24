@@ -5,7 +5,7 @@ import json
 import re
 
 from common.http import (
-    get_realtime_quotes, get_em_stock_fields, get_em_trade_details, get_em_trends,
+    get_realtime_quotes_ulist, get_em_stock_fields, get_em_trade_details, get_em_trends,
     get_em_kline, get_sina_hq, get_sina_klines, get_ths_klines, get_yahoo_chart,
     get_etf_nav, em_datacenter_get, get_json, HEADERS_EM_F10, HEADERS_EM_DATA,
 )
@@ -561,7 +561,7 @@ def stock_quotes():
                 else:
                     _mapped.append(s)
         secids = ','.join(_mapped)
-        quotes = get_realtime_quotes(secids)
+        quotes = get_realtime_quotes_ulist(secids)
         result = {}
         # 收集所有 ETF 代码，用于批量获取溢价率
         etf_codes = []

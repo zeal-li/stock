@@ -5,7 +5,7 @@
    - 统一走 common.HTTP_SESSION（连接池复用、禁用系统代理）
    - 单一职责：成功返回数据；失败直接抛 HttpError 或底层异常，不做多源兜底
 2. 各数据源标准请求头：HEADERS_*（换源/调整伪装只需改这里）
-3. 固定字段名的数据接口：get_realtime_quotes / get_ths_klines / get_sina_klines /
+3. 固定字段名的数据接口：get_realtime_quotes_ulist / get_ths_klines / get_sina_klines /
    get_em_kline / get_em_trends / get_em_trade_details / get_em_stock_fields /
    get_etf_nav / get_sina_hq / get_tx_kline / get_yahoo_chart / em_datacenter_get
    - 返回字段名在本文件内固定为统一契约；换数据源时只改这里的请求和解析，
@@ -110,7 +110,7 @@ _ULIST_FIELDS = ('f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,'
                  'f20,f21,f23,f38,f39,f100,f104,f105,f106,f115')
 
 
-def get_realtime_quotes(secids):
+def get_realtime_quotes_ulist(secids):
     """批量实时行情（东财 ulist）→ {secid: 行情dict}（数值型，展示格式化由调用方做）。
 
     行情dict 固定字段（全部为 float|None，除 code/market/name/industry 外）：
