@@ -4,12 +4,6 @@ var _lastMinuteRefresh = 0;  // 上次分时/资金流刷新的时间戳（ms）
 var _lastMarginDate = '';     // 上次融资融券刷新的日期
 
 async function refreshRealtimeData() {
-    // 全球商品/汇率24小时交易，不受A股交易时间限制
-    if (currentNavPage === 'global-market') {
-        loadGlobalCommodities();
-        loadGlobalForex();
-    }
-
     if (!isInTradingHours()) return;
 
     var onMoneyFlow = currentNavPage === 'money-flow';
@@ -201,6 +195,13 @@ async function refreshRealtimeData() {
 
     // ---- 选股页：刷新行情（仅选股页 + 交易时段） ----
     if (currentNavPage === 'stock-pick') refreshPickedQuotes();
+}
+
+// ---- 全球市场定时刷新：30 秒一次（商品/汇率 24h 交易，不受 A 股交易时段限制） ----
+function refreshGlobalMarketPeriodic() {
+    if (currentNavPage !== 'global-market') return;
+    loadGlobalCommodities();
+    loadGlobalForex();
 }
 
 // ---- 自选股页定时刷新：1 分钟一次（仅交易时段 + 当前激活 tab） ----
