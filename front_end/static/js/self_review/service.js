@@ -76,7 +76,7 @@ function loadSelfReview(manual) {
 }
 
 function loadSRDates() {
-    return fetch('/api/trading-days?count=14')
+    return fetch('/api/trading-days?count=30')
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res || res.success === false) {
@@ -464,7 +464,7 @@ function _srPlan(p) {
 
 var currentReviewTab = 'market';
 var stockReviewLoaded = false;
-var _srDateList = null;    // 最近14个交易日（升序，旧→新，最新在末尾）
+var _srDateList = null;    // 最近30个交易日（升序，旧→新，最新在末尾）
 var _srCurrentDate = '';   // 当前查看的大盘复盘交易日
 var _srStockCurrentDate = '';  // 当前查看的自选复盘交易日
 

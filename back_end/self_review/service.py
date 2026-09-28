@@ -1549,7 +1549,7 @@ def run_stock_review(user_id):
 # ==================== self_review 定时任务（复盘 + 跨天清理） ====================
 # 同一个检测函数维护两个独立时间戳，每秒检查各到点执行：
 # - 复盘：交易日 17:00 无条件重跑覆盖当日（盘中落盘的数据收盘后需被最终数据覆盖）；非交易日不跑
-# - 清理：每日凌晨 00:30 删除超过 14 个交易日的旧数据（启动当天不触发，次日首次）
+# - 清理：每日凌晨 00:30 删除超过 30 个交易日的旧数据（启动当天不触发，次日首次）
 
 _AUTO_REVIEW_TIME = (17, 0)        # 复盘触发时刻：收盘 2 小时后，避开 16 点同花顺限流高峰
 _AUTO_CLEANUP_TIME = (0, 30)       # 清理触发时刻：凌晨 00:30（避开 00:00 整点高峰）
@@ -1613,7 +1613,7 @@ def check_self_review_update():
         _auto_cleanup_next_run = _cleanup_next_run_time(now)
         from self_review.storage import cleanup_old_reviews
         try:
-            n = cleanup_old_reviews(14)
+            n = cleanup_old_reviews(30)
             print(f'[self-review] 跨天清理完成: 删除 {n} 条过期复盘记录')
         except Exception as e:
             print(f'[self-review] 跨天清理异常: {type(e).__name__}: {e}')

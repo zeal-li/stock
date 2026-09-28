@@ -140,7 +140,7 @@ def list_stock_reviews(user_id, limit=30):
 
 # ==================== 跨天清理（保留最近 N 个交易日） ====================
 
-def cleanup_old_reviews(keep_days=14):
+def cleanup_old_reviews(keep_days=30):
     """保留最近 keep_days 个交易日的复盘数据，删除更早的。
     cutoff = market_review + stock_review 两表 trade_date 并集降序第 keep_days 个
     （即保留的最旧交易日），删除 trade_date < cutoff 的所有行。
