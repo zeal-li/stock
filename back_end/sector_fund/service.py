@@ -4,11 +4,14 @@ import re
 import time
 import json
 from bs4 import BeautifulSoup
-from common.http import get_json, get_text, get_realtime_quotes_gtimg, get_sina_hq, HEADERS_EM_DATA, EM_UT
+from common.http import get_text, get_realtime_quotes_gtimg, get_sina_hq
+from common.browser import jsonp_get
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_a_share, is_hk, is_us
 from sector_fund.storage import cache_get, cache_set
 
-_API_URL = "https://push2delay.eastmoney.com/api/qt/clist/get"
+_API_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+# 东财板块资金接口 token（从网页 bkzj/list.js 提取，旧 token bd1d... 已失效）
+_EM_BKZJ_UT = "8dec03ba335b81bf4ebdf7b29ec27d15"
 _FIELDS = "f2,f3,f4,f12,f14,f62,f66,f72,f78,f84,f164,f174,f204,f205"
 _STOCK_FIELDS = "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f62,f184"
 _PZ = 50
@@ -49,15 +52,11 @@ def _format_amount(val) -> str:
 
 def _request_top(fs: str, period: str, po: str) -> list:
     cfg = _PERIOD_CONFIG.get(period, _PERIOD_CONFIG["today"])
-    params = {
-        "pn": "1", "pz": str(_PZ), "po": po, "np": "1",
-        "fltt": "2", "invt": "2",
-        "fid": cfg["fid"],
-        "fs": fs,
-        "fields": _FIELDS,
-        "ut": EM_UT,
-    }
-    data = get_json(_API_URL, params=params, headers=HEADERS_EM_DATA, timeout=10)
+    url = (_API_URL + "?pn=1&pz=" + str(_PZ) + "&po=" + po + "&np=1&fltt=2&invt=2"
+           "&fid=" + cfg["fid"] + "&fs=" + fs + "&fields=" + _FIELDS + "&ut=" + _EM_BKZJ_UT)
+    data = jsonp_get(url)
+    if not isinstance(data, dict) or "__error__" in data:
+        return []
     if not data.get("data") or not data["data"].get("diff"):
         return []
 
@@ -149,15 +148,11 @@ def get_sector_stocks(sector_code: str) -> dict:
     if not sector_code:
         return {"success": False, "error": "缺少板块编码"}
 
-    params = {
-        "pn": "1", "pz": "100", "po": "1", "np": "1",
-        "fltt": "2", "invt": "2",
-        "fid": "f3",
-        "fs": f"b:{sector_code}",
-        "fields": _STOCK_FIELDS,
-        "ut": EM_UT,
-    }
-    data = get_json(_API_URL, params=params, headers=HEADERS_EM_DATA, timeout=10)
+    url = (_API_URL + "?pn=1&pz=100&po=1&np=1&fltt=2&invt=2"
+           "&fid=f3&fs=b:" + sector_code + "&fields=" + _STOCK_FIELDS + "&ut=" + _EM_BKZJ_UT)
+    data = jsonp_get(url)
+    if not isinstance(data, dict) or "__error__" in data:
+        return {"success": True, "stocks": [], "total": 0}
     if not data.get("data") or not data["data"].get("diff"):
         return {"success": True, "stocks": [], "total": 0}
 
