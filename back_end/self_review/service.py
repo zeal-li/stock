@@ -30,7 +30,7 @@ import traceback
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-from common.http import get_json, get_realtime_quotes_ulist, get_ths_klines, HEADERS_EM_DATA
+from common.http import get_json, get_realtime_quotes_ulist, get_realtime_quotes_gtimg, get_ths_klines, HEADERS_EM_DATA
 from common.utils import is_a_trading_time, is_etf, is_a_share_trading_day
 from money_flow.storage import db_get, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY
 
@@ -169,17 +169,12 @@ def _stock_ths_symbol(code, market):
 
 
 def _fetch_stock_quotes(stocks):
-    """东财 ulist 批量获取股票实时行情（走 common.http.get_realtime_quotes_ulist，固定字段）。
+    """腾讯 qt.gtimg.cn 批量获取股票实时行情（走 common.http.get_realtime_quotes_gtimg，固定字段）。
     返回 {原始secid: {name, price, change_pct, change_val, open, high, low, pre_close}}"""
-    code_orig_market = {s['code']: s['market'] for s in stocks}
-    secids = ','.join(f"{'0' if s['market'] == '2' else s['market']}.{s['code']}" for s in stocks)
-    quotes = get_realtime_quotes_ulist(secids)
+    secids = ','.join(f"{s['market']}.{s['code']}" for s in stocks)
+    quotes = get_realtime_quotes_gtimg(secids)
     quote_map = {}
-    for em_secid, q in quotes.items():
-        code = q['code']
-        if not code or code not in code_orig_market:
-            continue
-        secid = f"{code_orig_market[code]}.{code}"
+    for secid, q in quotes.items():
         quote_map[secid] = {
             'name': q['name'],
             'price': q['price'],
