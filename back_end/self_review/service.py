@@ -1546,33 +1546,24 @@ def run_stock_review(user_id):
     }
 
 
-# ==================== self_review 定时任务（复盘 + 跨天清理） ====================
-# 同一个检测函数维护两个独立时间戳，每秒检查各到点执行：
-# - 复盘：交易日 17:00 无条件重跑覆盖当日（盘中落盘的数据收盘后需被最终数据覆盖）；非交易日不跑
-# - 清理：每日凌晨 00:30 删除超过 30 个交易日的旧数据（启动当天不触发，次日首次）
+# ==================== self_review 定时任务（清理 + 复盘，统一 17:00 触发） ====================
+# 每日 17:00 统一触发：先清理过期数据，再复盘生成当日数据。
+# - 清理：删除超过 30 个交易日的旧数据
+# - 复盘：交易日无条件重跑覆盖当日（盘中落盘的数据收盘后需被最终数据覆盖）；非交易日不跑
 
-_AUTO_REVIEW_TIME = (17, 0)        # 复盘触发时刻：收盘 2 小时后，避开 16 点同花顺限流高峰
-_AUTO_CLEANUP_TIME = (0, 30)       # 清理触发时刻：凌晨 00:30（避开 00:00 整点高峰）
-_auto_review_next_run = None       # 下一次应执行复盘的时刻（datetime）
-_auto_cleanup_next_run = None      # 下一次应执行清理的时刻（datetime）
+_AUTO_UPDATE_TIME = (17, 0)        # 清理+复盘统一触发时刻：收盘 2 小时后，避开 16 点同花顺限流高峰
+_auto_update_next_run = None       # 下一次应执行清理+复盘的时刻（datetime）
 
 
-def _auto_review_next_run_time(base):
+def _auto_update_next_run_time(base):
     """返回 base 当天 17:00；若已过则返回次日 17:00"""
-    cand = base.replace(hour=_AUTO_REVIEW_TIME[0], minute=_AUTO_REVIEW_TIME[1],
+    cand = base.replace(hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
                         second=0, microsecond=0)
     if cand <= base:
         cand = (base + datetime.timedelta(days=1)).replace(
-            hour=_AUTO_REVIEW_TIME[0], minute=_AUTO_REVIEW_TIME[1],
+            hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
             second=0, microsecond=0)
     return cand
-
-
-def _cleanup_next_run_time(base):
-    """返回 base 次日 00:30（清理启动当天不触发，避免重启反复触发）"""
-    nxt = base + datetime.timedelta(days=1)
-    return nxt.replace(hour=_AUTO_CLEANUP_TIME[0], minute=_AUTO_CLEANUP_TIME[1],
-                      second=0, microsecond=0)
 
 
 def _run_auto_review():
@@ -1602,31 +1593,27 @@ def _run_auto_review():
 
 
 def check_self_review_update():
-    """self_review 定时检测：每秒检查复盘和清理两个时间戳，到点各自执行并推进。
+    """self_review 定时检测：每秒检查统一触发时刻，到点先清理过期数据再复盘生成新数据。
     由 app.py 公共秒级调度器每秒调用。"""
-    global _auto_review_next_run, _auto_cleanup_next_run
+    global _auto_update_next_run
     now = datetime.datetime.now()
-    if now >= _auto_review_next_run:
-        _auto_review_next_run = _auto_review_next_run_time(now)
-        _run_auto_review()
-    if now >= _auto_cleanup_next_run:
-        _auto_cleanup_next_run = _cleanup_next_run_time(now)
-        from self_review.storage import cleanup_old_reviews
-        try:
-            n = cleanup_old_reviews(30)
-            print(f'[self-review] 跨天清理完成: 删除 {n} 条过期复盘记录')
-        except Exception as e:
-            print(f'[self-review] 跨天清理异常: {type(e).__name__}: {e}')
+    if now < _auto_update_next_run:
+        return
+    _auto_update_next_run = _auto_update_next_run_time(now)
+    from self_review.storage import cleanup_old_reviews
+    try:
+        n = cleanup_old_reviews(30)
+        print(f'[self-review] 清理完成: 删除 {n} 条过期复盘记录')
+    except Exception as e:
+        print(f'[self-review] 清理异常: {type(e).__name__}: {e}')
+    _run_auto_review()
 
 
 def init_self_review_update():
-    """初始化复盘+清理两个触发时刻，返回检测函数供公共调度器注册（由 app.py 启动时调用）。
-    复盘下次时刻 = 今天 17:00（若已过则次日 17:00）；
-    清理下次时刻 = 次日 00:30（启动当天不触发，避免重启反复触发）。"""
-    global _auto_review_next_run, _auto_cleanup_next_run
+    """初始化统一触发时刻（今天 17:00，若已过则次日 17:00），
+    返回检测函数供公共调度器注册（由 app.py 启动时调用）。"""
+    global _auto_update_next_run
     now = datetime.datetime.now()
-    _auto_review_next_run = _auto_review_next_run_time(now)
-    _auto_cleanup_next_run = _cleanup_next_run_time(now)
-    print(f'[self-review] 定时任务已初始化（复盘: {_auto_review_next_run:%m-%d %H:%M}, '
-          f'清理: {_auto_cleanup_next_run:%m-%d %H:%M}）')
+    _auto_update_next_run = _auto_update_next_run_time(now)
+    print(f'[self-review] 定时任务已初始化（清理+复盘: {_auto_update_next_run:%m-%d %H:%M}）')
     return check_self_review_update

@@ -1813,7 +1813,7 @@ def start_scheduler():
     register_scheduler_check(init_market_db_update())  # K线库每日自动更新检测
     register_scheduler_check(init_longhu_bang_update())      # 龙虎榜每日 17:00 清理+自动拉取
     register_scheduler_check(init_money_flow_update())    # 资金流/指数行情轮询检测
-    register_scheduler_check(init_self_review_update())   # 自助复盘每日自动复盘
+    register_scheduler_check(init_self_review_update())   # 自助复盘每日 17:00 清理+复盘
     register_scheduler_check(init_sector_fund_update())   # 板块资金盘中轮询 + 每日 17:00 固化
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
