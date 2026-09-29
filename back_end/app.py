@@ -13,6 +13,7 @@ from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, 
     is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX, to_em_market, \
     is_a_share_trading_day
 from common.finance import get_goodwill
+from common.browser import init_browser
 from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
 from money_flow.fund_flow import get_market_fund_flow
 from money_flow.fear_index import get_fear_index
@@ -1822,5 +1823,6 @@ def start_scheduler():
 # ==================== 启动 ====================
 
 if __name__ == '__main__':
+    init_browser()                # 启动浏览器（后台拉起 + 预热，供板块资金等反爬接口复用）
     start_scheduler()             # 启动公共秒级调度器（含指数轮询/每日更新/跨天清理）
     app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5000)

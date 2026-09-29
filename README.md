@@ -64,7 +64,7 @@ stock/
 │   │
 │   ├── sector_fund/                   # 板块资金流向模块
 │   │   ├── __init__.py
-│   │   ├── service.py                 # 行业/概念板块主力流入流出排行 + 成分股 + ETF成分股 + 定时任务（盘中轮询/每日固化）
+│   │   ├── service.py                 # 行业/概念板块主力流入流出排行 + 成分股 + ETF成分股 + 每日 17:00 固化
 │   │   └── storage.py                 # SQLite 持久化（sector_fund_rank / sector_fund_form 两表）
 │   │
 │   ├── stock_pick/                    # 选股搜索模块
@@ -322,6 +322,7 @@ CREATE TABLE sector_fund_rank (
     period      TEXT NOT NULL,        -- today / 5d / 10d
     inflow      TEXT NOT NULL,        -- 主力净流入 TOP50 榜单（JSON 数组）
     outflow     TEXT NOT NULL,        -- 主力净流出 TOP50 榜单（JSON 数组）
+    updated_at  REAL NOT NULL,        -- 写入时间戳（最新交易日 10 分钟 TTL 判断用）
     PRIMARY KEY (trade_date, sector_type, period)
 );
 
@@ -330,11 +331,14 @@ CREATE TABLE sector_fund_form (
     trade_date  TEXT NOT NULL,        -- 交易日 'YYYY-MM-DD'
     sector_code TEXT NOT NULL,        -- 板块代码
     data        TEXT NOT NULL,        -- 板块成分股列表（JSON 数组）
+    updated_at  REAL NOT NULL,        -- 写入时间戳（最新交易日 10 分钟 TTL 判断用）
     PRIMARY KEY (trade_date, sector_code)
 );
 ```
 
 > 两表均为 `INSERT OR REPLACE` 语义：同一主键重复写入即整体覆盖，不产生重复行。数据保留最近 30 个交易日，更早的记录由每日 17:00 固化任务清理。
+>
+> `updated_at` 用于「最新交易日」的缓存判断：最新交易日的数据在 10 分钟内直接返回缓存；超过 10 分钟时，若缓存是收盘后落盘的（数据已定格）也直接返回，仅盘中落盘且过期的才重新请求东财。历史日期数据已固化，不做 TTL 判断。数据由客户端请求时触发抓取落地，每日 17:00 统一全量落库一次收盘数据（覆盖盘中快照）。
 
 ### data/self_review.db — 自动复盘数据（大盘复盘自动生成 / 自选复盘手动触发）
 

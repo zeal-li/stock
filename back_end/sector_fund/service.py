@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 from common.browser import jsonp_get
 from common.http import get_text, get_realtime_quotes_gtimg, get_sina_hq
-from common.utils import is_etf, fmt, is_a_share, is_hk, is_us, is_a_share_trading_day, is_a_trading_time, is_market_opened
+from common.utils import is_etf, fmt, is_a_share, is_hk, is_us, is_a_share_trading_day, is_market_opened, get_market_hours
 from sector_fund.storage import rank_get, rank_set, form_get, form_set, cleanup_old_data
 
 _API_URL = "https://push2.eastmoney.com/api/qt/clist/get"
@@ -30,8 +30,8 @@ _PERIOD_CONFIG = {
     "10d":   {"fid": "f174", "field": "f174"},
 }
 
-# 盘中排行榜轮询间隔（秒）
-_RANK_POLL_INTERVAL = 600
+# 最新交易日数据缓存 TTL（秒）：10 分钟内直接返回缓存，超过则重新请求东财
+_CACHE_TTL = 600
 
 # 每日 17:00 固化任务
 _AUTO_UPDATE_TIME = (17, 0)
@@ -111,6 +111,19 @@ def _latest_trading_date() -> str:
     return d.strftime('%Y-%m-%d')
 
 
+def _updated_after_close(updated_at) -> bool:
+    """判断 updated_at 是否在 A股收盘时间之后（缓存是否为收盘后落盘）。
+
+    收盘后落盘的数据已定格，即使超过 10 分钟 TTL 也直接返回缓存，不再请求东财。
+    """
+    hours = get_market_hours('hs_main')
+    if not hours:
+        return False
+    close_min = hours[2] * 60 + hours[3]
+    dt = datetime.datetime.fromtimestamp(updated_at)
+    return dt.hour * 60 + dt.minute >= close_min
+
+
 def _fetch_rank(fs: str, sector_type: str, period: str, trade_date: str):
     """请求东财流入+流出排行，写入 sector_fund_rank，返回 (inflow, outflow)。
     空数据不落库，避免用空列表覆盖已有数据 / 固化空数据。"""
@@ -167,11 +180,11 @@ def _fetch_stocks(sector_code: str):
 
 
 def get_sector_fund(sector_type: str = "concept", period: str = "today", date: str = None) -> dict:
-    """获取指定板块类型+时间段+交易日的资金流向排行。
+    """获取指定板块类型+时间段+交易日的资金流向排行（客户端触发，10 分钟缓存）。
 
     - date 为空时取最近一个交易日；
-    - 有缓存直接返回；
-    - 无缓存时：仅最近交易日才实时请求东财，历史日期直接返回空（不请求）。
+    - 非今天的日期：数据已固化，有缓存直接返回；无缓存仅最近交易日实时请求；
+    - 今天的日期：10 分钟内直接返回缓存，超过 10 分钟重新请求东财。
     """
     if sector_type not in _SECTOR_TYPES:
         return {"success": False, "error": f"未知板块类型: {sector_type}"}
@@ -179,17 +192,28 @@ def get_sector_fund(sector_type: str = "concept", period: str = "today", date: s
         return {"success": False, "error": f"未知时间段: {period}"}
 
     trade_date = date or _latest_trading_date()
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
 
     cached = rank_get(trade_date, sector_type, period)
     if cached:
-        return {"success": True, "date": trade_date, "inflow": cached[0], "outflow": cached[1]}
+        inflow, outflow, updated_at = cached
+        # 非今天的数据已固化，直接返回（不做 TTL 判断）
+        if trade_date != today_str:
+            return {"success": True, "date": trade_date, "inflow": inflow, "outflow": outflow}
+        # 今天的数据：10 分钟内直接返回缓存
+        if time.time() - updated_at < _CACHE_TTL:
+            return {"success": True, "date": trade_date, "inflow": inflow, "outflow": outflow}
+        # 超过 10 分钟：但若缓存是收盘后落盘的，数据已定格，直接返回缓存
+        if _updated_after_close(updated_at):
+            return {"success": True, "date": trade_date, "inflow": inflow, "outflow": outflow}
+        # 盘中落盘的缓存过期 → 继续往下重新请求
 
-    # 无缓存：仅最近交易日才实时请求，历史日期不请求
+    # 无缓存或今天缓存已过期：仅最近交易日才实时请求，更早的历史日期不请求
     if trade_date != _latest_trading_date():
         return {"success": True, "date": trade_date, "inflow": [], "outflow": [], "empty": True}
 
     # 最近交易日即今天，且今天尚未开盘 → 东财暂无当日数据，不请求直接返回空
-    if trade_date == datetime.date.today().strftime('%Y-%m-%d') and not is_market_opened('0'):
+    if trade_date == today_str and not is_market_opened('0'):
         return {"success": True, "date": trade_date, "inflow": [], "outflow": [], "empty": True}
 
     fs = _SECTOR_TYPES[sector_type]
@@ -198,20 +222,29 @@ def get_sector_fund(sector_type: str = "concept", period: str = "today", date: s
 
 
 def get_sector_stocks(sector_code: str, date: str = None) -> dict:
-    """获取板块成分股列表。逻辑同 get_sector_fund：有缓存返回，无缓存仅最近交易日请求。"""
+    """获取板块成分股列表。逻辑同 get_sector_fund（客户端触发，10 分钟缓存）。"""
     if not sector_code:
         return {"success": False, "error": "缺少板块编码"}
 
     trade_date = date or _latest_trading_date()
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
 
-    stocks = form_get(trade_date, sector_code)
-    if stocks is not None:
-        return {"success": True, "stocks": stocks, "total": len(stocks)}
+    cached = form_get(trade_date, sector_code)
+    if cached:
+        stocks, updated_at = cached
+        if trade_date != today_str:
+            return {"success": True, "stocks": stocks, "total": len(stocks)}
+        if time.time() - updated_at < _CACHE_TTL:
+            return {"success": True, "stocks": stocks, "total": len(stocks)}
+        # 超过 10 分钟：但若缓存是收盘后落盘的，数据已定格，直接返回缓存
+        if _updated_after_close(updated_at):
+            return {"success": True, "stocks": stocks, "total": len(stocks)}
+        # 盘中落盘的缓存过期 → 继续往下重新请求
 
     if trade_date != _latest_trading_date():
         return {"success": True, "stocks": [], "total": 0, "empty": True}
 
-    if trade_date == datetime.date.today().strftime('%Y-%m-%d') and not is_market_opened('0'):
+    if trade_date == today_str and not is_market_opened('0'):
         return {"success": True, "stocks": [], "total": 0, "empty": True}
 
     stocks, total = _fetch_stocks(sector_code)
@@ -220,9 +253,8 @@ def get_sector_stocks(sector_code: str, date: str = None) -> dict:
     return {"success": True, "stocks": stocks, "total": total}
 
 
-# =========== 定时任务：盘中 10 分钟轮询 + 每日 17:00 固化 ===========
+# =========== 定时任务：每日 17:00 固化 ===========
 
-_next_rank_ts = 0.0        # 盘中排行榜下次抓取时间戳
 _auto_next_update = None   # 下一次 17:00 任务时刻
 
 
@@ -237,15 +269,12 @@ def _next_update_time(base):
     return cand
 
 
-def _fetch_all_ranks(trade_date):
-    """抓取行业+概念 的 今日/5日/10日 六种排行榜，写入 sector_fund_rank"""
-    for sector_type, fs in _SECTOR_TYPES.items():
-        for period in _PERIOD_CONFIG:
-            _fetch_rank(fs, sector_type, period, trade_date)
-
-
 def _run_daily_update():
-    """每日 17:00 任务：先清理过期数据，再固化当日排行榜 + 全部板块成分股"""
+    """每日 17:00 任务：清理过期数据，并统一全量落库当日排行榜 + 成分股。
+
+    收盘后客户端请求不会再重新抓取（updated_at 收盘后直接返回缓存），
+    所以 17:00 无条件全量抓取一次，把盘中快照覆盖为收盘最终数据。
+    """
     cleanup_old_data()
 
     today = datetime.date.today()
@@ -254,10 +283,12 @@ def _run_daily_update():
         return
     trade_date = today.strftime('%Y-%m-%d')
 
-    # 1. 固化六种排行榜
-    _fetch_all_ranks(trade_date)
+    # 1. 全量抓取六种排行榜（覆盖盘中快照为收盘数据）
+    for sector_type, fs in _SECTOR_TYPES.items():
+        for period in _PERIOD_CONFIG:
+            _fetch_rank(fs, sector_type, period, trade_date)
 
-    # 2. 收集所有排行榜中的板块代码并去重
+    # 2. 收集所有排行榜中的板块代码，全量抓成分股（覆盖）
     sector_codes = set()
     for sector_type in _SECTOR_TYPES:
         for period in _PERIOD_CONFIG:
@@ -269,7 +300,6 @@ def _run_daily_update():
                 if code:
                     sector_codes.add(code)
 
-    # 3. 逐个板块抓取成分股并落库
     done = 0
     for code in sector_codes:
         try:
@@ -282,43 +312,23 @@ def _run_daily_update():
     print(f'[sector_fund] 17:00 任务完成: {trade_date}，成分股落库 {done}/{len(sector_codes)} 个板块')
 
 
-def _safe_fetch_all_ranks(trade_date):
-    try:
-        _fetch_all_ranks(trade_date)
-    except Exception as e:
-        print(f'[sector_fund] 盘中排行榜抓取失败: {e}')
-
-
 def check_sector_fund_update():
-    """板块资金定时检测：由公共秒级调度器每秒调用一次。
-    1) 交易时段内每 10 分钟抓一次排行榜；
-    2) 每日 17:00 清理过期数据并固化当日数据。
+    """板块资金定时检测：由公共秒级调度器每秒调用一次，每日 17:00 触发固化。
 
-    两个任务都放到独立线程执行：盘中抓取约 12 次浏览器请求、17:00 固化要抓
-    几百个板块成分股，均耗时较长，避免阻塞公共秒级调度器（影响其他定时任务）。
+    固化任务耗时较长（要补齐成分股），放到独立线程执行，避免阻塞调度器。
     """
-    global _next_rank_ts, _auto_next_update
-    now = time.time()
+    global _auto_next_update
     now_dt = datetime.datetime.now()
-
-    # 17:00 固化任务
     if now_dt >= _auto_next_update:
         _auto_next_update = _next_update_time(now_dt)
         threading.Thread(target=_run_daily_update, daemon=True, name='sector-fund-daily').start()
 
-    # 盘中排行榜轮询
-    if is_a_trading_time() and now >= _next_rank_ts:
-        _next_rank_ts = now + _RANK_POLL_INTERVAL
-        trade_date = datetime.date.today().strftime('%Y-%m-%d')
-        threading.Thread(target=_safe_fetch_all_ranks, args=(trade_date,), daemon=True).start()
-
 
 def init_sector_fund_update():
     """初始化板块资金定时任务，返回检测函数供公共调度器注册（由 app.py 启动时调用）。"""
-    global _next_rank_ts, _auto_next_update
+    global _auto_next_update
     now_dt = datetime.datetime.now()
     _auto_next_update = _next_update_time(now_dt)
-    _next_rank_ts = time.time()  # 启动后首个交易时段 tick 立即抓一次
     print(f'[sector_fund] 定时任务已初始化（17:00 固化下次: {_auto_next_update:%Y-%m-%d %H:%M}）')
     return check_sector_fund_update
 
