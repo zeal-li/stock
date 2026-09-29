@@ -21,7 +21,7 @@ from money_flow.margin import get_margin_trading
 from longhu_bang.service import get_longhu_bang, init_longhu_bang_update
 from global_market.commodities import get_global_commodities
 from global_market.forex import get_forex_rates
-from sector_fund.service import get_sector_fund, get_sector_stocks, get_etf_stocks
+from sector_fund.service import get_sector_fund, get_sector_stocks, get_etf_stocks, init_sector_fund_update
 from money_flow.storage import init_money_flow_update
 from market_db.sync import init_market_db_update
 from self_review.service import init_self_review_update
@@ -364,14 +364,16 @@ def sector_fund():
     """板块资金流向排行"""
     sector_type = request.args.get('type', 'concept').strip()
     period = request.args.get('period', 'today').strip()
-    return jsonify(get_sector_fund(sector_type, period))
+    date = request.args.get('date', '').strip()
+    return jsonify(get_sector_fund(sector_type, period, date or None))
 
 
 @app.route('/api/sector-stocks')
 def sector_stocks():
     """板块成分股列表"""
     sector_code = request.args.get('code', '').strip()
-    return jsonify(get_sector_stocks(sector_code))
+    date = request.args.get('date', '').strip()
+    return jsonify(get_sector_stocks(sector_code, date or None))
 
 
 @app.route('/api/etf-stocks')
@@ -1812,6 +1814,7 @@ def start_scheduler():
     register_scheduler_check(init_longhu_bang_update())      # 龙虎榜每日 17:00 清理+自动拉取
     register_scheduler_check(init_money_flow_update())    # 资金流/指数行情轮询检测
     register_scheduler_check(init_self_review_update())   # 自助复盘每日自动复盘
+    register_scheduler_check(init_sector_fund_update())   # 板块资金盘中轮询 + 每日 17:00 固化
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
 

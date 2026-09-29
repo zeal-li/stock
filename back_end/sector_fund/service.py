@@ -1,13 +1,16 @@
-"""板块资金流向 — 东方财富行业/概念板块主力资金流入/流出排行"""
+"""板块资金流向 — 东方财富行业/概念板块主力资金流入/流出排行（按交易日持久化）"""
 
+import datetime
 import re
+import threading
 import time
-import json
+
 from bs4 import BeautifulSoup
-from common.http import get_text, get_realtime_quotes_gtimg, get_sina_hq
+
 from common.browser import jsonp_get
-from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_a_share, is_hk, is_us
-from sector_fund.storage import cache_get, cache_set
+from common.http import get_text, get_realtime_quotes_gtimg, get_sina_hq
+from common.utils import is_etf, fmt, is_a_share, is_hk, is_us, is_a_share_trading_day, is_a_trading_time, is_market_opened
+from sector_fund.storage import rank_get, rank_set, form_get, form_set, cleanup_old_data
 
 _API_URL = "https://push2.eastmoney.com/api/qt/clist/get"
 # 东财板块资金接口 token（从网页 bkzj/list.js 提取，旧 token bd1d... 已失效）
@@ -15,7 +18,6 @@ _EM_BKZJ_UT = "8dec03ba335b81bf4ebdf7b29ec27d15"
 _FIELDS = "f2,f3,f4,f12,f14,f62,f66,f72,f78,f84,f164,f174,f204,f205"
 _STOCK_FIELDS = "f2,f3,f4,f5,f6,f7,f8,f12,f13,f14,f15,f16,f17,f18,f20,f21,f62,f184"
 _PZ = 50
-_CACHE_TTL = 60
 
 _SECTOR_TYPES = {
     "industry": "m:90+t:2+f:!50",
@@ -27,6 +29,12 @@ _PERIOD_CONFIG = {
     "5d":    {"fid": "f164", "field": "f164"},
     "10d":   {"fid": "f174", "field": "f174"},
 }
+
+# 盘中排行榜轮询间隔（秒）
+_RANK_POLL_INTERVAL = 600
+
+# 每日 17:00 固化任务
+_AUTO_UPDATE_TIME = (17, 0)
 
 
 def _safe_float(val):
@@ -95,66 +103,33 @@ def _request_top(fs: str, period: str, po: str) -> list:
     return result[:_PZ]
 
 
-def _make_key(sector_type: str, period: str, top: str) -> str:
-    return f"{sector_type}_{period}_{top}"
+def _latest_trading_date() -> str:
+    """返回最近一个A股交易日（YYYY-MM-DD）"""
+    d = datetime.date.today()
+    while not is_a_share_trading_day(d):
+        d -= datetime.timedelta(days=1)
+    return d.strftime('%Y-%m-%d')
 
 
-def _fetch_and_cache(fs: str, sector_type: str, period: str) -> dict:
-    """请求东方财富 API，存储 inflow+outflow 到 DB，返回两个列表"""
+def _fetch_rank(fs: str, sector_type: str, period: str, trade_date: str):
+    """请求东财流入+流出排行，写入 sector_fund_rank，返回 (inflow, outflow)。
+    空数据不落库，避免用空列表覆盖已有数据 / 固化空数据。"""
     inflow = _request_top(fs, period, po="1")
     outflow = _request_top(fs, period, po="0")
-
-    cache_set(_make_key(sector_type, period, "inflow"), inflow)
-    cache_set(_make_key(sector_type, period, "outflow"), outflow)
-
-    return {"inflow": inflow, "outflow": outflow}
+    if inflow or outflow:
+        rank_set(trade_date, sector_type, period, inflow, outflow)
+    return inflow, outflow
 
 
-def get_sector_fund(sector_type: str = "concept", period: str = "today") -> dict:
-    """获取指定板块类型+时间段的资金流向排行（带 10s 缓存）"""
-    if sector_type not in _SECTOR_TYPES:
-        return {"success": False, "error": f"未知板块类型: {sector_type}"}
-    if period not in _PERIOD_CONFIG:
-        return {"success": False, "error": f"未知时间段: {period}"}
-
-    inflow_key = _make_key(sector_type, period, "inflow")
-    outflow_key = _make_key(sector_type, period, "outflow")
-
-    # 两个 key 都在缓存中 → 直接返回
-    inflow_cached = cache_get(inflow_key)
-    outflow_cached = cache_get(outflow_key)
-    if inflow_cached and outflow_cached:
-        t_inflow = time.time() - inflow_cached[1]
-        t_outflow = time.time() - outflow_cached[1]
-        if t_inflow < _CACHE_TTL and t_outflow < _CACHE_TTL:
-            return {
-                "success": True,
-                "inflow": inflow_cached[0],
-                "outflow": outflow_cached[0],
-            }
-
-    # 缓存过期或不存在 → 请求 API 并缓存
-    fs = _SECTOR_TYPES[sector_type]
-    data = _fetch_and_cache(fs, sector_type, period)
-    return {
-        "success": True,
-        "inflow": data["inflow"],
-        "outflow": data["outflow"],
-    }
-
-
-def get_sector_stocks(sector_code: str) -> dict:
-    """获取板块成分股列表（按涨跌幅排序）"""
-    if not sector_code:
-        return {"success": False, "error": "缺少板块编码"}
-
+def _fetch_stocks(sector_code: str):
+    """请求东财板块成分股（按涨跌幅排序），返回 (stocks, total)"""
     url = (_API_URL + "?pn=1&pz=100&po=1&np=1&fltt=2&invt=2"
            "&fid=f3&fs=b:" + sector_code + "&fields=" + _STOCK_FIELDS + "&ut=" + _EM_BKZJ_UT)
     data = jsonp_get(url)
     if not isinstance(data, dict) or "__error__" in data:
-        return {"success": True, "stocks": [], "total": 0}
+        return [], 0
     if not data.get("data") or not data["data"].get("diff"):
-        return {"success": True, "stocks": [], "total": 0}
+        return [], 0
 
     total = data["data"].get("total", 0)
     stocks = []
@@ -188,8 +163,167 @@ def get_sector_stocks(sector_code: str) -> dict:
             "main_net": _format_amount(main_net),
         })
 
+    return stocks, total
+
+
+def get_sector_fund(sector_type: str = "concept", period: str = "today", date: str = None) -> dict:
+    """获取指定板块类型+时间段+交易日的资金流向排行。
+
+    - date 为空时取最近一个交易日；
+    - 有缓存直接返回；
+    - 无缓存时：仅最近交易日才实时请求东财，历史日期直接返回空（不请求）。
+    """
+    if sector_type not in _SECTOR_TYPES:
+        return {"success": False, "error": f"未知板块类型: {sector_type}"}
+    if period not in _PERIOD_CONFIG:
+        return {"success": False, "error": f"未知时间段: {period}"}
+
+    trade_date = date or _latest_trading_date()
+
+    cached = rank_get(trade_date, sector_type, period)
+    if cached:
+        return {"success": True, "date": trade_date, "inflow": cached[0], "outflow": cached[1]}
+
+    # 无缓存：仅最近交易日才实时请求，历史日期不请求
+    if trade_date != _latest_trading_date():
+        return {"success": True, "date": trade_date, "inflow": [], "outflow": [], "empty": True}
+
+    # 最近交易日即今天，且今天尚未开盘 → 东财暂无当日数据，不请求直接返回空
+    if trade_date == datetime.date.today().strftime('%Y-%m-%d') and not is_market_opened('0'):
+        return {"success": True, "date": trade_date, "inflow": [], "outflow": [], "empty": True}
+
+    fs = _SECTOR_TYPES[sector_type]
+    inflow, outflow = _fetch_rank(fs, sector_type, period, trade_date)
+    return {"success": True, "date": trade_date, "inflow": inflow, "outflow": outflow}
+
+
+def get_sector_stocks(sector_code: str, date: str = None) -> dict:
+    """获取板块成分股列表。逻辑同 get_sector_fund：有缓存返回，无缓存仅最近交易日请求。"""
+    if not sector_code:
+        return {"success": False, "error": "缺少板块编码"}
+
+    trade_date = date or _latest_trading_date()
+
+    stocks = form_get(trade_date, sector_code)
+    if stocks is not None:
+        return {"success": True, "stocks": stocks, "total": len(stocks)}
+
+    if trade_date != _latest_trading_date():
+        return {"success": True, "stocks": [], "total": 0, "empty": True}
+
+    if trade_date == datetime.date.today().strftime('%Y-%m-%d') and not is_market_opened('0'):
+        return {"success": True, "stocks": [], "total": 0, "empty": True}
+
+    stocks, total = _fetch_stocks(sector_code)
+    if stocks:
+        form_set(trade_date, sector_code, stocks)
     return {"success": True, "stocks": stocks, "total": total}
 
+
+# =========== 定时任务：盘中 10 分钟轮询 + 每日 17:00 固化 ===========
+
+_next_rank_ts = 0.0        # 盘中排行榜下次抓取时间戳
+_auto_next_update = None   # 下一次 17:00 任务时刻
+
+
+def _next_update_time(base):
+    """返回 base 当天 17:00；若已过则返回次日 17:00"""
+    cand = base.replace(hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
+                        second=0, microsecond=0)
+    if cand <= base:
+        cand = (base + datetime.timedelta(days=1)).replace(
+            hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
+            second=0, microsecond=0)
+    return cand
+
+
+def _fetch_all_ranks(trade_date):
+    """抓取行业+概念 的 今日/5日/10日 六种排行榜，写入 sector_fund_rank"""
+    for sector_type, fs in _SECTOR_TYPES.items():
+        for period in _PERIOD_CONFIG:
+            _fetch_rank(fs, sector_type, period, trade_date)
+
+
+def _run_daily_update():
+    """每日 17:00 任务：先清理过期数据，再固化当日排行榜 + 全部板块成分股"""
+    cleanup_old_data()
+
+    today = datetime.date.today()
+    if not is_a_share_trading_day(today):
+        print(f'[sector_fund] 17:00 任务跳过: {today} 非A股交易日')
+        return
+    trade_date = today.strftime('%Y-%m-%d')
+
+    # 1. 固化六种排行榜
+    _fetch_all_ranks(trade_date)
+
+    # 2. 收集所有排行榜中的板块代码并去重
+    sector_codes = set()
+    for sector_type in _SECTOR_TYPES:
+        for period in _PERIOD_CONFIG:
+            cached = rank_get(trade_date, sector_type, period)
+            if not cached:
+                continue
+            for item in cached[0] + cached[1]:
+                code = item.get('sector_code')
+                if code:
+                    sector_codes.add(code)
+
+    # 3. 逐个板块抓取成分股并落库
+    done = 0
+    for code in sector_codes:
+        try:
+            stocks, _ = _fetch_stocks(code)
+            if stocks:
+                form_set(trade_date, code, stocks)
+            done += 1
+        except Exception as e:
+            print(f'[sector_fund] 成分股抓取失败 {code}: {e}')
+    print(f'[sector_fund] 17:00 任务完成: {trade_date}，成分股落库 {done}/{len(sector_codes)} 个板块')
+
+
+def _safe_fetch_all_ranks(trade_date):
+    try:
+        _fetch_all_ranks(trade_date)
+    except Exception as e:
+        print(f'[sector_fund] 盘中排行榜抓取失败: {e}')
+
+
+def check_sector_fund_update():
+    """板块资金定时检测：由公共秒级调度器每秒调用一次。
+    1) 交易时段内每 10 分钟抓一次排行榜；
+    2) 每日 17:00 清理过期数据并固化当日数据。
+
+    两个任务都放到独立线程执行：盘中抓取约 12 次浏览器请求、17:00 固化要抓
+    几百个板块成分股，均耗时较长，避免阻塞公共秒级调度器（影响其他定时任务）。
+    """
+    global _next_rank_ts, _auto_next_update
+    now = time.time()
+    now_dt = datetime.datetime.now()
+
+    # 17:00 固化任务
+    if now_dt >= _auto_next_update:
+        _auto_next_update = _next_update_time(now_dt)
+        threading.Thread(target=_run_daily_update, daemon=True, name='sector-fund-daily').start()
+
+    # 盘中排行榜轮询
+    if is_a_trading_time() and now >= _next_rank_ts:
+        _next_rank_ts = now + _RANK_POLL_INTERVAL
+        trade_date = datetime.date.today().strftime('%Y-%m-%d')
+        threading.Thread(target=_safe_fetch_all_ranks, args=(trade_date,), daemon=True).start()
+
+
+def init_sector_fund_update():
+    """初始化板块资金定时任务，返回检测函数供公共调度器注册（由 app.py 启动时调用）。"""
+    global _next_rank_ts, _auto_next_update
+    now_dt = datetime.datetime.now()
+    _auto_next_update = _next_update_time(now_dt)
+    _next_rank_ts = time.time()  # 启动后首个交易时段 tick 立即抓一次
+    print(f'[sector_fund] 定时任务已初始化（17:00 固化下次: {_auto_next_update:%Y-%m-%d %H:%M}）')
+    return check_sector_fund_update
+
+
+# =========== ETF 持仓（与板块资金排行无关，保持不变） ===========
 
 def _parse_fundf10_holdings(code: str, topline: int = 300, year: str = "") -> list:
     """从 fundf10 jjcc API 解析 ETF 持仓股票列表，返回 [{code, market, name, ratio, share_count, market_value, is_foreign}]"""
@@ -286,9 +420,8 @@ def get_etf_stocks(code: str, market: str) -> dict:
         return {"success": False, "error": "缺少参数"}
 
     # 从 fundf10 解析持仓，优先取当年（最新季度），当年无数据才退到去年
-    from datetime import datetime as _dt
-    cur_year = str(_dt.now().year)
-    prev_year = str(_dt.now().year - 1)
+    cur_year = str(datetime.datetime.now().year)
+    prev_year = str(datetime.datetime.now().year - 1)
     holdings = _parse_fundf10_holdings(code, topline=300, year=cur_year)
     if not holdings:
         holdings = _parse_fundf10_holdings(code, topline=300, year=prev_year)

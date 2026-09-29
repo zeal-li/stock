@@ -2,6 +2,17 @@
 
 var _lastMinuteRefresh = 0;  // 上次分时/资金流刷新的时间戳（ms）
 var _lastMarginDate = '';     // 上次融资融券刷新的日期
+var _lastSectorFundRefresh = 0;  // 上次板块资金刷新的时间戳（ms）
+
+// 判断当前选中的板块资金日期是否为「今天」（历史日期数据已固化，无需定时刷新）
+function _isSectorFundDateToday() {
+    if (!_sectorFundDate) return false;
+    var now = new Date();
+    var y = now.getFullYear();
+    var m = String(now.getMonth() + 1).padStart(2, '0');
+    var d = String(now.getDate()).padStart(2, '0');
+    return _sectorFundDate === (y + '-' + m + '-' + d);
+}
 
 async function refreshRealtimeData() {
     if (!isInTradingHours()) return;
@@ -9,7 +20,11 @@ async function refreshRealtimeData() {
     var onMoneyFlow = currentNavPage === 'money-flow';
     var onSectorFund = currentNavPage === 'sector-fund';
 
-    if (onSectorFund) loadSectorFund();
+    // 板块资金每 5 分钟刷新一次：仅当选中日期为「今天」时才刷新（历史日期数据已固化，不会再变）
+    if (onSectorFund && _isSectorFundDateToday() && Date.now() - _lastSectorFundRefresh >= 5 * 60 * 1000) {
+        _lastSectorFundRefresh = Date.now();
+        loadSectorFund();
+    }
 
     try {
         // ---- 资金流向页：刷新图表 & 恐慌/风险指数 ----

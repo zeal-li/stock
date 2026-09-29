@@ -4,10 +4,16 @@ var _sectorFundType = 'industry';
 var _sectorFundPeriod = 'today';
 var _currentSectorCode = null;
 var _currentSectorName = null;
+var _sectorFundDate = '';          // 当前选中交易日
+var _sectorFundDateList = null;    // 交易日列表（最近30个）
+var _sectorFundInitialized = false;
 
-function loadSectorFund(type, period) {
+async function loadSectorFund(type, period) {
     _sectorFundType = type || _sectorFundType;
     _sectorFundPeriod = period || _sectorFundPeriod;
+
+    if (!_sectorFundInitialized) await initSectorFund();
+    if (!_sectorFundDate) return;
 
     // 仅在容器为空时显示 loading，刷新时保留已有数据避免闪烁
     var inflowEl = document.getElementById('sectorInflowTable');
@@ -15,11 +21,12 @@ function loadSectorFund(type, period) {
     if (!inflowEl.querySelector('table')) inflowEl.innerHTML = '<div class="loading">加载中...</div>';
     if (!outflowEl.querySelector('table')) outflowEl.innerHTML = '<div class="loading">加载中...</div>';
 
-    var url = '/api/sector-fund?type=' + _sectorFundType + '&period=' + _sectorFundPeriod;
+    var url = '/api/sector-fund?type=' + _sectorFundType + '&period=' + _sectorFundPeriod
+        + '&date=' + encodeURIComponent(_sectorFundDate);
     fetch(url)
         .then(function(r) { return r.json(); })
         .then(function(res) {
-            if (!res.success) {
+            if (!res.success || res.empty) {
                 renderSectorTable('sectorInflowTable', []);
                 renderSectorTable('sectorOutflowTable', []);
                 return;
@@ -32,6 +39,41 @@ function loadSectorFund(type, period) {
             renderSectorTable('sectorInflowTable', []);
             renderSectorTable('sectorOutflowTable', []);
         });
+}
+
+async function fetchSectorTradingDays() {
+    var res = await fetch('/api/trading-days?count=30');
+    var result = await res.json();
+    _sectorFundDateList = result.data.trading_days;
+    return _sectorFundDateList;
+}
+
+function renderSectorDateBar(activeDate) {
+    var bar = document.getElementById('sectorDateBar');
+    if (!bar || !_sectorFundDateList) return;
+    var html = '';
+    for (var i = 0; i < _sectorFundDateList.length; i++) {
+        var date = _sectorFundDateList[i];
+        var mmdd = date.slice(5);  // "MM-DD"
+        var cls = (date === activeDate) ? 'lhb-date-btn active' : 'lhb-date-btn';
+        html += '<span class="' + cls + '" onclick="selectSectorDate(\'' + date + '\')">' + mmdd + '</span>';
+    }
+    bar.innerHTML = html;
+}
+
+function selectSectorDate(date) {
+    _sectorFundDate = date;
+    closeStockPool();
+    renderSectorDateBar(date);
+    loadSectorFund();
+}
+
+async function initSectorFund() {
+    if (_sectorFundInitialized) return;
+    _sectorFundInitialized = true;
+    _sectorFundDateList = await fetchSectorTradingDays();
+    _sectorFundDate = _sectorFundDateList[_sectorFundDateList.length - 1];  // 默认最新交易日
+    renderSectorDateBar(_sectorFundDate);
 }
 
 function switchSectorTab(type) {
@@ -75,7 +117,7 @@ function showStockPool(sectorCode, sectorName, isInflow) {
     panel.style.display = 'block';
     document.getElementById('stockPoolTableWrap').innerHTML = '<div class="loading">加载中...</div>';
 
-    fetch('/api/sector-stocks?code=' + encodeURIComponent(sectorCode))
+    fetch('/api/sector-stocks?code=' + encodeURIComponent(sectorCode) + '&date=' + encodeURIComponent(_sectorFundDate))
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res.success) {

@@ -34,7 +34,7 @@ stock/
 │   │   ├── login.db                   # 用户账户
 │   │   ├── config.db                  # 应用配置（secret_key 等）
 │   │   ├── longhu_bang.db             # 龙虎榜每日明细（SQLite 缓存，90 天自动清理）
-│   │   ├── sector_fund.db             # 板块资金流向缓存（60s TTL）
+│   │   ├── sector_fund.db             # 板块资金排行榜 + 成分股（按交易日持久化，保留30个交易日）
 │   │   └── self_review.db            # 自动复盘数据（大盘复盘 + 自选复盘，按交易日）
 │   │
 │   ├── market_db/                     # 全市场股票数据库
@@ -64,8 +64,8 @@ stock/
 │   │
 │   ├── sector_fund/                   # 板块资金流向模块
 │   │   ├── __init__.py
-│   │   ├── service.py                 # 行业/概念板块主力流入流出排行 + 成分股 + ETF成分股
-│   │   └── storage.py                 # SQLite 缓存存储（60s TTL）
+│   │   ├── service.py                 # 行业/概念板块主力流入流出排行 + 成分股 + ETF成分股 + 定时任务（盘中轮询/每日固化）
+│   │   └── storage.py                 # SQLite 持久化（sector_fund_rank / sector_fund_form 两表）
 │   │
 │   ├── stock_pick/                    # 选股搜索模块
 │   │   ├── __init__.py
@@ -312,15 +312,29 @@ CREATE TABLE longhu_bang (
 
 > 启动时自动清理 90 天前的数据。
 
-### data/sector_fund.db — 板块资金流向缓存
+### data/sector_fund.db — 板块资金排行榜 + 成分股（按交易日持久化）
 
 ```sql
-CREATE TABLE sector_fund (
-    key       TEXT PRIMARY KEY,   -- 格式: {sector_type}_{period}_{top}
-    value     TEXT NOT NULL,
-    updated_at REAL NOT NULL      -- 写入时间戳（60s TTL）
+-- 排行榜（行业/概念 主力净流入/流出 TOP50，按交易日 + 板块类型 + 时间段唯一）
+CREATE TABLE sector_fund_rank (
+    trade_date  TEXT NOT NULL,        -- 交易日 'YYYY-MM-DD'
+    sector_type TEXT NOT NULL,        -- industry（行业）/ concept（概念）
+    period      TEXT NOT NULL,        -- today / 5d / 10d
+    inflow      TEXT NOT NULL,        -- 主力净流入 TOP50 榜单（JSON 数组）
+    outflow     TEXT NOT NULL,        -- 主力净流出 TOP50 榜单（JSON 数组）
+    PRIMARY KEY (trade_date, sector_type, period)
+);
+
+-- 板块成分股（按交易日 + 板块代码唯一）
+CREATE TABLE sector_fund_form (
+    trade_date  TEXT NOT NULL,        -- 交易日 'YYYY-MM-DD'
+    sector_code TEXT NOT NULL,        -- 板块代码
+    data        TEXT NOT NULL,        -- 板块成分股列表（JSON 数组）
+    PRIMARY KEY (trade_date, sector_code)
 );
 ```
+
+> 两表均为 `INSERT OR REPLACE` 语义：同一主键重复写入即整体覆盖，不产生重复行。数据保留最近 30 个交易日，更早的记录由每日 17:00 固化任务清理。
 
 ### data/self_review.db — 自动复盘数据（大盘复盘自动生成 / 自选复盘手动触发）
 
@@ -505,8 +519,8 @@ update_market(seg_key)
 | `/api/longhu-bang` | GET | 龙虎榜每日明细 |
 | `/api/global-commodities` | GET | 全球大宗商品 + 全球指数 |
 | `/api/global-forex` | GET | 全球外汇汇率 |
-| `/api/sector-fund` | GET | 板块资金流向排行（行业/概念 + 今日/5日/10日） |
-| `/api/sector-stocks` | GET | 板块成分股列表 |
+| `/api/sector-fund` | GET | 板块资金流向排行（行业/概念 + 今日/5日/10日 + 交易日 date） |
+| `/api/sector-stocks` | GET | 板块成分股列表（支持交易日 date） |
 | `/api/etf-stocks` | GET | ETF成分股列表 |
 | `/api/is-trading-day` | GET | 判断今日是否为A股交易日 |
 | `/api/trading-days` | GET | 获取最近 N 个A股交易日 |
