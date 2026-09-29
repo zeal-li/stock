@@ -35,6 +35,7 @@ stock/
 │   │   ├── config.db                  # 应用配置（secret_key 等）
 │   │   ├── longhu_bang.db             # 龙虎榜每日明细（SQLite 缓存，90 天自动清理）
 │   │   ├── sector_fund.db             # 板块资金排行榜 + 成分股（按交易日持久化，保留30个交易日）
+│   │   ├── abnormal_center.db         # 异动预测 + 异动监控（按交易日持久化，保留30个交易日）
 │   │   └── self_review.db            # 自动复盘数据（大盘复盘 + 自选复盘，按交易日）
 │   │
 │   ├── market_db/                     # 全市场股票数据库
@@ -81,7 +82,8 @@ stock/
 │   │
 │   ├── abnormal_center/               # 异动中心模块
 │   │   ├── __init__.py
-│   │   └── service.py                 # 异动预测/监控 API 代理 + 股票异动分析
+│   │   ├── service.py                 # 异动预测/监控 API 代理 + 股票异动分析 + 每日 17:00 固化
+│   │   └── storage.py                 # SQLite 持久化（abnormal_prediction / abnormal_monitor 两表）
 │   │
 │   ├── market_news/                   # 市场资讯模块
 │   │   ├── __init__.py
@@ -164,7 +166,7 @@ stock/
 | 解禁列表 | 限售股解禁信息（近一月），支持股票筛选 |
 | 业绩报告 | 业绩预告 + 业绩快报 + 业绩报表（近三年），按年报/半年报/季报细分，支持股票筛选 |
 | 公司公告 | 上市公司公告信息（最近 15 天），按重要性颜色标记，支持股票筛选 |
-| 异动中心 | 异动预测 + 异动监控 + 异动分析器（单股偏离度/回撤/均线偏离分析） |
+| 异动中心 | 异动预测 + 异动监控（30 天交易日日期栏切换）+ 异动分析器（单股偏离度/回撤/均线偏离分析） |
 | 市场资讯 | 东方财富全球财经资讯（200条，含标题/摘要/时间/原文链接），缓存30分钟，前端分页 |
 | 龙虎榜 | 每日龙虎榜明细（同花顺数据源），日期选择器 + 分类标签（全部/机构/游资/机构+游资）+ 席位明细展开 |
 | 全球行情 | 全球指数（A股8大 + 海外7大）+ 大宗商品（贵金属/有色/能化/黑色/农产品）+ 外汇汇率 |
@@ -339,6 +341,29 @@ CREATE TABLE sector_fund_form (
 > 两表均为 `INSERT OR REPLACE` 语义：同一主键重复写入即整体覆盖，不产生重复行。数据保留最近 30 个交易日，更早的记录由每日 17:00 固化任务清理。
 >
 > `updated_at` 用于「最新交易日」的缓存判断：最新交易日的数据在 10 分钟内直接返回缓存；超过 10 分钟时，若缓存是收盘后落盘的（数据已定格）也直接返回，仅盘中落盘且过期的才重新请求东财。历史日期数据已固化，不做 TTL 判断。数据由客户端请求时触发抓取落地，每日 17:00 统一全量落库一次收盘数据（覆盖盘中快照）。
+
+### data/abnormal_center.db — 异动预测 + 异动监控（按交易日持久化）
+
+```sql
+-- 异动预测（接近异常波动阈值的股票，按交易日唯一）
+CREATE TABLE abnormal_prediction (
+    trade_date  TEXT PRIMARY KEY,        -- 交易日 'YYYY-MM-DD'
+    data        TEXT NOT NULL,           -- 异动预测列表（JSON 数组）
+    updated_at  REAL NOT NULL            -- 写入时间戳（最新交易日 30 分钟 TTL 判断用）
+);
+
+-- 异动监控（已被交易所重点监控的股票，按交易日唯一）
+CREATE TABLE abnormal_monitor (
+    trade_date  TEXT PRIMARY KEY,        -- 交易日 'YYYY-MM-DD'
+    data        TEXT NOT NULL,           -- 异动监控列表（JSON 数组）
+    stats       TEXT NOT NULL,           -- 统计信息（risk_warning / severe_abnormal / total）
+    updated_at  REAL NOT NULL            -- 写入时间戳（最新交易日 30 分钟 TTL 判断用）
+);
+```
+
+> 两表均为 `INSERT OR REPLACE` 语义。数据源为悟道数据（stock.quicktiny.cn），落库以「请求当天」为 `trade_date`（快照归档）。数据保留最近 30 个交易日，更早的记录由每日 17:00 固化任务清理。
+>
+> `updated_at` 缓存判断逻辑同 `sector_fund.db`：最新交易日盘中 30 分钟内直接返回缓存；超过 30 分钟时，若缓存是收盘后落盘的也直接返回；仅盘中落盘且过期的才重新请求数据源。历史日期数据已固化，不做 TTL 判断。每日 17:00 强制打源一次，把盘中快照覆盖为收盘最终数据。
 
 ### data/self_review.db — 自动复盘数据（大盘复盘自动生成 / 自选复盘手动触发）
 
@@ -533,8 +558,8 @@ update_market(seg_key)
 
 | 路由 | 方法 | 说明 |
 |------|------|------|
-| `/api/abnormal/prediction` | GET | 异动预测 |
-| `/api/abnormal/monitor` | GET | 异动监控 |
+| `/api/abnormal/prediction` | GET | 异动预测（支持交易日 `?date=` 读指定日期快照） |
+| `/api/abnormal/monitor` | GET | 异动监控（支持交易日 `?date=` 读指定日期快照） |
 | `/api/abnormal/analyze` | POST | 异动分析器（单股偏离度/回撤/均线偏离） |
 
 ### 技术选股 + 市场数据库
@@ -637,6 +662,32 @@ cd back_end
 | `watchlistCache` | 自选股页 | 自选股数据补充（商誉/质押） | 跨天商誉失效 |
 | `abnormal-calc-history-v1` | 异动中心 | 分析器搜索历史（上限10条） | 跨天保留 |
 | `stock-search-history-v1` | 选股页 | 搜索历史（上限10条） | 跨天保留 |
+
+## 服务端缓存与并发合并
+
+后端对外部数据源的请求统一走 `common/http.py`，并叠加两层缓存机制，避免多客户端重复打数据源：
+
+| 层 | 实现 | 作用 |
+|----|------|------|
+| SQLite 落库缓存 | 各模块 `storage.py`（sector_fund.db / abnormal_center.db 等） | 按交易日持久化历史快照，支撑 30 天日期栏回看 |
+| 进程内 single-flight | `common/cache.py::cached_singleflight` | TTL 内并发请求去重，只让第一个请求打源，其余等待同一结果 |
+
+`cached_singleflight(key, loader, ttl)` 语义：
+- 缓存命中且未过期 → 直接返回，不访问数据源；
+- 未命中/已过期 → 第一个调用成为 leader 访问数据源，其余并发调用等待同一结果，返回后一并返回；
+- `loader` 抛异常 → 不缓存，leader 与等待者都收到异常（不做多源兜底）。
+
+应用场景：
+
+| 模块 | key | TTL | 说明 |
+|------|-----|-----|------|
+| 全球市场（指数/大宗商品/外汇） | 固定 key | 30s | 高频轮询合并 |
+| 板块资金排行榜 | `sector-rank-{date}-{type}-{period}` | 10 分钟 | 盘中并发合并，`get_sector_fund` 触发 |
+| 板块成分股 | `sector-stocks-{date}-{code}` | 10 分钟 | 盘中并发合并，`get_sector_stocks` 触发 |
+| 异动预测 | `abnormal-prediction-{date}` | 30 分钟 | 盘中并发合并，`get_prediction` 触发 |
+| 异动监控 | `abnormal-monitor-{date}` | 30 分钟 | 盘中并发合并，`get_monitor` 触发 |
+
+> 设计约定：`cached_singleflight` 只包裹「请求数据源」这一步（各模块拆出 `_xxx_raw` 原始取数函数），**每日 17:00 固化任务必须调用 `_xxx_raw` 强制打源**，否则会命中内存缓存、落库的还是盘中快照。`cached_singleflight` 为进程内内存缓存，服务重启后丢失，但 SQLite 持久缓存仍在，重启后首次请求会重新打源。
 
 ## 数据源
 

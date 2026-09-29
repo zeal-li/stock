@@ -2,6 +2,9 @@
 var abnormalCurrentTab = 'prediction';
 var abnormalCalcHistory = [];
 var abnormalCalcActiveRequestId = 0;
+var abnormalDate = '';          // 当前选中交易日
+var abnormalDateList = null;    // 交易日列表（最近30个）
+var abnormalDateInitialized = false;
 
 // 外部数据源 unusual_type 到可读描述的映射
 var UNUSUAL_TYPE_MAP = {
@@ -17,8 +20,10 @@ function formatUnusualType(raw) {
 function loadAbnormalCenter() {
     loadAbnormalTabs();
     loadAbnormalCalcHistory();
-    if (abnormalCurrentTab === 'prediction') loadPrediction();
-    else if (abnormalCurrentTab === 'monitor') loadMonitor();
+    initAbnormalDateBar().then(function() {
+        if (abnormalCurrentTab === 'prediction') loadPrediction();
+        else if (abnormalCurrentTab === 'monitor') loadMonitor();
+    });
 }
 
 function loadAbnormalTabs() {
@@ -28,6 +33,7 @@ function loadAbnormalTabs() {
         '<button class="tab-btn' + (abnormalCurrentTab === 'monitor' ? ' active' : '') + '" onclick="switchAbnormalTab(\'monitor\')">🔍 异动监控</button>' +
         '<button class="tab-btn' + (abnormalCurrentTab === 'calculator' ? ' active' : '') + '" onclick="switchAbnormalTab(\'calculator\')">🧮 异动分析器</button>' +
         '</div>' +
+        '<div id="abnormalDateBar" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;"></div>' +
         '<div id="abnormalTabContent"></div>';
     document.getElementById('abnormal-main').innerHTML = html;
 }
@@ -35,9 +41,52 @@ function loadAbnormalTabs() {
 function switchAbnormalTab(tab) {
     abnormalCurrentTab = tab;
     loadAbnormalTabs();
+    if (tab === 'calculator') {
+        var bar = document.getElementById('abnormalDateBar');
+        if (bar) bar.style.display = 'none';
+    } else {
+        renderAbnormalDateBar(abnormalDate);
+    }
     if (tab === 'prediction') loadPrediction();
     else if (tab === 'monitor') loadMonitor();
     else if (tab === 'calculator') loadCalculator();
+}
+
+// ===== 交易日日期栏（最近30个交易日） =====
+
+async function fetchAbnormalTradingDays() {
+    var res = await fetch('/api/trading-days?count=30');
+    var result = await res.json();
+    abnormalDateList = result.data.trading_days;
+    return abnormalDateList;
+}
+
+function renderAbnormalDateBar(activeDate) {
+    var bar = document.getElementById('abnormalDateBar');
+    if (!bar || !abnormalDateList) return;
+    var html = '';
+    for (var i = 0; i < abnormalDateList.length; i++) {
+        var date = abnormalDateList[i];
+        var mmdd = date.slice(5);  // "MM-DD"
+        var cls = (date === activeDate) ? 'lhb-date-btn active' : 'lhb-date-btn';
+        html += '<span class="' + cls + '" onclick="selectAbnormalDate(\'' + date + '\')">' + mmdd + '</span>';
+    }
+    bar.innerHTML = html;
+}
+
+function selectAbnormalDate(date) {
+    abnormalDate = date;
+    renderAbnormalDateBar(date);
+    if (abnormalCurrentTab === 'prediction') loadPrediction();
+    else if (abnormalCurrentTab === 'monitor') loadMonitor();
+}
+
+async function initAbnormalDateBar() {
+    if (abnormalDateInitialized) return;
+    abnormalDateInitialized = true;
+    abnormalDateList = await fetchAbnormalTradingDays();
+    abnormalDate = abnormalDateList[abnormalDateList.length - 1];  // 默认最新交易日
+    renderAbnormalDateBar(abnormalDate);
 }
 
 // ==================== Tab 1: 异动预测 ====================
@@ -47,7 +96,7 @@ function loadPrediction() {
     if (!container) return;
     container.innerHTML = '<div class="loading">正在加载异动预测...</div>';
 
-    fetch('/api/abnormal/prediction')
+    fetch('/api/abnormal/prediction?date=' + encodeURIComponent(abnormalDate || ''))
         .then(function(r) { return r.json(); })
         .then(function(resp) {
             if (!resp.success) {
@@ -119,7 +168,7 @@ function loadMonitor() {
     if (!container) return;
     container.innerHTML = '<div class="loading">正在加载异动监控...</div>';
 
-    fetch('/api/abnormal/monitor')
+    fetch('/api/abnormal/monitor?date=' + encodeURIComponent(abnormalDate || ''))
         .then(function(r) { return r.json(); })
         .then(function(resp) {
             if (!resp.success) {

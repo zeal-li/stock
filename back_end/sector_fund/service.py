@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 from common.browser import jsonp_get
 from common.http import get_text, get_realtime_quotes_gtimg, get_sina_hq
 from common.utils import is_etf, fmt, is_a_share, is_hk, is_us, is_a_share_trading_day, is_market_opened, get_market_hours
+from common.cache import cached_singleflight
 from sector_fund.storage import rank_get, rank_set, form_get, form_set, cleanup_old_data
 
 _API_URL = "https://push2.eastmoney.com/api/qt/clist/get"
@@ -124,7 +125,7 @@ def _updated_after_close(updated_at) -> bool:
     return dt.hour * 60 + dt.minute >= close_min
 
 
-def _fetch_rank(fs: str, sector_type: str, period: str, trade_date: str):
+def _fetch_rank_raw(fs: str, sector_type: str, period: str, trade_date: str):
     """请求东财流入+流出排行，写入 sector_fund_rank，返回 (inflow, outflow)。
     空数据不落库，避免用空列表覆盖已有数据 / 固化空数据。"""
     inflow = _request_top(fs, period, po="1")
@@ -134,7 +135,15 @@ def _fetch_rank(fs: str, sector_type: str, period: str, trade_date: str):
     return inflow, outflow
 
 
-def _fetch_stocks(sector_code: str):
+def _fetch_rank(fs: str, sector_type: str, period: str, trade_date: str):
+    """带 single-flight 合并的排行取数：TTL 内并发请求只打一次源，其余等待同一结果。"""
+    return cached_singleflight(
+        f'sector-rank-{trade_date}-{sector_type}-{period}',
+        lambda: _fetch_rank_raw(fs, sector_type, period, trade_date),
+        ttl=_CACHE_TTL)
+
+
+def _fetch_stocks_raw(sector_code: str):
     """请求东财板块成分股（按涨跌幅排序），返回 (stocks, total)"""
     url = (_API_URL + "?pn=1&pz=100&po=1&np=1&fltt=2&invt=2"
            "&fid=f3&fs=b:" + sector_code + "&fields=" + _STOCK_FIELDS + "&ut=" + _EM_BKZJ_UT)
@@ -177,6 +186,14 @@ def _fetch_stocks(sector_code: str):
         })
 
     return stocks, total
+
+
+def _fetch_stocks(sector_code: str, trade_date: str):
+    """带 single-flight 合并的成分股取数：TTL 内并发请求只打一次源，其余等待同一结果。"""
+    return cached_singleflight(
+        f'sector-stocks-{trade_date}-{sector_code}',
+        lambda: _fetch_stocks_raw(sector_code),
+        ttl=_CACHE_TTL)
 
 
 def get_sector_fund(sector_type: str = "concept", period: str = "today", date: str = None) -> dict:
@@ -247,7 +264,7 @@ def get_sector_stocks(sector_code: str, date: str = None) -> dict:
     if trade_date == today_str and not is_market_opened('0'):
         return {"success": True, "stocks": [], "total": 0, "empty": True}
 
-    stocks, total = _fetch_stocks(sector_code)
+    stocks, total = _fetch_stocks(sector_code, trade_date)
     if stocks:
         form_set(trade_date, sector_code, stocks)
     return {"success": True, "stocks": stocks, "total": total}
@@ -284,9 +301,10 @@ def _run_daily_update():
     trade_date = today.strftime('%Y-%m-%d')
 
     # 1. 全量抓取六种排行榜（覆盖盘中快照为收盘数据）
+    #    注意：17:00 固化必须绕过 single-flight 缓存，强制打源
     for sector_type, fs in _SECTOR_TYPES.items():
         for period in _PERIOD_CONFIG:
-            _fetch_rank(fs, sector_type, period, trade_date)
+            _fetch_rank_raw(fs, sector_type, period, trade_date)
 
     # 2. 收集所有排行榜中的板块代码，全量抓成分股（覆盖）
     sector_codes = set()
@@ -303,7 +321,7 @@ def _run_daily_update():
     done = 0
     for code in sector_codes:
         try:
-            stocks, _ = _fetch_stocks(code)
+            stocks, _ = _fetch_stocks_raw(code)
             if stocks:
                 form_set(trade_date, code, stocks)
             done += 1

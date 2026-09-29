@@ -34,7 +34,7 @@ from watchlist.service import holdings_get_all, holdings_add, holdings_remove, h
 import logging
 logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
-from abnormal_center.service import get_prediction, get_monitor, analyze_stock
+from abnormal_center.service import get_prediction, get_monitor, analyze_stock, init_abnormal_center_update
 from market_news.service import get_hot_list
 
 import sys as _sys, os as _os
@@ -1708,13 +1708,15 @@ def earnings_list():
 
 @app.route('/api/abnormal/prediction')
 def abnormal_prediction():
-    """异动预测：接近异常波动阈值的股票"""
-    return jsonify(get_prediction())
+    """异动预测：接近异常波动阈值的股票（按交易日归档，带 ?date= 读指定交易日）"""
+    date = request.args.get('date', '').strip()
+    return jsonify(get_prediction(date or None))
 
 @app.route('/api/abnormal/monitor')
 def abnormal_monitor():
-    """异动监控：已被交易所重点监控的股票"""
-    return jsonify(get_monitor())
+    """异动监控：已被交易所重点监控的股票（按交易日归档，带 ?date= 读指定交易日）"""
+    date = request.args.get('date', '').strip()
+    return jsonify(get_monitor(date or None))
 
 @app.route('/api/abnormal/analyze', methods=['POST'])
 def abnormal_analyze():
@@ -1817,6 +1819,7 @@ def start_scheduler():
     register_scheduler_check(init_money_flow_update())    # 资金流/指数行情轮询检测
     register_scheduler_check(init_self_review_update())   # 自助复盘每日 17:00 清理+复盘
     register_scheduler_check(init_sector_fund_update())   # 板块资金盘中轮询 + 每日 17:00 固化
+    register_scheduler_check(init_abnormal_center_update())   # 异动中心每日 17:00 清理 + 落库
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
 

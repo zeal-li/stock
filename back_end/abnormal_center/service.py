@@ -1,6 +1,15 @@
 """异动中心 - 数据服务层"""
+import datetime
 import logging
+import threading
+import time
+
 from common.http import get_json, get_tx_kline
+from common.utils import is_a_share_trading_day, is_market_opened, get_market_hours
+from common.cache import cached_singleflight
+from abnormal_center.storage import (
+    prediction_get, prediction_set, monitor_get, monitor_set, cleanup_old_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -11,33 +20,136 @@ HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
 }
 
+# 盘中数据缓存 TTL（秒）：30 分钟
+_CACHE_TTL = 30 * 60
 
-def get_prediction():
-    """获取异动预测列表（接近异常波动阈值的股票）"""
+# 每日 17:00 固化任务
+_AUTO_UPDATE_TIME = (17, 0)
+
+
+def _latest_trading_date() -> str:
+    """返回最近一个A股交易日（YYYY-MM-DD）"""
+    d = datetime.date.today()
+    while not is_a_share_trading_day(d):
+        d -= datetime.timedelta(days=1)
+    return d.strftime('%Y-%m-%d')
+
+
+def _updated_after_close(updated_at) -> bool:
+    """判断 updated_at 是否在 A股收盘时间之后（缓存是否为收盘后落盘）。
+
+    收盘后落盘的数据已定格，即使超过 TTL 也直接返回缓存，不再请求数据源。
+    """
+    hours = get_market_hours('hs_main')
+    if not hours:
+        return False
+    close_min = hours[2] * 60 + hours[3]
+    dt = datetime.datetime.fromtimestamp(updated_at)
+    return dt.hour * 60 + dt.minute >= close_min
+
+
+def _fetch_prediction_raw():
+    """直接请求 quicktiny 异动预测，返回 (data, count)。失败抛异常。"""
+    data = get_json(PREDICTION_API, headers=HEADERS, timeout=15)
+    if not data.get('success'):
+        raise RuntimeError('API返回失败')
+    return data['data'], data.get('count', len(data['data']))
+
+
+def _fetch_prediction(trade_date):
+    """带 single-flight 合并的预测取数：30 分钟内并发请求只打一次源，其余等待同一结果。"""
+    return cached_singleflight(f'abnormal-prediction-{trade_date}', _fetch_prediction_raw, ttl=_CACHE_TTL)
+
+
+def _fetch_monitor_raw():
+    """直接请求 quicktiny 异动监控，返回 (data, stats)。失败抛异常。"""
+    data = get_json(MONITOR_API, headers=HEADERS, timeout=15)
+    if not data.get('success'):
+        raise RuntimeError('API返回失败')
+    return data['data'], data.get('stats', {})
+
+
+def _fetch_monitor(trade_date):
+    """带 single-flight 合并的监控取数：30 分钟内并发请求只打一次源，其余等待同一结果。"""
+    return cached_singleflight(f'abnormal-monitor-{trade_date}', _fetch_monitor_raw, ttl=_CACHE_TTL)
+
+
+def get_prediction(date=None):
+    """获取异动预测列表（接近异常波动阈值的股票，按交易日归档 + 盘中 30 分钟缓存）。
+
+    - date 为空时取最近一个交易日；
+    - 非今天的日期：数据已固化，有缓存直接返回；无缓存返回空（不请求历史日期）；
+    - 今天的日期：盘中 30 分钟内直接返回缓存，超过 30 分钟重新请求 quicktiny 并落库。
+    """
+    trade_date = date or _latest_trading_date()
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    cached = prediction_get(trade_date)
+    if cached:
+        data, updated_at = cached
+        # 非今天的数据已固化，直接返回（不做 TTL 判断）
+        if trade_date != today_str:
+            return {'success': True, 'date': trade_date, 'data': data, 'count': len(data)}
+        # 今天的数据：30 分钟内直接返回缓存
+        if time.time() - updated_at < _CACHE_TTL:
+            return {'success': True, 'date': trade_date, 'data': data, 'count': len(data)}
+        # 超过 30 分钟：但若缓存是收盘后落盘的，数据已定格，直接返回缓存
+        if _updated_after_close(updated_at):
+            return {'success': True, 'date': trade_date, 'data': data, 'count': len(data)}
+        # 盘中落盘的缓存过期 → 继续往下重新请求
+
+    # 无缓存或今天缓存已过期：仅最近交易日才实时请求，更早的历史日期不请求
+    if trade_date != _latest_trading_date():
+        return {'success': True, 'date': trade_date, 'data': [], 'count': 0, 'empty': True}
+
+    # 最近交易日即今天，且今天尚未开盘 → 数据源暂无当日数据，不请求直接返回空
+    if trade_date == today_str and not is_market_opened('0'):
+        return {'success': True, 'date': trade_date, 'data': [], 'count': 0, 'empty': True}
+
     try:
-        data = get_json(PREDICTION_API, headers=HEADERS, timeout=15)
-        if data.get('success'):
-            return {'success': True, 'data': data['data'], 'count': data.get('count', len(data['data']))}
-        return {'success': False, 'error': 'API返回失败'}
+        data, count = _fetch_prediction(trade_date)
     except Exception as e:
         logger.error(f"获取异动预测失败: {e}")
         return {'success': False, 'error': str(e)}
 
+    if data:
+        prediction_set(trade_date, data)
+    return {'success': True, 'date': trade_date, 'data': data, 'count': count}
 
-def get_monitor():
-    """获取异动监控列表（已触发异常波动的股票）"""
+
+def get_monitor(date=None):
+    """获取异动监控列表（已触发异常波动的股票，按交易日归档 + 盘中 30 分钟缓存）。
+
+    缓存逻辑同 get_prediction。
+    """
+    trade_date = date or _latest_trading_date()
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+
+    cached = monitor_get(trade_date)
+    if cached:
+        data, stats, updated_at = cached
+        if trade_date != today_str:
+            return {'success': True, 'date': trade_date, 'data': data, 'stats': stats}
+        if time.time() - updated_at < _CACHE_TTL:
+            return {'success': True, 'date': trade_date, 'data': data, 'stats': stats}
+        if _updated_after_close(updated_at):
+            return {'success': True, 'date': trade_date, 'data': data, 'stats': stats}
+
+    if trade_date != _latest_trading_date():
+        return {'success': True, 'date': trade_date, 'data': [], 'stats': {}, 'empty': True}
+
+    if trade_date == today_str and not is_market_opened('0'):
+        return {'success': True, 'date': trade_date, 'data': [], 'stats': {}, 'empty': True}
+
     try:
-        data = get_json(MONITOR_API, headers=HEADERS, timeout=15)
-        if data.get('success'):
-            return {
-                'success': True,
-                'data': data['data'],
-                'stats': data.get('stats', {}),
-            }
-        return {'success': False, 'error': 'API返回失败'}
+        data, stats = _fetch_monitor(trade_date)
     except Exception as e:
         logger.error(f"获取异动监控失败: {e}")
         return {'success': False, 'error': str(e)}
+
+    if data:
+        monitor_set(trade_date, data, stats)
+    return {'success': True, 'date': trade_date, 'data': data, 'stats': stats}
 
 
 def analyze_stock(code, market=''):
@@ -180,3 +292,72 @@ def analyze_stock(code, market=''):
     except Exception as e:
         logger.error(f"异动分析失败: {e}")
         return {'success': False, 'error': str(e)}
+
+
+# =========== 定时任务：每日 17:00 清理 + 落库 ===========
+
+_auto_next_update = None   # 下一次 17:00 任务时刻
+
+
+def _next_update_time(base):
+    """返回 base 当天 17:00；若已过则返回次日 17:00"""
+    cand = base.replace(hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
+                        second=0, microsecond=0)
+    if cand <= base:
+        cand = (base + datetime.timedelta(days=1)).replace(
+            hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
+            second=0, microsecond=0)
+    return cand
+
+
+def _run_daily_update():
+    """每日 17:00 任务：清理过期数据，并落库当天异动预测 + 监控数据。
+
+    收盘后客户端请求不会再重新抓取（updated_at 收盘后直接返回缓存），
+    所以 17:00 无条件全量抓取一次，把盘中快照覆盖为收盘最终数据。
+    """
+    cleanup_old_data()
+
+    today = datetime.date.today()
+    if not is_a_share_trading_day(today):
+        print(f'[abnormal_center] 17:00 任务跳过: {today} 非A股交易日')
+        return
+    trade_date = today.strftime('%Y-%m-%d')
+
+    # 注意：17:00 固化必须绕过 single-flight 缓存，强制打源，把盘中快照覆盖为收盘最终数据
+    try:
+        data, count = _fetch_prediction_raw()
+        if data:
+            prediction_set(trade_date, data)
+        print(f'[abnormal_center] 17:00 落库预测: {trade_date}，{count} 条')
+    except Exception as e:
+        print(f'[abnormal_center] 17:00 落库预测失败: {trade_date} - {e}')
+
+    try:
+        data, stats = _fetch_monitor_raw()
+        if data:
+            monitor_set(trade_date, data, stats)
+        print(f'[abnormal_center] 17:00 落库监控: {trade_date}，{len(data)} 条')
+    except Exception as e:
+        print(f'[abnormal_center] 17:00 落库监控失败: {trade_date} - {e}')
+
+
+def check_abnormal_center_update():
+    """异动中心定时检测：由公共秒级调度器每秒调用一次，每日 17:00 触发固化。
+
+    固化任务要请求两次数据源，放到独立线程执行，避免阻塞调度器。
+    """
+    global _auto_next_update
+    now_dt = datetime.datetime.now()
+    if now_dt >= _auto_next_update:
+        _auto_next_update = _next_update_time(now_dt)
+        threading.Thread(target=_run_daily_update, daemon=True, name='abnormal-center-daily').start()
+
+
+def init_abnormal_center_update():
+    """初始化异动中心定时任务，返回检测函数供公共调度器注册（由 app.py 启动时调用）。"""
+    global _auto_next_update
+    now_dt = datetime.datetime.now()
+    _auto_next_update = _next_update_time(now_dt)
+    print(f'[abnormal_center] 定时任务已初始化（17:00 固化下次: {_auto_next_update:%Y-%m-%d %H:%M}）')
+    return check_abnormal_center_update
