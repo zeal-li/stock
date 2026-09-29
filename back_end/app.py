@@ -12,6 +12,7 @@ from common.http import (
 from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, is_market_opened, guess_market, \
     is_a_share, is_overseas, is_hk, is_us, adjust_volume, to_yahoo_symbol, SINA_PREFIX, EM_F10_PREFIX, THS_PREFIX, to_em_market, \
     is_a_share_trading_day
+from common.cache import cached_singleflight
 from common.finance import get_goodwill
 from common.browser import init_browser
 from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
@@ -350,14 +351,14 @@ def longhu_bang():
 
 @app.route('/api/global-commodities')
 def global_commodities():
-    """全球大宗商品实时行情"""
-    return jsonify(get_global_commodities())
+    """全球大宗商品实时行情（含全球指数），TTL 30s 内存缓存 + 并发合并"""
+    return jsonify(cached_singleflight('global-commodities', get_global_commodities, ttl=30))
 
 
 @app.route('/api/global-forex')
 def global_forex():
-    """全球外汇汇率实时行情"""
-    return jsonify(get_forex_rates())
+    """全球外汇汇率实时行情，TTL 30s 内存缓存 + 并发合并"""
+    return jsonify(cached_singleflight('global-forex', get_forex_rates, ttl=30))
 
 
 @app.route('/api/sector-fund')
