@@ -82,10 +82,12 @@ function selectAbnormalDate(date) {
 }
 
 async function initAbnormalDateBar() {
-    if (abnormalDateInitialized) return;
-    abnormalDateInitialized = true;
-    abnormalDateList = await fetchAbnormalTradingDays();
-    abnormalDate = abnormalDateList[abnormalDateList.length - 1];  // 默认最新交易日
+    if (!abnormalDateInitialized) {
+        abnormalDateInitialized = true;
+        abnormalDateList = await fetchAbnormalTradingDays();
+        abnormalDate = abnormalDateList[abnormalDateList.length - 1];  // 默认最新交易日
+    }
+    // 每次进入页面都重新渲染：loadAbnormalTabs() 会用 innerHTML 重建日期栏 DOM，需重新写入
     renderAbnormalDateBar(abnormalDate);
 }
 
