@@ -16,8 +16,10 @@ import json
 import os
 import re
 import threading
+from urllib.parse import urlencode
 
 from . import HTTP_SESSION, BROWSER_HEADERS
+from .browser import jsonp_get
 
 # ==================== 异常 ====================
 
@@ -121,7 +123,7 @@ def get_realtime_quotes_ulist(secids):
     """
     params = {'fltt': 2, 'invt': 2, 'fields': _ULIST_FIELDS,
               'secids': secids, 'ut': EM_UT}
-    body = get_json(_EM_ULIST_URL, params=params, headers=HEADERS_EM_DATA, timeout=8)
+    body = _em_jsonp(_EM_ULIST_URL, params, timeout=8)
     diff = (body.get('data') or {}).get('diff') or []
     result = {}
     for row in diff:
@@ -439,6 +441,19 @@ def get_sina_hq(codes):
 # ---- 东方财富 分时 / 分钟K线 / 逐笔 / 单标的字段 ----
 
 
+def _em_jsonp(url, params, timeout=10):
+    """东财 push2delay 接口走有头浏览器 JSONP 请求，绕过程序化访问反爬限流。
+
+    timeout 单位为秒（与 get_json 一致）；jsonp_get 的 timeout 为毫秒，故乘 1000。
+    单一数据源：失败（返回 __error__ 或非 dict）直接抛 HttpError，不做兜底重试。
+    """
+    full_url = f"{url}?{urlencode(params)}"
+    data = jsonp_get(full_url, timeout=timeout * 1000)
+    if not isinstance(data, dict) or '__error__' in data:
+        raise HttpError(f'东财浏览器请求失败: {data}')
+    return data
+
+
 def get_em_trends(secid):
     """东财 trends2 单日分时 → {name, pre_close, points}。
 
@@ -450,8 +465,8 @@ def get_em_trends(secid):
         'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
         'ndays': 1,
     }
-    body = get_json('https://push2delay.eastmoney.com/api/qt/stock/trends2/get',
-                    params=params, headers=HEADERS_EM_QUOTE, timeout=10)
+    body = _em_jsonp('https://push2delay.eastmoney.com/api/qt/stock/trends2/get',
+                     params, timeout=10)
     d = body.get('data') or {}
     points = []
     for t in d.get('trends') or []:
@@ -481,8 +496,8 @@ def get_em_kline(secid, klt, lmt=240):
         'fields1': 'f1,f2,f3,f4,f5,f6',
         'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61',
     }
-    body = get_json('https://push2delay.eastmoney.com/api/qt/stock/kline/get',
-                    params=params, headers=HEADERS_EM_QUOTE, timeout=10)
+    body = _em_jsonp('https://push2delay.eastmoney.com/api/qt/stock/kline/get',
+                     params, timeout=10)
     klines = (body.get('data') or {}).get('klines') or []
     rows = []
     for line in klines:
@@ -518,8 +533,8 @@ def get_em_trade_details(secid):
         'wbp2u': '|0|0|0|web',
         'ut': EM_UT,
     }
-    body = get_json('https://push2delay.eastmoney.com/api/qt/stock/details/get',
-                    params=params, headers=HEADERS_EM_DATA, timeout=8)
+    body = _em_jsonp('https://push2delay.eastmoney.com/api/qt/stock/details/get',
+                     params, timeout=8)
     details = (body.get('data') or {}).get('details') or []
     trades = []
     for item in details:
@@ -539,8 +554,8 @@ def get_em_trade_details(secid):
 def get_em_stock_fields(secid, fields):
     """东财 stock/get 指定原始字段 → {字段名: 原始值}（f50 量比 / f191 委比 等）"""
     params = {'secid': secid, 'fields': fields, 'ut': EM_UT}
-    body = get_json('https://push2delay.eastmoney.com/api/qt/stock/get',
-                    params=params, headers=HEADERS_EM_DATA, timeout=8)
+    body = _em_jsonp('https://push2delay.eastmoney.com/api/qt/stock/get',
+                     params, timeout=8)
     return body.get('data') or {}
 
 
