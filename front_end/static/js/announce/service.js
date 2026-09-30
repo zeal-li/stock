@@ -20,6 +20,23 @@ function _announceColor(columnCode) {
     return _COLOR_MAP[columnCode] || '#888';
 }
 
+var ANNOUNCE_CACHE_KEY = 'announceCache';
+var ANNOUNCE_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 小时
+
+function _announceCacheRead() {
+    try {
+        var raw = localStorage.getItem(ANNOUNCE_CACHE_KEY);
+        if (!raw) return null;
+        var obj = JSON.parse(raw);
+        if (obj && typeof obj.time === 'number' && Array.isArray(obj.data)) return obj;
+    } catch (e) {}
+    return null;
+}
+
+function _announceCacheWrite(cache) {
+    try { localStorage.setItem(ANNOUNCE_CACHE_KEY, JSON.stringify(cache)); } catch (e) {}
+}
+
 function loadAnnounceList() {
     var container = document.getElementById('announceContent');
     if (!container) return;
@@ -36,7 +53,19 @@ function loadAnnounceList() {
     allCodes = allCodes.filter(function(c, i) { return allCodes.indexOf(c) === i; });
 
     if (allCodes.length === 0) {
+        try { localStorage.removeItem(ANNOUNCE_CACHE_KEY); } catch (e) {}
         container.innerHTML = '<div style="text-align:center;color:#888;padding:40px;">自选股和选股列表为空，请先添加股票</div>';
+        return;
+    }
+
+    // 命中缓存：存在且未失效则不请求，同时清理缓存里多余的股票记录
+    var cache = _announceCacheRead();
+    if (cache && (Date.now() - cache.time) < ANNOUNCE_CACHE_TTL) {
+        var codeSet = {};
+        for (var i = 0; i < allCodes.length; i++) codeSet[String(allCodes[i])] = true;
+        cache.data = cache.data.filter(function(r) { return codeSet[String(r.code)]; });
+        _announceCacheWrite(cache);
+        _announceRenderWithFilter(cache.data);
         return;
     }
 
@@ -46,13 +75,8 @@ function loadAnnounceList() {
         .then(function(res) { return res.json(); })
         .then(function(data) {
             if (data.success) {
-                var code = document.getElementById('announceStockFilter');
-                var filterCode = code ? code.value : '';
-                var records = data.data;
-                if (filterCode) {
-                    records = records.filter(function(r) { return String(r.code) === filterCode; });
-                }
-                renderAnnounceList(records);
+                _announceCacheWrite({ time: Date.now(), data: data.data });
+                _announceRenderWithFilter(data.data);
             } else {
                 container.innerHTML = '<div style="text-align:center;color:#e94560;padding:40px;">' + (data.error || '获取失败') + '</div>';
             }
@@ -60,6 +84,15 @@ function loadAnnounceList() {
         .catch(function(e) {
             container.innerHTML = '<div style="text-align:center;color:#e94560;padding:40px;">网络错误</div>';
         });
+}
+
+function _announceRenderWithFilter(records) {
+    var code = document.getElementById('announceStockFilter');
+    var filterCode = code ? code.value : '';
+    if (filterCode) {
+        records = records.filter(function(r) { return String(r.code) === filterCode; });
+    }
+    renderAnnounceList(records);
 }
 
 function renderAnnounceList(records) {
