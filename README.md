@@ -45,7 +45,7 @@ stock/
 │   │
 │   ├── money_flow/                    # 资金流向模块
 │   │   ├── __init__.py
-│   │   ├── market.py                  # 大盘行情（上证指数/分时）
+│   │   ├── market.py                  # 大盘行情（上证指数/分时/涨跌分布）
 │   │   ├── fund_flow.py               # 主力资金净流入
 │   │   ├── margin.py                  # 融资融券
 │   │   ├── fear_index.py              # 恐慌指数
@@ -158,7 +158,7 @@ stock/
 
 | 页面 | 功能 |
 |------|------|
-| 资金流向 | 上证/深证指数分时、市场成交额、主力资金净流入、融资融券、恐慌指数、风险指数 |
+| 资金流向 | 涨跌分布柱状图、上证/深证指数分时、市场成交额、主力资金净流入、融资融券、恐慌指数、风险指数 |
 | 自选股 | 自选列表 + 场内ETF + 持仓股 三Tab，加/删/拖拽排序，批量行情（PE/PB/市值/行业），商誉率、量比/委比 |
 | 选股 | 多市场股票搜索（A股/港股/美股）、实时行情查询 |
 | 技术选股 | 按市场分段异步加载K线、双策略扫描（上升通道 + ML量化打分），支持 pipeline 串联 |
@@ -296,7 +296,7 @@ CREATE TABLE holdings (
 
 ```sql
 CREATE TABLE market_data (
-    key   TEXT PRIMARY KEY,          -- major_indices/sh_minute/fund_flow/turnover_minute/margin_trading/daily_closes/fear_index/risk_index/market_breadth
+    key   TEXT PRIMARY KEY,          -- major_indices/sh_minute/fund_flow/turnover_minute/margin_trading/daily_closes/fear_index/risk_index/market_distribution
     value TEXT NOT NULL,             -- JSON 序列化的数据
     meta  TEXT                       -- 时间戳或日期字符串
 );
@@ -502,6 +502,7 @@ update_market(seg_key)
 | `/api/index-minute` | GET | 指数分时 |
 | `/api/turnover-minute` | GET | 成交额分时 |
 | `/api/market-fund-flow` | GET | 主力资金净流入 |
+| `/api/market-distribution` | GET | 沪深涨跌分布（涨跌幅区间家数，含涨/跌/平/涨停/跌停汇总） |
 | `/api/fear-index` | GET | 恐慌指数 0-100 |
 | `/api/risk-index` | GET | 风险指数 0-100 |
 | `/api/margin-trading` | GET | 融资融券余额 |
@@ -695,12 +696,13 @@ cd back_end
 
 | 数据 | 接口 |
 |------|------|
-| 大盘指数/批量行情/涨跌家数 | `push2delay.eastmoney.com/api/qt/ulist.np/get` |
+| 大盘指数/批量行情 | `push2delay.eastmoney.com/api/qt/ulist.np/get` |
 | 单只股票量比/委比 | `push2delay.eastmoney.com/api/qt/stock/get` |
 | 上证指数/个股日内分时 | `push2delay.eastmoney.com/api/qt/stock/trends2/get` |
 | 1分钟K线 | `push2delay.eastmoney.com/api/qt/stock/kline/get` |
 | 逐笔成交明细 | `push2delay.eastmoney.com/api/qt/stock/details/get` |
 | 主力资金净流入分时 | `push2delay.eastmoney.com/api/qt/stock/fflow/kline/get` |
+| 沪深涨跌分布 | `push2ex.eastmoney.com/getTopicZDFenBu` |
 | 港股股票列表/板块排行/成分股 | `push2delay.eastmoney.com/api/qt/clist/get` |
 | 股票搜索 | `searchapi.eastmoney.com/api/suggest/get` |
 | 商誉率 | `emweb.securities.eastmoney.com/PC_HSF10/FinanceAnalysis/` |
