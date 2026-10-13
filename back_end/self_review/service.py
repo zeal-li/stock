@@ -13,7 +13,8 @@
 10. 复盘总结 + 次日预案（数据交叉验证、背离信号、观察清单、关键信号）
 
 数据源约定（单一数据源，不做多源串行兜底）：
-- 指数实时行情 + 涨跌家数：东方财富 ulist
+- 指数实时行情：东方财富 ulist
+- 涨跌家数（市场宽度）：money_flow 轮询缓存的涨跌分布（东财 getTopicZDFenBu，与资金流向同源）
 - 指数日K（压力/支撑/均线计算）：同花顺 v4/line 日K（近120交易日，与 K线弹窗同源）
 - 两市总成交额（今日/昨日）+ 逐分钟累计：money_flow 轮询缓存的同花顺成交额分时
 - 近期量能基准（近5日两市成交额）：同花顺 v4/line 指数日K（上证指数+深证综指成交额相加）
@@ -49,9 +50,6 @@ MAJOR_INDICES = [
     {'code': '399006', 'secid': '0.399006', 'name': '创业板指'},
     {'code': '000688', 'secid': '1.000688', 'name': '科创50'},
 ]
-
-# 市场宽度与两市合计口径（沿用 money_flow：上证综指 + 深证成指市场级统计）
-_BREADTH_SECIDS = ('1.000001', '0.399001')
 
 # 量能基准：近 N 个已收盘交易日的两市成交额均量（相对比较，不做绝对阈值）
 _TURNOVER_RECENT_N = 5
@@ -96,7 +94,8 @@ def _fmt_pct(v):
 
 
 def _fetch_quotes():
-    """主要指数实时行情 + 涨跌家数（走 common.http.get_realtime_quotes_ulist，字段名固定）"""
+    """主要指数实时行情（走 common.http.get_realtime_quotes_ulist，字段名固定）。
+    涨跌家数不在此取，统一复用 money_flow 涨跌分布缓存（见 _analyze_breadth）。"""
     secids = ','.join(s['secid'] for s in MAJOR_INDICES)
     quotes = get_realtime_quotes_ulist(secids)
     if not quotes:
@@ -113,9 +112,6 @@ def _fetch_quotes():
             'high': q['high'],
             'low': q['low'],
             'pre_close': q['pre_close'],
-            'rise': q['rise'],
-            'fall': q['fall'],
-            'flat': q['flat'],
         }
 
     missing = [s['name'] for s in MAJOR_INDICES if s['secid'] not in quote_map]
@@ -738,15 +734,15 @@ def _fmt_price(v, decimals=None):
 
 
 
-def _analyze_breadth(quote_map):
-    """全市场涨跌家数与市场整体状况"""
-    sh = quote_map.get('1.000001')
-    sz = quote_map.get('0.399001')
-    if sh is None or sz is None:
+def _analyze_breadth():
+    """全市场涨跌家数与市场整体状况（复用资金流向 distribution 缓存，单一数据源）"""
+    row = get_field_meta('distribution')
+    if not row:
         return None
-    rise = int(round(sh.get('rise') or 0)) + int(round(sz.get('rise') or 0))
-    fall = int(round(sh.get('fall') or 0)) + int(round(sz.get('fall') or 0))
-    flat = int(round(sh.get('flat') or 0)) + int(round(sz.get('flat') or 0))
+    data = ((row[0] or {}).get('data') or {})
+    rise = int(round(data.get('rise') or 0))
+    fall = int(round(data.get('fall') or 0))
+    flat = int(round(data.get('flat') or 0))
     total = rise + fall
     if total <= 0:
         return None
@@ -1429,7 +1425,7 @@ def run_review():
                 raise RuntimeError(f'{spec["name"]} 日K数据缺失')
             indices.append(_build_index_item(spec, quote_map[spec['secid']], k))
 
-        breadth = _analyze_breadth(quote_map)
+        breadth = _analyze_breadth()
 
         turnover = _fetch_turnover()
         try:
