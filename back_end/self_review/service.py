@@ -32,7 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common.http import get_json, get_realtime_quotes_ulist, get_realtime_quotes_gtimg, get_ths_klines, HEADERS_EM_DATA
 from common.utils import is_a_trading_time, is_etf, is_a_share_trading_day
-from money_flow.storage import db_get, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY
+from money_flow.storage import get_field_meta
 
 # 主要指数 → 同花顺证券代码（日K数据源，与 K线弹窗同源）
 _THS_SYMBOLS = {
@@ -529,7 +529,7 @@ def _analyze_stocks(stocks, decimals=None):
 
 def _fetch_turnover():
     """两市成交额（今日/昨日/变动），来源 money_flow 缓存（同花顺成交额分时，单位：元）"""
-    row = db_get(_TURNOVER_MINUTE_KEY)
+    row = get_field_meta('turnover')
     if not row:
         return None
     val, meta = row
@@ -578,7 +578,7 @@ def _fetch_recent_turnover(n=_TURNOVER_RECENT_N):
 def _fetch_sh_minute(row=None):
     """上证指数分时，来源 money_flow 轮询缓存（东财 trends2）。row 可复用已查询的缓存。"""
     if row is None:
-        row = db_get(_SH_MINUTE_KEY)
+        row = get_field_meta('sh_minute')
     if not row:
         return None
     val, meta = row
@@ -1041,8 +1041,8 @@ def _cum_cutoff(times, values, hhmm):
 def _analyze_open_hour(day):
     """开盘首小时量价结构：两市逐分钟累计成交额 + 上证分时价格。
     数据要求为复盘目标交易日的当日缓存，缺当日数据返回 None。"""
-    trow = db_get(_TURNOVER_MINUTE_KEY)
-    mrow = db_get(_SH_MINUTE_KEY)
+    trow = get_field_meta('turnover')
+    mrow = get_field_meta('sh_minute')
     if not trow or not mrow:
         return None
     tdata = (trow[0].get('data') or {})
@@ -1259,7 +1259,7 @@ def _analyze_funds(day):
     parts = []
 
     # 1. 两融（money_flow 轮询缓存，沪深交易所，T+1 数据）
-    mrow = db_get('margin_trading')
+    mrow = get_field_meta('margin')
     if mrow:
         md = (mrow[0].get('data') or {})
         latest_total = md.get('latest_total')
@@ -1439,7 +1439,7 @@ def run_review():
             recent_turnover = []
         turnover_analysis = _analyze_turnover(turnover, recent_turnover, indices)
 
-        minute_row = db_get(_SH_MINUTE_KEY)
+        minute_row = get_field_meta('sh_minute')
         minute = None
         if minute_row and _is_recent(minute_row[1]):
             minute = _fetch_sh_minute()

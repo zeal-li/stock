@@ -1,8 +1,7 @@
 """大盘资金净流入"""
 import datetime
-import time
 from common.http import get_json, HEADERS_EM_DATA
-from money_flow.storage import db_set, db_get, _FUND_FLOW_KEY
+from money_flow.storage import save_field, get_field
 
 
 def _fetch_and_cache_fund_flow():
@@ -61,7 +60,7 @@ def _fetch_and_cache_fund_flow():
                 'flows_mid': flows_mid, 'flows_small': flows_small
             }
         }
-        db_set(_FUND_FLOW_KEY, result, time.time())
+        save_field('fund_flow', result)
         return True
     except Exception as e:
         print(f"[fund-flow poller] fetch error: {e}")
@@ -69,12 +68,12 @@ def _fetch_and_cache_fund_flow():
 
 
 def get_market_fund_flow():
-    """大盘资金净流入分时（优先读缓存，缓存空时同步抓取）"""
-    row = db_get(_FUND_FLOW_KEY)
-    if row:
-        return row[0]
+    """大盘资金净流入分时（优先读快照，快照空时同步抓取）"""
+    val = get_field('fund_flow')
+    if val:
+        return val
     _fetch_and_cache_fund_flow()
-    row = db_get(_FUND_FLOW_KEY)
-    if row:
-        return row[0]
+    val = get_field('fund_flow')
+    if val:
+        return val
     return {'success': False, 'error': '暂无资金流数据'}

@@ -292,15 +292,17 @@ CREATE TABLE holdings (
 
 > 三张表均以 `user_id` 关联 `login.db` 的 `users.id`，实现按用户隔离数据；`sort_order` 支持拖拽排序，后端 `reorder` 接口批量更新。
 
-### data/money_flow.db — 资金流向数据快照
+### data/money_flow.db — 资金流向数据快照（按交易日）
 
 ```sql
 CREATE TABLE market_data (
-    key   TEXT PRIMARY KEY,          -- major_indices/sh_minute/fund_flow/turnover_minute/margin_trading/daily_closes/fear_index/risk_index/market_distribution
-    value TEXT NOT NULL,             -- JSON 序列化的数据
-    meta  TEXT                       -- 时间戳或日期字符串
+    trade_date TEXT PRIMARY KEY,     -- 交易日 'YYYY-MM-DD'
+    data       TEXT NOT NULL,        -- 该日资金流向快照 JSON（indices/distribution/sh_minute/fund_flow/turnover/margin/daily_closes/fear_index/risk_index）
+    updated_at REAL NOT NULL         -- 写入时间戳
 );
 ```
+
+> `market_data` 为 `INSERT OR REPLACE` 语义，同一交易日重复写入即整体覆盖。盘中 poller 实时更新「最新交易日」快照的对应字段；每日 17:00 由后台任务强制打源刷新，把盘中快照覆盖为收盘最终数据。数据保留最近 30 个交易日，更早记录由该任务清理。历史日期回看时读对应交易日快照，最新交易日走实时逻辑。
 
 ### data/longhu_bang.db — 龙虎榜数据缓存
 
@@ -506,6 +508,7 @@ update_market(seg_key)
 | `/api/fear-index` | GET | 恐慌指数 0-100 |
 | `/api/risk-index` | GET | 风险指数 0-100 |
 | `/api/margin-trading` | GET | 融资融券余额 |
+| `/api/money-flow-daily` | GET | 指定交易日资金流向快照（`?date=`，历史日期回看，17:00 固化数据） |
 
 ### 股票数据
 

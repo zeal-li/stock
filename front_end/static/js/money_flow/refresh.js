@@ -29,6 +29,8 @@ async function refreshRealtimeData() {
     try {
         // ---- 资金流向页：刷新图表 & 恐慌/风险指数 ----
         if (onMoneyFlow) {
+            // 历史日期显示的是已固化快照，不做实时刷新
+            if (_moneyFlowDate && _moneyFlowLatestDate && _moneyFlowDate !== _moneyFlowLatestDate) return;
             const idxRes = await fetch('/api/major-indices');
             const idxData = await idxRes.json();
             if (idxData.success && idxData.data.length > 0) {

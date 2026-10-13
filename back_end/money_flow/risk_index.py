@@ -1,16 +1,18 @@
 """市场风险指数"""
 import time
 from concurrent.futures import ThreadPoolExecutor
-from money_flow.storage import db_get, _cache_set, _cached, _MARGIN_KEY, _DAILY_CLOSES_KEY
+from money_flow.storage import get_field
 from money_flow.market import get_market_distribution
+
+# 进程内 60 秒缓存（避免频繁重算）
+_risk_cache = {'ts': 0.0, 'data': None}
 
 
 def get_risk_index():
     """市场风险指数：融资杠杆+指数趋势+情绪面+涨跌结构 多因子加权 0-100"""
-    cache_key = 'risk_index'
-    cached = _cached(cache_key, 60)
-    if cached is not None:
-        return cached
+    now = time.time()
+    if _risk_cache['data'] is not None and now - _risk_cache['ts'] < 60:
+        return _risk_cache['data']
 
     try:
         margin_data = {}
@@ -97,7 +99,8 @@ def get_risk_index():
                 'limit_score_in': round(limit_score, 1),
             }
         }
-        _cache_set(cache_key, result)
+        _risk_cache['ts'] = now
+        _risk_cache['data'] = result
         return result
     except Exception as e:
         return {'success': False, 'error': str(e)}
@@ -106,10 +109,10 @@ def get_risk_index():
 # ---- 风险指数辅助函数 ----
 
 def _fetch_margin():
-    """获取融资因子数据（从后台融资融券缓存读取）"""
-    cached = db_get(_MARGIN_KEY)
-    if cached and cached[0].get('success'):
-        d = cached[0]['data']
+    """获取融资因子数据（从融资融券快照读取）"""
+    cached = get_field('margin')
+    if cached and cached.get('success'):
+        d = cached['data']
         return {
             'fin_bal_5d': d.get('fin_bal_5d', 0.0),
             'fin_bal_10d': d.get('fin_bal_10d', 0.0),
@@ -119,10 +122,10 @@ def _fetch_margin():
 
 
 def _fetch_daily_closes(symbol):
-    """获取日线收盘价（从后台缓存读取）"""
-    cached = db_get(_DAILY_CLOSES_KEY)
+    """获取日线收盘价（从快照读取）"""
+    cached = get_field('daily_closes')
     if cached:
-        return cached[0].get(symbol, [])
+        return cached.get(symbol, [])
     return []
 
 

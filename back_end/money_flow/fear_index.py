@@ -1,22 +1,25 @@
 """市场恐慌指数"""
+import time
 from concurrent.futures import ThreadPoolExecutor
-from money_flow.storage import db_get, _cache_set, _cached, _MAJOR_INDICES_KEY
+from money_flow.storage import get_field
 from money_flow.market import get_sh000001_minute_data, get_market_distribution
 from money_flow.fund_flow import get_market_fund_flow
+
+# 进程内 60 秒缓存（避免频繁重算）
+_fear_cache = {'ts': 0.0, 'data': None}
 
 
 def get_fear_index():
     """市场恐慌指数：指数走势+日内分时+涨跌面+资金流 多因子加权 0-100"""
-    cache_key = 'fear_index'
-    cached = _cached(cache_key, 60)
-    if cached is not None:
-        return cached
+    now = time.time()
+    if _fear_cache['data'] is not None and now - _fear_cache['ts'] < 60:
+        return _fear_cache['data']
 
     try:
         idx_changes = []
-        major_cached = db_get(_MAJOR_INDICES_KEY)
-        if major_cached and major_cached[0].get('success'):
-            for item in major_cached[0]['data']:
+        major_cached = get_field('indices')
+        if major_cached and major_cached.get('success'):
+            for item in major_cached['data']:
                 chg_str = item.get('change', '0%')
                 try:
                     idx_changes.append(float(chg_str.replace('%', '')))
@@ -130,17 +133,18 @@ def get_fear_index():
                 'rebound': round(rebound, 2),
             }
         }
-        _cache_set(cache_key, result)
+        _fear_cache['ts'] = now
+        _fear_cache['data'] = result
         return result
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
 
 def _fetch_sz_intraday():
-    """获取深证成指日内涨跌（从大盘行情缓存读取）"""
-    major_cached = db_get(_MAJOR_INDICES_KEY)
-    if major_cached and major_cached[0].get('success') and len(major_cached[0]['data']) > 1:
-        chg_str = major_cached[0]['data'][1].get('change', '0%')
+    """获取深证成指日内涨跌（从大盘行情快照读取）"""
+    major_cached = get_field('indices')
+    if major_cached and major_cached.get('success') and len(major_cached['data']) > 1:
+        chg_str = major_cached['data'][1].get('change', '0%')
         try:
             return float(chg_str.replace('%', ''))
         except (ValueError, AttributeError):

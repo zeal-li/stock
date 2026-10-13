@@ -1,7 +1,7 @@
 """融资融券数据 — 上交所/深交所直接拉取"""
 import datetime
 from common.http import get_json
-from money_flow.storage import db_set, db_get
+from money_flow.storage import save_field, get_field
 
 _MARGIN_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -116,12 +116,12 @@ def _fetch_and_cache_margin():
             'fin_bal_5d': fin_bal_5d, 'fin_bal_10d': fin_bal_10d, 'fin_buy_heat': fin_buy_heat,
         }
     }
-    db_set('margin_trading', result, today.strftime('%Y-%m-%d'))
+    save_field('margin', result)
     return True
 
 
 def get_margin_trading():
-    row = db_get('margin_trading')
-    if row:
-        return row[0]
+    val = get_field('margin')
+    if val:
+        return val
     return {'success': False, 'error': '暂无融资融券数据'}

@@ -1,8 +1,7 @@
 """成交额分时数据"""
 import datetime
-import time
 from common.http import get_json, HEADERS_THS
-from money_flow.storage import db_set, _TURNOVER_MINUTE_KEY
+from money_flow.storage import save_field
 
 
 def _fetch_and_cache_turnover():
@@ -48,7 +47,7 @@ def _fetch_and_cache_turnover():
                 'header': header_info
             }
         }
-        db_set(_TURNOVER_MINUTE_KEY, result, time.time())
+        save_field('turnover', result)
         return True
     except Exception as e:
         print(f"[turnover poller] fetch error: {e}")

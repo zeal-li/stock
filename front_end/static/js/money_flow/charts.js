@@ -1,5 +1,10 @@
 // ==================== 图表 & 资金流向 ====================
 
+// 当前选中的交易日（空字符串表示最新交易日）
+var _moneyFlowDate = '';
+var _moneyFlowDateList = null;
+var _moneyFlowLatestDate = '';
+
 function generateFlowSlots() {
     const slots = [];
     for (let h = 9, m = 30; h < 12; ) {
@@ -63,7 +68,611 @@ function getRiskSummary(score) {
     return '市场高风险，建议降低仓位、规避风险。';
 }
 
-async function loadIndexWithChart() {
+// 根据指数涨跌方向返回分时线的红/绿配色
+function getIndexColors(indexData) {
+    const isUp = indexData && indexData.change && String(indexData.change).startsWith('+');
+    return {
+        lineColor: isUp ? '#e94560' : '#4ade80',
+        gradientColor: isUp ? 'rgba(233, 69, 96, 0.2)' : 'rgba(74, 222, 128, 0.2)',
+    };
+}
+
+// ==================== 日期栏 ====================
+
+async function fetchMoneyFlowTradingDays() {
+    var res = await fetch('/api/trading-days?count=30');
+    var result = await res.json();
+    return result.data.trading_days;
+}
+
+function renderMoneyFlowDateBar(activeDate) {
+    var bar = document.getElementById('moneyFlowDateBar');
+    if (!bar || !_moneyFlowDateList) return;
+    var html = '';
+    for (var i = 0; i < _moneyFlowDateList.length; i++) {
+        var date = _moneyFlowDateList[i];
+        var mmdd = date.slice(5);
+        var cls = (date === activeDate) ? 'lhb-date-btn active' : 'lhb-date-btn';
+        html += '<span class="' + cls + '" onclick="selectMoneyFlowDate(\'' + date + '\')">' + mmdd + '</span>';
+    }
+    bar.innerHTML = html;
+}
+
+function selectMoneyFlowDate(date) {
+    _moneyFlowDate = date;
+    renderMoneyFlowDateBar(date);
+    loadIndexWithChart(date);
+}
+
+async function initMoneyFlowDateBar() {
+    _moneyFlowDateList = await fetchMoneyFlowTradingDays();
+    _moneyFlowLatestDate = _moneyFlowDateList[_moneyFlowDateList.length - 1];
+    if (!_moneyFlowDate) _moneyFlowDate = _moneyFlowLatestDate;
+    renderMoneyFlowDateBar(_moneyFlowDate);
+}
+
+// ==================== HTML 构建 ====================
+
+function buildMoneyFlowHTML(indexData, indexDataSZ) {
+    const colors = getIndexColors(indexData);
+    const changeClass = colors.lineColor === '#e94560' ? 'up' : 'down';
+
+    var szName = indexDataSZ ? '深证' : '';
+    var szIsUp = indexDataSZ && indexDataSZ.change.startsWith('+');
+    var szColor = szIsUp ? '#e94560' : '#4ade80';
+    var szChangeClass = szIsUp ? 'up' : 'down';
+
+    document.getElementById('index-card').innerHTML = `
+            <div class="index-header">
+                <div class="index-info">
+                    <span class="index-name">上证</span>
+                    <span class="index-price index-sh-price" style="color: ${colors.lineColor};">${indexData.price}</span>
+                    <span class="index-change index-sh-change ${changeClass}">${indexData.change} ${indexData.change_value}</span>
+                    ` + (indexDataSZ ? `
+                    <span class="index-name">${szName}</span>
+                    <span class="index-price index-sz-price" style="color: ${szColor};">${indexDataSZ.price}</span>
+                    <span class="index-change index-sz-change ${szChangeClass}">${indexDataSZ.change} ${indexDataSZ.change_value}</span>
+                    ` : '') + `
+                    <span id="marketBreadth" style="font-size: 12px; color: #888;"></span>
+                </div>
+            </div>
+            <div style="display: flex; gap: 15px; font-size: 13px; color: #888; margin-bottom: 6px;">
+                <span id="headerTurnover">加载中...</span>
+                <span id="headerFlow"></span>
+            </div>
+            <div class="money-flow-row">
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;">
+                    <div class="chart-box">
+                        <canvas id="distributionChart"></canvas>
+                        <div class="chart-title">涨跌分布</div>
+                    </div>
+                    <div class="chart-box" style="position:relative;">
+                        <canvas id="minuteChart"></canvas>
+                        <div id="minuteLoading" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;pointer-events:none;">加载中...</div>
+                        <div class="chart-title">分时走势</div>
+                    </div>
+                    <div class="chart-box">
+                        <canvas id="turnoverChart"></canvas>
+                        <div class="chart-title">大盘净资金流入</div>
+                    </div>
+                    <div class="chart-box">
+                        <canvas id="marginChart"></canvas>
+                        <div class="chart-title">融资融券</div>
+                    </div>
+                </div>
+                <div class="money-flow-side">
+                    <div class="index-card" style="height: 100%; padding: 18px; display: flex; flex-direction: column;">
+                        <div class="chart-title" style="margin-bottom: 12px;">市场风险指数</div>
+                        <div id="riskIndex" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="money-flow-side">
+                    <div class="index-card" style="height: 100%; padding: 18px; display: flex; flex-direction: column;">
+                        <div class="chart-title" style="margin-bottom: 12px;">市场恐慌指数</div>
+                        <div id="fearIndex" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                            <div class="loading">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+}
+
+// ==================== 渲染函数（实时与历史共用） ====================
+
+function renderTurnoverHeader(turnoverResult) {
+    var el = document.getElementById('headerTurnover');
+    if (!el) return;
+    if (turnoverResult.success && turnoverResult.data.header && turnoverResult.data.header.turnover) {
+        var th = turnoverResult.data.header;
+        var todayT = th.turnover / 100000000;
+        var yesterdayT = th.turnover_pre / 100000000;
+        var chg = th.turnover_change / 100000000;
+        var chgPct = yesterdayT ? (chg / yesterdayT * 100) : 0;
+        el.innerHTML = '<span>当日成交额: <span id="todayTurnover" style="color:#fff;">' + todayT.toFixed(2) + '亿</span></span> ' +
+            '<span>昨日成交额: <span id="yesterdayTurnover" style="color:#fff;">' + yesterdayT.toFixed(2) + '亿</span></span> ' +
+            '<span>较昨日变动: <span id="turnoverChange" style="color:' + (chg >= 0 ? '#e94560' : '#4ade80') + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '亿 (' + (chgPct >= 0 ? '+' : '') + chgPct.toFixed(1) + '%)</span></span>';
+    } else {
+        el.textContent = '暂无成交额数据';
+    }
+}
+
+function renderFundFlow(flowResult) {
+    var flowTimes = [];
+    var flows = [];
+    var flowsMid = [];
+    var flowsSmall = [];
+    var totalFlow = 0;
+
+    if (flowResult.success && flowResult.data.times) {
+        fullFlowSlots = generateFlowSlots();
+        flowTimes = fullFlowSlots;
+        flows = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows);
+        flowsMid = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows_mid || []);
+        flowsSmall = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows_small || []);
+        totalFlow = flowResult.data.flows.length > 0 ? flowResult.data.flows[flowResult.data.flows.length - 1] : 0;
+    }
+
+    var hf = document.getElementById('headerFlow');
+    if (hf) {
+        if (flowResult.success) {
+            var flowColor = totalFlow >= 0 ? '#e94560' : '#4ade80';
+            hf.innerHTML = '<span>大盘资金净流入: <span id="netFlowValue" style="color:' + flowColor + ';">' + (totalFlow >= 0 ? '+' : '') + totalFlow.toFixed(2) + '亿</span></span>';
+        } else {
+            hf.textContent = '暂无资金流数据';
+        }
+    }
+
+    const ctxTurnover = document.getElementById('turnoverChart').getContext('2d');
+    if (turnoverChart) turnoverChart.destroy();
+
+    turnoverChart = new Chart(ctxTurnover, {
+        type: 'line',
+        data: {
+            labels: flowTimes,
+            datasets: [{
+                data: flows,
+                borderColor: '#fbbf24',
+                backgroundColor: function(context) {
+                    const chart = context.chart;
+                    const ctx = chart.ctx;
+                    const gradient = ctx.createLinearGradient(0, 0, 0, 180);
+                    gradient.addColorStop(0, 'rgba(233, 69, 96, 0.25)');
+                    gradient.addColorStop(0.5, 'rgba(233, 69, 96, 0.05)');
+                    gradient.addColorStop(0.5, 'rgba(74, 222, 128, 0.05)');
+                    gradient.addColorStop(1, 'rgba(74, 222, 128, 0.25)');
+                    return gradient;
+                },
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                tension: 0.3,
+                fill: true
+            }, {
+                data: flowsMid,
+                borderColor: '#a78bfa',
+                backgroundColor: 'transparent',
+                borderWidth: 1.5,
+                borderDash: [3, 5],
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                tension: 0.3,
+                fill: false
+            }, {
+                data: flowsSmall,
+                borderColor: '#60a5fa',
+                backgroundColor: 'transparent',
+                borderWidth: 1.5,
+                borderDash: [4, 3],
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                tension: 0.3,
+                fill: false
+            }, {
+                data: Array(flowTimes.length).fill(0),
+                borderColor: 'rgba(255,255,255,0.3)',
+                borderWidth: 1,
+                borderDash: [4, 4],
+                pointRadius: 0,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { left: 10, right: 10 } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    mode: 'index', intersect: false,
+                    backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
+                    callbacks: { label: function(context) { const v = context.raw; if (context.datasetIndex === 3) return ''; const labels = ['大盘资金', '中单', '散户']; return labels[context.datasetIndex] + ': ' + (v >= 0 ? '+' : '') + v.toFixed(2) + '亿'; } }
+                }
+            },
+            scales: {
+                x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, font: { size: 10 }, callback: function(value, index) { const label = this.getLabelForValue(value); if (!label) return ''; if (label === '11:30') return ''; if (label === '09:30' || label === '13:00' || label === '15:00') return label; const parts = label.split(':'); const h = parseInt(parts[0]); const min = parseInt(parts[1]); if (h < 12) return ((min + 30) % 20 === 0) ? label : ''; else return (min % 20 === 0) ? label : ''; } } },
+                y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(value) { return value.toFixed(2) + '亿'; } }, afterFit: function(scale) { scale.width = 65; } }
+            },
+            interaction: { mode: 'index', intersect: false }
+        }
+    });
+    var _fm = function(arr) { var f = arr.filter(function(v) { return v != null; }); return f.length > 0 ? Math.max.apply(null, f) : 0; };
+    var _fn = function(arr) { var f = arr.filter(function(v) { return v != null; }); return f.length > 0 ? Math.min.apply(null, f) : 0; };
+    var maxAbs = Math.max(
+        Math.abs(_fm(flows)), Math.abs(_fn(flows)),
+        Math.abs(_fm(flowsMid)), Math.abs(_fn(flowsMid)),
+        Math.abs(_fm(flowsSmall)), Math.abs(_fn(flowsSmall)),
+        1
+    );
+    turnoverChart.options.scales.y.min = -maxAbs;
+    turnoverChart.options.scales.y.max = maxAbs;
+    turnoverChart.update();
+}
+
+function renderDistribution(distResult) {
+    const ctxDist = document.getElementById('distributionChart').getContext('2d');
+    if (distributionChart) distributionChart.destroy();
+
+    let distLabels = [];
+    let distCounts = [];
+    if (distResult.success && distResult.data) {
+        distLabels = distResult.data.labels || [];
+        distCounts = distResult.data.counts || [];
+
+        const bd = document.getElementById('marketBreadth');
+        if (bd) {
+            const dd = distResult.data;
+            bd.innerHTML = '涨<span style="color:#e94560;">' + (dd.rise != null ? dd.rise : 0) + '</span> ' +
+                '跌<span style="color:#4ade80;">' + (dd.fall != null ? dd.fall : 0) + '</span> ' +
+                '平<span style="color:#888;">' + (dd.flat != null ? dd.flat : 0) + '</span> ' +
+                '涨停<span style="color:#e94560;">' + (dd.limit_up != null ? dd.limit_up : 0) + '</span> ' +
+                '跌停<span style="color:#4ade80;">' + (dd.limit_down != null ? dd.limit_down : 0) + '</span>';
+        }
+    } else {
+        const bd = document.getElementById('marketBreadth');
+        if (bd) bd.textContent = '暂无涨跌分布数据';
+    }
+
+    const distColors = distLabels.map(function(label) {
+        if (label === '平盘') return 'rgba(136, 136, 136, 0.85)';
+        if (label === '跌停' || label.indexOf('-') === 0) return 'rgba(74, 222, 128, 0.85)';
+        return 'rgba(233, 69, 96, 0.85)';
+    });
+
+    distributionChart = new Chart(ctxDist, {
+        type: 'bar',
+        data: {
+            labels: distLabels,
+            datasets: [{
+                data: distCounts,
+                backgroundColor: distColors,
+                borderRadius: 2,
+                borderSkipped: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
+                    callbacks: { label: function(context) { return '家数: ' + context.raw; } }
+                }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { color: '#888', font: { size: 8 }, maxRotation: 90, minRotation: 90, autoSkip: false } },
+                y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, precision: 0 }, grace: '20%' }
+            }
+        },
+        plugins: [{
+            id: 'distValueLabels',
+            afterDatasetsDraw: function(chart) {
+                var ctx = chart.ctx;
+                chart.data.datasets.forEach(function(dataset, di) {
+                    var meta = chart.getDatasetMeta(di);
+                    meta.data.forEach(function(bar, i) {
+                        var v = dataset.data[i];
+                        if (v == null || v <= 0) return;
+                        ctx.save();
+                        ctx.fillStyle = '#ddd';
+                        ctx.font = '9px sans-serif';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText(String(v), bar.x, bar.y - 2);
+                        ctx.restore();
+                    });
+                });
+            }
+        }]
+    });
+}
+
+function renderMargin(marginResult) {
+    const ctxMargin = document.getElementById('marginChart').getContext('2d');
+    if (marginChart) marginChart.destroy();
+
+    let marginDates = [];
+    let rzBalances = [];
+    let rqBalances = [];
+    let totalBalances = [];
+    let buyAmounts = [];
+
+    if (marginResult.success && marginResult.data.dates) {
+        marginDates = marginResult.data.dates;
+        rzBalances = marginResult.data.rz_balances;
+        rqBalances = marginResult.data.rq_balances;
+        totalBalances = marginResult.data.total_balances;
+        buyAmounts = marginResult.data.buy_amounts;
+    }
+
+    marginChart = new Chart(ctxMargin, {
+        type: 'line',
+        data: {
+            labels: marginDates,
+            datasets: [{
+                label: '两融余额',
+                data: totalBalances,
+                borderColor: '#fbbf24',
+                backgroundColor: 'rgba(251,191,36,0.08)',
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                tension: 0.3,
+                fill: true,
+                yAxisID: 'y'
+            }, {
+                label: '融资余额',
+                data: rzBalances,
+                borderColor: '#e94560',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y'
+            }, {
+                label: '融券余额',
+                data: rqBalances,
+                borderColor: '#4ade80',
+                backgroundColor: 'transparent',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y1'
+            }, {
+                label: '融资买入额',
+                data: buyAmounts,
+                borderColor: '#60a5fa',
+                backgroundColor: 'transparent',
+                borderWidth: 1.5,
+                borderDash: [4, 3],
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                tension: 0.3,
+                fill: false,
+                yAxisID: 'y1'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { left: 10, right: 10 } },
+            plugins: {
+                legend: { display: true, position: 'top', labels: { color: '#888', font: { size: 10 }, boxWidth: 12, padding: 5 } },
+                tooltip: {
+                    mode: 'index', intersect: false,
+                    backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
+                    callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.raw.toFixed(2) + '亿' }
+                }
+            },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#888', font: { size: 10 }, maxTicksLimit: 14 } },
+                y: {
+                    type: 'linear', position: 'left',
+                    grid: { color: 'rgba(255,255,255,0.1)' },
+                    ticks: { color: '#e94560', font: { size: 10 }, callback: v => (v / 10000).toFixed(2) + '万亿' },
+                    afterFit: function(scale) { scale.width = 65; }
+                },
+                y1: {
+                    type: 'linear', position: 'right',
+                    grid: { display: false },
+                    ticks: { color: '#4ade80', font: { size: 10 }, callback: v => v.toFixed(0) + '亿' },
+                    afterFit: function(scale) { scale.width = 50; }
+                }
+            },
+            interaction: { mode: 'index', intersect: false }
+        }
+    });
+}
+
+function renderFear(fearResult) {
+    const fearDiv = document.getElementById('fearIndex');
+    if (fearResult.success && fearResult.data) {
+        const d = fearResult.data;
+        const fMetrics = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
+            '<div>沪深指数平均涨跌: <span id="fear-avg-change" style="color:#ccc;">' + (d.avg_index_change != null ? (d.avg_index_change >= 0 ? '+' : '') + d.avg_index_change.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>30分钟最大跌速: <span id="fear-max-drop" style="color:#ccc;">' + (d.max_30m_drop != null ? d.max_30m_drop.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>日内最大回撤: <span id="fear-max-dd" style="color:#ccc;">' + (d.max_drawdown != null ? d.max_drawdown.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>上证振幅: <span id="fear-amplitude" style="color:#ccc;">' + (d.amplitude != null ? d.amplitude.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>全A红盘率: <span id="fear-red-ratio" style="color:#ccc;">' + (d.red_ratio != null ? d.red_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
+            '<div>下跌家数占比: <span id="fear-down-ratio" style="color:#ccc;">' + (d.down_ratio != null ? d.down_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
+            '<div>主力资金净流入: <span id="fear-main-net" style="color:#ccc;">' + (d.main_net != null ? (d.main_net >= 0 ? '+' : '') + d.main_net.toFixed(2) + '亿' : '--') + '</span></div>' +
+            '<div>从低点反弹: <span id="fear-rebound" style="color:#ccc;">' + (d.rebound != null ? (d.rebound >= 0 ? '+' : '') + d.rebound.toFixed(2) + '%' : '--') + '</span></div>' +
+            '</div>' + fearExplain;
+        fearDiv.innerHTML = `
+            <div id="fearScore" style="font-size:28px; font-weight:bold; color:${d.color}; margin-bottom:5px;">${d.score}</div>
+            <div id="fearLevel" style="font-size:14px; color:${d.color}; margin-bottom:8px;">${d.level}</div>
+            <div style="width:100%; position:relative; margin-bottom:6px;">
+                <div style="width:100%; height:12px; border-radius:6px; background: linear-gradient(to right, #4ade80 0%, #86efac 30%, #fbbf24 50%, #f97316 70%, #e94560 100%);"></div>
+                <div id="fearPointer" style="position:absolute; top:-3px; left:${d.score}%; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 6px rgba(255,255,255,0.5);"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; width:100%; font-size:10px; color:#666; margin-bottom:10px;">
+                <span>贪婪</span><span>中性</span><span>恐慌</span>
+            </div>
+            <div id="fearConclusion" style="font-size:12px; color:#aaa; margin-bottom:0; line-height:1.5;">${getFearSummary(d.score)}</div>
+            <div id="fearMetrics">${fMetrics}</div>
+        `;
+    } else {
+        fearDiv.innerHTML = '<div class="error">暂无数据</div>';
+    }
+}
+
+function renderRisk(riskResult) {
+    const riskDiv = document.getElementById('riskIndex');
+    if (riskResult.success && riskResult.data) {
+        const d = riskResult.data;
+        const rMetrics = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
+            '<div>融资余额5日变化: <span id="risk-fin-bal-5d" style="color:#ccc;">' + (d.fin_bal_5d != null ? (d.fin_bal_5d >= 0 ? '+' : '') + d.fin_bal_5d.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>两融余额10日变化: <span id="risk-fin-bal-10d" style="color:#ccc;">' + (d.fin_bal_10d != null ? (d.fin_bal_10d >= 0 ? '+' : '') + d.fin_bal_10d.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>融资买入活跃度: <span id="risk-fin-buy-heat" style="color:#ccc;">' + (d.fin_buy_heat != null ? (d.fin_buy_heat >= 0 ? '+' : '') + d.fin_buy_heat.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>沪深5日涨跌: <span id="risk-idx-5d" style="color:#ccc;">' + (d.idx_5d != null ? (d.idx_5d >= 0 ? '+' : '') + d.idx_5d.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>沪深10日涨跌: <span id="risk-idx-10d" style="color:#ccc;">' + (d.idx_10d != null ? (d.idx_10d >= 0 ? '+' : '') + d.idx_10d.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>20日最大回撤: <span id="risk-idx-20d-dd" style="color:#ccc;">' + (d.idx_20d_dd != null ? d.idx_20d_dd.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>10日波动率: <span id="risk-volatility" style="color:#ccc;">' + (d.volatility != null ? d.volatility.toFixed(2) + '%' : '--') + '</span></div>' +
+            '<div>情绪面因子: <span id="risk-panic-score" style="color:#ccc;">' + (d.panic_score_in != null ? d.panic_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
+            '<div>涨跌结构因子: <span id="risk-limit-score" style="color:#ccc;">' + (d.limit_score_in != null ? d.limit_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
+            '</div>' + riskExplain;
+        riskDiv.innerHTML = `
+            <div id="riskScore" style="font-size:28px; font-weight:bold; color:${d.color}; margin-bottom:5px;">${d.score}</div>
+            <div id="riskLevel" style="font-size:14px; color:${d.color}; margin-bottom:8px;">${d.level}</div>
+            <div style="width:100%; position:relative; margin-bottom:6px;">
+                <div style="width:100%; height:12px; border-radius:6px; background: linear-gradient(to right, #4ade80 0%, #86efac 30%, #fbbf24 50%, #f97316 70%, #e94560 100%);"></div>
+                <div id="riskPointer" style="position:absolute; top:-3px; left:${d.score}%; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 6px rgba(255,255,255,0.5);"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; width:100%; font-size:10px; color:#666; margin-bottom:10px;">
+                <span>低风险</span><span>中风险</span><span>高风险</span>
+            </div>
+            <div id="riskConclusion" style="font-size:12px; color:#aaa; margin-bottom:0; line-height:1.5;">${getRiskSummary(d.score)}</div>
+            <div id="riskMetrics">${rMetrics}</div>
+        `;
+    } else {
+        riskDiv.innerHTML = '<div class="error">暂无数据</div>';
+    }
+}
+
+function renderMinute(minuteResult, turnoverResult, gradientColor, lineColor) {
+    const minuteLoading = document.getElementById('minuteLoading');
+    if (minuteResult.success && minuteResult.data.times && minuteResult.data.prices && minuteResult.data.times.length > 0) {
+        fullMinuteSlots = generateFlowSlots();
+        const times = fullMinuteSlots;
+        const prices = mapAndFill(fullMinuteSlots, minuteResult.data.times, minuteResult.data.prices);
+        const preClose = minuteResult.data.preClose || 0;
+
+        let maxDev = 0;
+        minuteResult.data.prices.forEach(p => { const d = Math.abs(p - preClose); if (d > maxDev) maxDev = d; });
+        maxDev = Math.max(maxDev * 1.15, preClose * 0.005);
+        const yMin = preClose - maxDev;
+        const yMax = preClose + maxDev;
+
+        var volData = new Array(fullMinuteSlots.length).fill(0);
+        if (turnoverResult.success && turnoverResult.data.times && turnoverResult.data.turnovers) {
+            var rawVols = mapAndFill(fullMinuteSlots, turnoverResult.data.times, turnoverResult.data.turnovers);
+            var lastVal = 0;
+            for (var vi = 0; vi < rawVols.length; vi++) {
+                if (rawVols[vi] != null && rawVols[vi] > 0) {
+                    volData[vi] = Math.max(0, rawVols[vi] - lastVal);
+                    lastVal = rawVols[vi];
+                }
+            }
+        }
+
+        const ctxMinute = document.getElementById('minuteChart').getContext('2d');
+        if (minuteChart) minuteChart.destroy();
+
+        const gradient = ctxMinute.createLinearGradient(0, 0, 0, 180);
+        gradient.addColorStop(0, gradientColor);
+        gradient.addColorStop(1, 'rgba(26, 26, 46, 0)');
+
+        var maxVol = volData.reduce(function(a, b) { return Math.max(a, b || 0); }, 0) * 1.3 || 1;
+
+        minuteChart = new Chart(ctxMinute, {
+            type: 'line',
+            data: {
+                labels: times,
+                datasets: [{
+                    type: 'line',
+                    data: prices,
+                    borderColor: lineColor,
+                    backgroundColor: gradient,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.1,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y'
+                }, {
+                    type: 'line',
+                    data: Array(times.length).fill(preClose),
+                    borderColor: '#888888',
+                    borderWidth: 1,
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    fill: false,
+                    order: 1,
+                    yAxisID: 'y'
+                }, {
+                    type: 'bar',
+                    data: volData,
+                    backgroundColor: 'rgba(251, 191, 36, 0.3)',
+                    hoverBackgroundColor: 'rgba(251, 191, 36, 0.5)',
+                    borderWidth: 0,
+                    borderSkipped: false,
+                    yAxisID: 'y1',
+                    order: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                layout: { padding: { left: 10, right: 10 } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        mode: 'index', intersect: false,
+                        filter: function(item) { return item.datasetIndex !== 1; },
+                        callbacks: {
+                            label: function(ctx) {
+                                if (ctx.datasetIndex === 2) {
+                                    var v = ctx.raw || 0;
+                                    return '成交额: ' + v.toFixed(2) + '亿';
+                                }
+                                const price = ctx.raw;
+                                const preClose = minuteResult.data.preClose || 0;
+                                const change = price - preClose;
+                                const pct = preClose ? (change / preClose * 100) : 0;
+                                const sign = change >= 0 ? '+' : '';
+                                return [
+                                    '指数: ' + price.toFixed(2),
+                                    sign + pct.toFixed(2) + '%  ' + sign + change.toFixed(2)
+                                ];
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { const label = this.getLabelForValue(value); if (!label) return ''; if (label === '11:30') return ''; if (label === '09:30' || label === '13:00' || label === '15:00') return label; const parts = label.split(':'); const h = parseInt(parts[0]); const min = parseInt(parts[1]); if (h < 12) return ((min + 30) % 20 === 0) ? label : ''; else return (min % 20 === 0) ? label : ''; } } },
+                    y: { min: yMin, max: yMax, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', callback: v => v.toFixed(0) }, afterFit: function(scale) { scale.width = 65; }, position: 'left' },
+                    y1: { min: 0, max: maxVol, grid: { display: false }, ticks: { color: 'rgba(251,191,36,0.6)', callback: v => v.toFixed(0) + '亿', font: { size: 9 } }, position: 'right' }
+                },
+                interaction: { mode: 'nearest', axis: 'x', intersect: false }
+            }
+        });
+        if (minuteLoading) minuteLoading.style.display = 'none';
+    } else {
+        if (minuteLoading) minuteLoading.textContent = '暂无分时数据';
+    }
+}
+
+// ==================== 加载入口 ====================
+
+async function loadMoneyFlowRealtime() {
     const indexCard = document.getElementById('index-card');
     indexCard.innerHTML = '<div class="loading">正在加载上证指数...</div>';
 
@@ -82,593 +691,88 @@ async function loadIndexWithChart() {
             return;
         }
 
-        const isUp = indexData.change.startsWith('+');
-        const changeClass = isUp ? 'up' : 'down';
-        const lineColor = isUp ? '#e94560' : '#4ade80';
-        const gradientColor = isUp ? 'rgba(233, 69, 96, 0.2)' : 'rgba(74, 222, 128, 0.2)';
+        buildMoneyFlowHTML(indexData, indexDataSZ);
+        const colors = getIndexColors(indexData);
 
-        // 深证
-        var szName = indexDataSZ ? '深证' : '';
-        var szIsUp = indexDataSZ && indexDataSZ.change.startsWith('+');
-        var szColor = szIsUp ? '#e94560' : '#4ade80';
-        var szChangeClass = szIsUp ? 'up' : 'down';
-
-        indexCard.innerHTML = `
-                <div class="index-header">
-                    <div class="index-info">
-                        <span class="index-name">上证</span>
-                        <span class="index-price index-sh-price" style="color: ${lineColor};">${indexData.price}</span>
-                        <span class="index-change index-sh-change ${changeClass}">${indexData.change} ${indexData.change_value}</span>
-                        ` + (indexDataSZ ? `
-                        <span class="index-name">${szName}</span>
-                        <span class="index-price index-sz-price" style="color: ${szColor};">${indexDataSZ.price}</span>
-                        <span class="index-change index-sz-change ${szChangeClass}">${indexDataSZ.change} ${indexDataSZ.change_value}</span>
-                        ` : '') + `
-                        <span id="marketBreadth" style="font-size: 12px; color: #888;"></span>
-                    </div>
-                </div>
-                <div style="display: flex; gap: 15px; font-size: 13px; color: #888; margin-bottom: 6px;">
-                    <span id="headerTurnover">加载中...</span>
-                    <span id="headerFlow"></span>
-                </div>
-                <div class="money-flow-row">
-                    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;">
-                        <div class="chart-box">
-                            <canvas id="distributionChart"></canvas>
-                            <div class="chart-title">涨跌分布</div>
-                        </div>
-                        <div class="chart-box" style="position:relative;">
-                            <canvas id="minuteChart"></canvas>
-                            <div id="minuteLoading" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;pointer-events:none;">加载中...</div>
-                            <div class="chart-title">分时走势</div>
-                        </div>
-                        <div class="chart-box">
-                            <canvas id="turnoverChart"></canvas>
-                            <div class="chart-title">大盘净资金流入</div>
-                        </div>
-                        <div class="chart-box">
-                            <canvas id="marginChart"></canvas>
-                            <div class="chart-title">融资融券</div>
-                        </div>
-                    </div>
-                    <div class="money-flow-side">
-                        <div class="index-card" style="height: 100%; padding: 18px; display: flex; flex-direction: column;">
-                            <div class="chart-title" style="margin-bottom: 12px;">市场风险指数</div>
-                            <div id="riskIndex" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
-                                <div class="loading">加载中...</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="money-flow-side">
-                        <div class="index-card" style="height: 100%; padding: 18px; display: flex; flex-direction: column;">
-                            <div class="chart-title" style="margin-bottom: 12px;">市场恐慌指数</div>
-                            <div id="fearIndex" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
-                                <div class="loading">加载中...</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-        // 成交额 header（独立容器，互不覆盖）
-        fetch('/api/turnover-minute')
-            .then(res => res.json())
-            .then(turnoverResult => {
-                var el = document.getElementById('headerTurnover');
-                if (!el) return;
-                if (turnoverResult.success && turnoverResult.data.header && turnoverResult.data.header.turnover) {
-                    var th = turnoverResult.data.header;
-                    var todayT = th.turnover / 100000000;
-                    var yesterdayT = th.turnover_pre / 100000000;
-                    var chg = th.turnover_change / 100000000;
-                    var chgPct = yesterdayT ? (chg / yesterdayT * 100) : 0;
-                    el.innerHTML = '<span>当日成交额: <span id="todayTurnover" style="color:#fff;">' + todayT.toFixed(2) + '亿</span></span> ' +
-                        '<span>昨日成交额: <span id="yesterdayTurnover" style="color:#fff;">' + yesterdayT.toFixed(2) + '亿</span></span> ' +
-                        '<span>较昨日变动: <span id="turnoverChange" style="color:' + (chg >= 0 ? '#e94560' : '#4ade80') + ';">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '亿 (' + (chgPct >= 0 ? '+' : '') + chgPct.toFixed(1) + '%)</span></span>';
-                } else {
-                    el.textContent = '暂无成交额数据';
-                }
-            })
+        fetch('/api/turnover-minute').then(res => res.json()).then(renderTurnoverHeader)
             .catch(err => console.log('成交额数据加载失败:', err));
 
-        // 资金流 header + 图表（独立容器，互不覆盖）
-        fetch('/api/market-fund-flow')
-            .then(res => res.json())
-            .then(flowResult => {
-                var flowTimes = [];
-                var flows = [];
-                var flowsMid = [];
-                var flowsSmall = [];
-                var totalFlow = 0;
-
-                if (flowResult.success && flowResult.data.times) {
-                    fullFlowSlots = generateFlowSlots();
-                    flowTimes = fullFlowSlots;
-                    flows = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows);
-                    flowsMid = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows_mid || []);
-                    flowsSmall = mapAndFill(fullFlowSlots, flowResult.data.times, flowResult.data.flows_small || []);
-                    totalFlow = flowResult.data.flows.length > 0 ? flowResult.data.flows[flowResult.data.flows.length - 1] : 0;
-                }
-
-                var hf = document.getElementById('headerFlow');
-                if (hf && flowResult.success) {
-                    var flowColor = totalFlow >= 0 ? '#e94560' : '#4ade80';
-                    hf.innerHTML = '<span>大盘资金净流入: <span id="netFlowValue" style="color:' + flowColor + ';">' + (totalFlow >= 0 ? '+' : '') + totalFlow.toFixed(2) + '亿</span></span>';
-                }
-
-                const ctxTurnover = document.getElementById('turnoverChart').getContext('2d');
-            if (turnoverChart) turnoverChart.destroy();
-
-            turnoverChart = new Chart(ctxTurnover, {
-                    type: 'line',
-                    data: {
-                        labels: flowTimes,
-                        datasets: [{
-                            data: flows,
-                            borderColor: '#fbbf24',
-                            backgroundColor: function(context) {
-                                const chart = context.chart;
-                                const ctx = chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 180);
-                                gradient.addColorStop(0, 'rgba(233, 69, 96, 0.25)');
-                                gradient.addColorStop(0.5, 'rgba(233, 69, 96, 0.05)');
-                                gradient.addColorStop(0.5, 'rgba(74, 222, 128, 0.05)');
-                                gradient.addColorStop(1, 'rgba(74, 222, 128, 0.25)');
-                                return gradient;
-                            },
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            pointHoverRadius: 3,
-                            tension: 0.3,
-                            fill: true
-                        }, {
-                            data: flowsMid,
-                            borderColor: '#a78bfa',
-                            backgroundColor: 'transparent',
-                            borderWidth: 1.5,
-                            borderDash: [3, 5],
-                            pointRadius: 0,
-                            pointHoverRadius: 3,
-                            tension: 0.3,
-                            fill: false
-                        }, {
-                            data: flowsSmall,
-                            borderColor: '#60a5fa',
-                            backgroundColor: 'transparent',
-                            borderWidth: 1.5,
-                            borderDash: [4, 3],
-                            pointRadius: 0,
-                            pointHoverRadius: 3,
-                            tension: 0.3,
-                            fill: false
-                        }, {
-                            data: Array(flowTimes.length).fill(0),
-                            borderColor: 'rgba(255,255,255,0.3)',
-                            borderWidth: 1,
-                            borderDash: [4, 4],
-                            pointRadius: 0,
-                            fill: false
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        layout: { padding: { left: 10, right: 10 } },
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                mode: 'index', intersect: false,
-                                backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
-                                callbacks: { label: function(context) { const v = context.raw; if (context.datasetIndex === 3) return ''; const labels = ['大盘资金', '中单', '散户']; return labels[context.datasetIndex] + ': ' + (v >= 0 ? '+' : '') + v.toFixed(2) + '亿'; } }
-                            }
-                        },
-                        scales: {
-                            x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, font: { size: 10 }, callback: function(value, index) { const label = this.getLabelForValue(value); if (!label) return ''; if (label === '11:30') return ''; if (label === '09:30' || label === '13:00' || label === '15:00') return label; const parts = label.split(':'); const h = parseInt(parts[0]); const min = parseInt(parts[1]); if (h < 12) return ((min + 30) % 20 === 0) ? label : ''; else return (min % 20 === 0) ? label : ''; } } },
-                            y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(value) { return value.toFixed(2) + '亿'; } }, afterFit: function(scale) { scale.width = 65; } }
-                        },
-                        interaction: { mode: 'index', intersect: false }
-                    }
-                });
-            // 让 0 刻度在 Y 轴中间，综合主力/中单/散户三条线的范围
-            var _fm = function(arr) { var f = arr.filter(function(v) { return v != null; }); return f.length > 0 ? Math.max.apply(null, f) : 0; };
-            var _fn = function(arr) { var f = arr.filter(function(v) { return v != null; }); return f.length > 0 ? Math.min.apply(null, f) : 0; };
-            var maxAbs = Math.max(
-                Math.abs(_fm(flows)), Math.abs(_fn(flows)),
-                Math.abs(_fm(flowsMid)), Math.abs(_fn(flowsMid)),
-                Math.abs(_fm(flowsSmall)), Math.abs(_fn(flowsSmall)),
-                1
-            );
-            turnoverChart.options.scales.y.min = -maxAbs;
-            turnoverChart.options.scales.y.max = maxAbs;
-            turnoverChart.update();
-            })
+        fetch('/api/market-fund-flow').then(res => res.json()).then(renderFundFlow)
             .catch(err => console.log('资金流数据加载失败:', err));
 
-        // 涨跌分布柱状图（涨红跌绿：下跌绿色、平盘灰色、上涨红色）
-        fetch('/api/market-distribution')
-            .then(res => res.json())
-            .then(distResult => {
-                const ctxDist = document.getElementById('distributionChart').getContext('2d');
-                if (distributionChart) distributionChart.destroy();
-
-                let distLabels = [];
-                let distCounts = [];
-                if (distResult.success && distResult.data) {
-                    distLabels = distResult.data.labels || [];
-                    distCounts = distResult.data.counts || [];
-
-                    const bd = document.getElementById('marketBreadth');
-                    if (bd) {
-                        const dd = distResult.data;
-                        bd.innerHTML = '涨<span style="color:#e94560;">' + (dd.rise != null ? dd.rise : 0) + '</span> ' +
-                            '跌<span style="color:#4ade80;">' + (dd.fall != null ? dd.fall : 0) + '</span> ' +
-                            '平<span style="color:#888;">' + (dd.flat != null ? dd.flat : 0) + '</span> ' +
-                            '涨停<span style="color:#e94560;">' + (dd.limit_up != null ? dd.limit_up : 0) + '</span> ' +
-                            '跌停<span style="color:#4ade80;">' + (dd.limit_down != null ? dd.limit_down : 0) + '</span>';
-                    }
-                }
-
-                const distColors = distLabels.map(function(label) {
-                    if (label === '平盘') return 'rgba(136, 136, 136, 0.85)';
-                    if (label === '跌停' || label.indexOf('-') === 0) return 'rgba(74, 222, 128, 0.85)';
-                    return 'rgba(233, 69, 96, 0.85)';
-                });
-
-                distributionChart = new Chart(ctxDist, {
-                    type: 'bar',
-                    data: {
-                        labels: distLabels,
-                        datasets: [{
-                            data: distCounts,
-                            backgroundColor: distColors,
-                            borderRadius: 2,
-                            borderSkipped: false
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
-                                callbacks: { label: function(context) { return '家数: ' + context.raw; } }
-                            }
-                        },
-                        scales: {
-                            x: { grid: { display: false }, ticks: { color: '#888', font: { size: 8 }, maxRotation: 90, minRotation: 90, autoSkip: false } },
-                            y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, precision: 0 }, grace: '20%' }
-                        }
-                    },
-                    plugins: [{
-                        id: 'distValueLabels',
-                        afterDatasetsDraw: function(chart) {
-                            var ctx = chart.ctx;
-                            chart.data.datasets.forEach(function(dataset, di) {
-                                var meta = chart.getDatasetMeta(di);
-                                meta.data.forEach(function(bar, i) {
-                                    var v = dataset.data[i];
-                                    if (v == null || v <= 0) return;
-                                    ctx.save();
-                                    ctx.fillStyle = '#ddd';
-                                    ctx.font = '9px sans-serif';
-                                    ctx.textAlign = 'center';
-                                    ctx.textBaseline = 'bottom';
-                                    ctx.fillText(String(v), bar.x, bar.y - 2);
-                                    ctx.restore();
-                                });
-                            });
-                        }
-                    }]
-                });
-            })
+        fetch('/api/market-distribution').then(res => res.json()).then(renderDistribution)
             .catch(err => console.log('涨跌分布数据加载失败:', err));
 
-        fetch('/api/margin-trading')
-            .then(res => res.json())
-            .then(marginResult => {
-                const ctxMargin = document.getElementById('marginChart').getContext('2d');
-                if (marginChart) marginChart.destroy();
-
-                let marginDates = [];
-                let rzBalances = [];
-                let rqBalances = [];
-                let totalBalances = [];
-                let buyAmounts = [];
-
-                if (marginResult.success && marginResult.data.dates) {
-                    marginDates = marginResult.data.dates;
-                    rzBalances = marginResult.data.rz_balances;
-                    rqBalances = marginResult.data.rq_balances;
-                    totalBalances = marginResult.data.total_balances;
-                    buyAmounts = marginResult.data.buy_amounts;
-                }
-
-                marginChart = new Chart(ctxMargin, {
-                    type: 'line',
-                    data: {
-                        labels: marginDates,
-                        datasets: [{
-                            label: '两融余额',
-                            data: totalBalances,
-                            borderColor: '#fbbf24',
-                            backgroundColor: 'rgba(251,191,36,0.08)',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            pointHoverRadius: 3,
-                            tension: 0.3,
-                            fill: true,
-                            yAxisID: 'y'
-                        }, {
-                            label: '融资余额',
-                            data: rzBalances,
-                            borderColor: '#e94560',
-                            backgroundColor: 'transparent',
-                            borderWidth: 2,
-                            pointRadius: 0,
-                            pointHoverRadius: 3,
-                            tension: 0.3,
-                            fill: false,
-                            yAxisID: 'y'
-                        }, {
-                            label: '融券余额',
-                            data: rqBalances,
-                            borderColor: '#4ade80',
-                            backgroundColor: 'transparent',
-                            borderWidth: 1.5,
-                            pointRadius: 0,
-                            pointHoverRadius: 3,
-                            tension: 0.3,
-                            fill: false,
-                            yAxisID: 'y1'
-                        }, {
-                            label: '融资买入额',
-                            data: buyAmounts,
-                            borderColor: '#60a5fa',
-                            backgroundColor: 'transparent',
-                            borderWidth: 1.5,
-                            borderDash: [4, 3],
-                            pointRadius: 0,
-                            pointHoverRadius: 3,
-                            tension: 0.3,
-                            fill: false,
-                            yAxisID: 'y1'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        layout: { padding: { left: 10, right: 10 } },
-                        plugins: {
-                            legend: { display: true, position: 'top', labels: { color: '#888', font: { size: 10 }, boxWidth: 12, padding: 5 } },
-                            tooltip: {
-                                mode: 'index', intersect: false,
-                                backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
-                                callbacks: { label: ctx => ctx.dataset.label + ': ' + ctx.raw.toFixed(2) + '亿' }
-                            }
-                        },
-                        scales: {
-                            x: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#888', font: { size: 10 }, maxTicksLimit: 14 } },
-                            y: {
-                                type: 'linear', position: 'left',
-                                grid: { color: 'rgba(255,255,255,0.1)' },
-                                ticks: { color: '#e94560', font: { size: 10 }, callback: v => (v / 10000).toFixed(2) + '万亿' },
-                                afterFit: function(scale) { scale.width = 65; }
-                            },
-                            y1: {
-                                type: 'linear', position: 'right',
-                                grid: { display: false },
-                                ticks: { color: '#4ade80', font: { size: 10 }, callback: v => v.toFixed(0) + '亿' },
-                                afterFit: function(scale) { scale.width = 50; }
-                            }
-                        },
-                        interaction: { mode: 'index', intersect: false }
-                    }
-                });
-            })
+        fetch('/api/margin-trading').then(res => res.json()).then(renderMargin)
             .catch(err => console.log('融资融券数据加载失败:', err));
 
-        fetch('/api/fear-index')
-            .then(res => res.json())
-            .then(fearResult => {
-                const fearDiv = document.getElementById('fearIndex');
-                if (fearResult.success && fearResult.data) {
-                    const d = fearResult.data;
-                    const fMetrics = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
-                        '<div>沪深指数平均涨跌: <span id="fear-avg-change" style="color:#ccc;">' + (d.avg_index_change != null ? (d.avg_index_change >= 0 ? '+' : '') + d.avg_index_change.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>30分钟最大跌速: <span id="fear-max-drop" style="color:#ccc;">' + (d.max_30m_drop != null ? d.max_30m_drop.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>日内最大回撤: <span id="fear-max-dd" style="color:#ccc;">' + (d.max_drawdown != null ? d.max_drawdown.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>上证振幅: <span id="fear-amplitude" style="color:#ccc;">' + (d.amplitude != null ? d.amplitude.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>全A红盘率: <span id="fear-red-ratio" style="color:#ccc;">' + (d.red_ratio != null ? d.red_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
-                        '<div>下跌家数占比: <span id="fear-down-ratio" style="color:#ccc;">' + (d.down_ratio != null ? d.down_ratio.toFixed(1) + '%' : '--') + '</span></div>' +
-                        '<div>主力资金净流入: <span id="fear-main-net" style="color:#ccc;">' + (d.main_net != null ? (d.main_net >= 0 ? '+' : '') + d.main_net.toFixed(2) + '亿' : '--') + '</span></div>' +
-                        '<div>从低点反弹: <span id="fear-rebound" style="color:#ccc;">' + (d.rebound != null ? (d.rebound >= 0 ? '+' : '') + d.rebound.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '</div>' + fearExplain;
-                    fearDiv.innerHTML = `
-                        <div id="fearScore" style="font-size:28px; font-weight:bold; color:${d.color}; margin-bottom:5px;">${d.score}</div>
-                        <div id="fearLevel" style="font-size:14px; color:${d.color}; margin-bottom:8px;">${d.level}</div>
-                        <div style="width:100%; position:relative; margin-bottom:6px;">
-                            <div style="width:100%; height:12px; border-radius:6px; background: linear-gradient(to right, #4ade80 0%, #86efac 30%, #fbbf24 50%, #f97316 70%, #e94560 100%);"></div>
-                            <div id="fearPointer" style="position:absolute; top:-3px; left:${d.score}%; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 6px rgba(255,255,255,0.5);"></div>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; width:100%; font-size:10px; color:#666; margin-bottom:10px;">
-                            <span>贪婪</span><span>中性</span><span>恐慌</span>
-                        </div>
-                        <div id="fearConclusion" style="font-size:12px; color:#aaa; margin-bottom:0; line-height:1.5;">${getFearSummary(d.score)}</div>
-                        <div id="fearMetrics">${fMetrics}</div>
-                    `;
-                } else {
-                    fearDiv.innerHTML = '<div class="error">暂无数据</div>';
-                }
-            })
+        fetch('/api/fear-index').then(res => res.json()).then(renderFear)
             .catch(err => console.log('恐慌指数加载失败:', err));
 
-        fetch('/api/risk-index')
-            .then(res => res.json())
-            .then(riskResult => {
-                const riskDiv = document.getElementById('riskIndex');
-                if (riskResult.success && riskResult.data) {
-                    const d = riskResult.data;
-                    const rMetrics = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
-                        '<div>融资余额5日变化: <span id="risk-fin-bal-5d" style="color:#ccc;">' + (d.fin_bal_5d != null ? (d.fin_bal_5d >= 0 ? '+' : '') + d.fin_bal_5d.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>两融余额10日变化: <span id="risk-fin-bal-10d" style="color:#ccc;">' + (d.fin_bal_10d != null ? (d.fin_bal_10d >= 0 ? '+' : '') + d.fin_bal_10d.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>融资买入活跃度: <span id="risk-fin-buy-heat" style="color:#ccc;">' + (d.fin_buy_heat != null ? (d.fin_buy_heat >= 0 ? '+' : '') + d.fin_buy_heat.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>沪深5日涨跌: <span id="risk-idx-5d" style="color:#ccc;">' + (d.idx_5d != null ? (d.idx_5d >= 0 ? '+' : '') + d.idx_5d.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>沪深10日涨跌: <span id="risk-idx-10d" style="color:#ccc;">' + (d.idx_10d != null ? (d.idx_10d >= 0 ? '+' : '') + d.idx_10d.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>20日最大回撤: <span id="risk-idx-20d-dd" style="color:#ccc;">' + (d.idx_20d_dd != null ? d.idx_20d_dd.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>10日波动率: <span id="risk-volatility" style="color:#ccc;">' + (d.volatility != null ? d.volatility.toFixed(2) + '%' : '--') + '</span></div>' +
-                        '<div>情绪面因子: <span id="risk-panic-score" style="color:#ccc;">' + (d.panic_score_in != null ? d.panic_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
-                        '<div>涨跌结构因子: <span id="risk-limit-score" style="color:#ccc;">' + (d.limit_score_in != null ? d.limit_score_in.toFixed(1) + '分' : '--') + '</span></div>' +
-                        '</div>' + riskExplain;
-                    riskDiv.innerHTML = `
-                        <div id="riskScore" style="font-size:28px; font-weight:bold; color:${d.color}; margin-bottom:5px;">${d.score}</div>
-                        <div id="riskLevel" style="font-size:14px; color:${d.color}; margin-bottom:8px;">${d.level}</div>
-                        <div style="width:100%; position:relative; margin-bottom:6px;">
-                            <div style="width:100%; height:12px; border-radius:6px; background: linear-gradient(to right, #4ade80 0%, #86efac 30%, #fbbf24 50%, #f97316 70%, #e94560 100%);"></div>
-                            <div id="riskPointer" style="position:absolute; top:-3px; left:${d.score}%; width:4px; height:18px; background:#fff; border-radius:2px; transform:translateX(-50%); box-shadow:0 0 6px rgba(255,255,255,0.5);"></div>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; width:100%; font-size:10px; color:#666; margin-bottom:10px;">
-                            <span>低风险</span><span>中风险</span><span>高风险</span>
-                        </div>
-                        <div id="riskConclusion" style="font-size:12px; color:#aaa; margin-bottom:0; line-height:1.5;">${getRiskSummary(d.score)}</div>
-                        <div id="riskMetrics">${rMetrics}</div>
-                    `;
-                } else {
-                    riskDiv.innerHTML = '<div class="error">暂无数据</div>';
-                }
-            })
+        fetch('/api/risk-index').then(res => res.json()).then(renderRisk)
             .catch(err => console.log('风险指数加载失败:', err));
 
         Promise.all([
             fetch('/api/sh000001-minute').then(res => res.json()),
             fetch('/api/turnover-minute').then(res => res.json())
         ]).then(results => {
-                const minuteResult = results[0];
-                const turnoverResult = results[1];
-                const minuteLoading = document.getElementById('minuteLoading');
-                if (minuteResult.success && minuteResult.data.times && minuteResult.data.prices && minuteResult.data.times.length > 0) {
-                    fullMinuteSlots = generateFlowSlots();
-                    const times = fullMinuteSlots;
-                    const prices = mapAndFill(fullMinuteSlots, minuteResult.data.times, minuteResult.data.prices);
-                    const preClose = minuteResult.data.preClose || 0;
-
-                    // 以昨收为中线，计算上下范围
-                    let maxDev = 0;
-                    minuteResult.data.prices.forEach(p => { const d = Math.abs(p - preClose); if (d > maxDev) maxDev = d; });
-                    maxDev = Math.max(maxDev * 1.15, preClose * 0.005);
-                    const yMin = preClose - maxDev;
-                    const yMax = preClose + maxDev;
-
-                    // 成交额数据（计算每分钟增量，用于柱状图）
-                    var volData = new Array(fullMinuteSlots.length).fill(0);
-                    if (turnoverResult.success && turnoverResult.data.times && turnoverResult.data.turnovers) {
-                        var rawVols = mapAndFill(fullMinuteSlots, turnoverResult.data.times, turnoverResult.data.turnovers);
-                        var lastVal = 0;
-                        for (var vi = 0; vi < rawVols.length; vi++) {
-                            if (rawVols[vi] != null && rawVols[vi] > 0) {
-                                volData[vi] = Math.max(0, rawVols[vi] - lastVal);
-                                lastVal = rawVols[vi];
-                            }
-                        }
-                    }
-
-                    const ctxMinute = document.getElementById('minuteChart').getContext('2d');
-                    if (minuteChart) minuteChart.destroy();
-
-                    const gradient = ctxMinute.createLinearGradient(0, 0, 0, 180);
-                    gradient.addColorStop(0, gradientColor);
-                    gradient.addColorStop(1, 'rgba(26, 26, 46, 0)');
-
-                    var maxVol = volData.reduce(function(a, b) { return Math.max(a, b || 0); }, 0) * 1.3 || 1;
-
-                    minuteChart = new Chart(ctxMinute, {
-                        type: 'line',
-                        data: {
-                            labels: times,
-                            datasets: [{
-                                type: 'line',
-                                data: prices,
-                                borderColor: lineColor,
-                                backgroundColor: gradient,
-                                borderWidth: 2,
-                                fill: true,
-                                tension: 0.1,
-                                pointRadius: 0,
-                                pointHoverRadius: 4,
-                                yAxisID: 'y'
-                            }, {
-                                type: 'line',
-                                data: Array(times.length).fill(preClose),
-                                borderColor: '#888888',
-                                borderWidth: 1,
-                                borderDash: [6, 4],
-                                pointRadius: 0,
-                                pointHoverRadius: 0,
-                                fill: false,
-                                order: 1,
-                                yAxisID: 'y'
-                            }, {
-                                type: 'bar',
-                                data: volData,
-                                backgroundColor: 'rgba(251, 191, 36, 0.3)',
-                                hoverBackgroundColor: 'rgba(251, 191, 36, 0.5)',
-                                borderWidth: 0,
-                                borderSkipped: false,
-                                yAxisID: 'y1',
-                                order: 2
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            layout: { padding: { left: 10, right: 10 } },
-                            plugins: {
-                                legend: { display: false },
-                                tooltip: {
-                                    mode: 'index', intersect: false,
-                                    filter: function(item) { return item.datasetIndex !== 1; },
-                                    callbacks: {
-                                        label: function(ctx) {
-                                            if (ctx.datasetIndex === 2) {
-                                                var v = ctx.raw || 0;
-                                                return '成交额: ' + v.toFixed(2) + '亿';
-                                            }
-                                            const price = ctx.raw;
-                                            const preClose = minuteResult.data.preClose || 0;
-                                            const change = price - preClose;
-                                            const pct = preClose ? (change / preClose * 100) : 0;
-                                            const sign = change >= 0 ? '+' : '';
-                                            return [
-                                                '指数: ' + price.toFixed(2),
-                                                sign + pct.toFixed(2) + '%  ' + sign + change.toFixed(2)
-                                            ];
-                                        }
-                                    }
-                                }
-                            },
-                            scales: {
-                                x: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', autoSkip: false, maxRotation: 0, callback: function(value, index) { const label = this.getLabelForValue(value); if (!label) return ''; if (label === '11:30') return ''; if (label === '09:30' || label === '13:00' || label === '15:00') return label; const parts = label.split(':'); const h = parseInt(parts[0]); const min = parseInt(parts[1]); if (h < 12) return ((min + 30) % 20 === 0) ? label : ''; else return (min % 20 === 0) ? label : ''; } } },
-                                y: { min: yMin, max: yMax, grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', callback: v => v.toFixed(0) }, afterFit: function(scale) { scale.width = 65; }, position: 'left' },
-                                y1: { min: 0, max: maxVol, grid: { display: false }, ticks: { color: 'rgba(251,191,36,0.6)', callback: v => v.toFixed(0) + '亿', font: { size: 9 } }, position: 'right' }
-                            },
-                            interaction: { mode: 'nearest', axis: 'x', intersect: false }
-                        },
-
-                    });
-                    if (minuteLoading) minuteLoading.style.display = 'none';
-                } else {
-                    // 分时数据获取失败
-                    if (minuteLoading) minuteLoading.textContent = '暂无分时数据';
-                }
-            })
-            .catch(err => {
-                console.log('分时数据加载失败:', err);
-                const minuteLoading = document.getElementById('minuteLoading');
-                if (minuteLoading) minuteLoading.textContent = '分时数据加载失败';
-            });
-
+            renderMinute(results[0], results[1], colors.gradientColor, colors.lineColor);
+        }).catch(err => {
+            console.log('分时数据加载失败:', err);
+            const minuteLoading = document.getElementById('minuteLoading');
+            if (minuteLoading) minuteLoading.textContent = '分时数据加载失败';
+        });
     } catch (error) {
-        indexCard.innerHTML = `<div class="error">指数加载失败</div>`;
+        indexCard.innerHTML = '<div class="error">指数加载失败</div>';
+    }
+}
+
+async function loadMoneyFlowHistory(date) {
+    const indexCard = document.getElementById('index-card');
+    indexCard.innerHTML = '<div class="loading">正在加载 ' + date + ' 数据...</div>';
+
+    try {
+        const res = await fetch('/api/money-flow-daily?date=' + encodeURIComponent(date));
+        const result = await res.json();
+
+        if (!result.success || !result.data) {
+            indexCard.innerHTML = '<div class="error">暂无该日数据</div>';
+            return;
+        }
+        const snap = result.data;
+
+        let indexData = null, indexDataSZ = null;
+        if (snap.indices && snap.indices.success && snap.indices.data && snap.indices.data.length > 0) {
+            indexData = snap.indices.data[0];
+            if (snap.indices.data.length > 1) indexDataSZ = snap.indices.data[1];
+        }
+        if (!indexData) {
+            indexCard.innerHTML = '<div class="error">暂无该日指数数据</div>';
+            return;
+        }
+
+        buildMoneyFlowHTML(indexData, indexDataSZ);
+        const colors = getIndexColors(indexData);
+
+        renderTurnoverHeader(snap.turnover || { success: false });
+        renderFundFlow(snap.fund_flow || { success: false });
+        renderDistribution(snap.distribution || { success: false });
+        renderMargin(snap.margin || { success: false });
+        renderFear(snap.fear_index || { success: false });
+        renderRisk(snap.risk_index || { success: false });
+        renderMinute(snap.sh_minute || { success: false }, snap.turnover || { success: false }, colors.gradientColor, colors.lineColor);
+    } catch (error) {
+        indexCard.innerHTML = '<div class="error">加载失败</div>';
+    }
+}
+
+async function loadIndexWithChart(date) {
+    if (!_moneyFlowDateList) await initMoneyFlowDateBar();
+    var d = date || _moneyFlowDate;
+    if (!d || d === _moneyFlowLatestDate) {
+        await loadMoneyFlowRealtime();
+    } else {
+        await loadMoneyFlowHistory(d);
     }
 }
 

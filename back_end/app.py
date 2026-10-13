@@ -24,7 +24,7 @@ from longhu_bang.service import get_longhu_bang, init_longhu_bang_update
 from global_market.commodities import get_global_commodities
 from global_market.forex import get_forex_rates
 from sector_fund.service import get_sector_fund, get_sector_stocks, get_etf_stocks, init_sector_fund_update
-from money_flow.storage import init_money_flow_update
+from money_flow.storage import init_money_flow_update, init_money_flow_daily_update, get_money_flow_daily
 from market_db.sync import init_market_db_update
 from self_review.service import init_self_review_update
 from stock_pick.service import search_stock as do_search
@@ -339,6 +339,11 @@ def risk_index():
 @app.route('/api/margin-trading')
 def margin_trading():
     return jsonify(get_margin_trading())
+
+@app.route('/api/money-flow-daily')
+def money_flow_daily():
+    date = request.args.get('date')
+    return jsonify(get_money_flow_daily(date))
 
 
 @app.route('/api/market-news')
@@ -1821,6 +1826,7 @@ def start_scheduler():
     register_scheduler_check(init_market_db_update())  # K线库每日自动更新检测
     register_scheduler_check(init_longhu_bang_update())      # 龙虎榜每日 17:00 清理+自动拉取
     register_scheduler_check(init_money_flow_update())    # 资金流/指数行情轮询检测
+    register_scheduler_check(init_money_flow_daily_update())  # 资金流向每日 17:00 快照固化
     register_scheduler_check(init_self_review_update())   # 自助复盘每日 17:00 清理+复盘
     register_scheduler_check(init_sector_fund_update())   # 板块资金盘中轮询 + 每日 17:00 固化
     register_scheduler_check(init_abnormal_center_update())   # 异动中心每日 17:00 清理 + 落库

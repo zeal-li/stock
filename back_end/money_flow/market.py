@@ -1,8 +1,7 @@
 """大盘行情、分时走势、涨跌分布、日K收盘价"""
 import datetime
-import time
 from common.http import get_realtime_quotes_ulist, get_em_trends, get_tx_kline, get_json, HEADERS_EM_DATA
-from money_flow.storage import db_set, db_get, db_has, _MAJOR_INDICES_KEY, _MARKET_DISTRIBUTION_KEY, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY, _DAILY_CLOSES_KEY
+from money_flow.storage import save_field, get_field
 
 
 def _fetch_and_cache_major_indices():
@@ -23,7 +22,7 @@ def _fetch_and_cache_major_indices():
                     'change_value': f"{'+' if change_val is not None and change_val >= 0 else ''}{change_val:.2f}" if change_val is not None else '+0.00',
                 })
             if data:
-                db_set(_MAJOR_INDICES_KEY, {'success': True, 'data': data}, time.time())
+                save_field('indices', {'success': True, 'data': data})
                 return True
     except Exception as e:
         print(f"[major-indices poller] fetch error: {e}")
@@ -99,7 +98,7 @@ def _fetch_and_cache_distribution():
                 'limit_up': limit_up, 'limit_down': limit_down,
             }
         }
-        db_set(_MARKET_DISTRIBUTION_KEY, result, time.time())
+        save_field('distribution', result)
         return True
     except Exception as e:
         print(f"[distribution poller] fetch error: {e}")
@@ -132,7 +131,7 @@ def _fetch_and_cache_sh_minute():
                 'times': times, 'prices': prices,
             }
         }
-        db_set(_SH_MINUTE_KEY, result, time.time())
+        save_field('sh_minute', result)
         return True
     except Exception as e:
         print(f"[sh-minute poller] fetch error: {e}")
@@ -146,7 +145,7 @@ def _fetch_and_cache_daily_closes():
         for symbol in ['sh000001', 'sz399001']:
             kline = get_tx_kline(symbol, 30)
             result[symbol] = [row['close'] for row in kline['rows']]
-        db_set(_DAILY_CLOSES_KEY, result, datetime.date.today().strftime('%Y-%m-%d'))
+        save_field('daily_closes', result)
         return True
     except Exception as e:
         print(f"[daily-closes poller] fetch error: {e}")
@@ -154,36 +153,36 @@ def _fetch_and_cache_daily_closes():
 
 
 def get_major_indices():
-    """上证指数实时行情（从缓存读取）"""
-    row = db_get(_MAJOR_INDICES_KEY)
-    if row:
-        return row[0]
+    """上证指数实时行情（从快照读取）"""
+    val = get_field('indices')
+    if val:
+        return val
     return {'success': False, 'error': '暂无指数数据'}
 
 
 def get_sh000001_minute_data():
-    """上证指数分时走势（从缓存读取）"""
-    row = db_get(_SH_MINUTE_KEY)
-    if row:
-        return row[0]
+    """上证指数分时走势（从快照读取）"""
+    val = get_field('sh_minute')
+    if val:
+        return val
     return {'success': False, 'error': '暂无分时数据'}
 
 
 def get_index_minute_data():
-    """成交额分时数据（从缓存读取）"""
-    row = db_get(_TURNOVER_MINUTE_KEY)
-    if row:
-        return row[0]
+    """成交额分时数据（从快照读取）"""
+    val = get_field('turnover')
+    if val:
+        return val
     return {'success': False, 'error': '暂无成交额数据'}
 
 
 def get_market_distribution():
-    """沪深涨跌分布（优先读缓存，缓存空时同步抓取，单一数据源）"""
-    row = db_get(_MARKET_DISTRIBUTION_KEY)
-    if row:
-        return row[0]
+    """沪深涨跌分布（优先读快照，快照空时同步抓取，单一数据源）"""
+    val = get_field('distribution')
+    if val:
+        return val
     _fetch_and_cache_distribution()
-    row = db_get(_MARKET_DISTRIBUTION_KEY)
-    if row:
-        return row[0]
+    val = get_field('distribution')
+    if val:
+        return val
     return {'success': False, 'error': '暂无涨跌分布数据'}
