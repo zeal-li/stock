@@ -69,7 +69,7 @@ def _cache_set(key, val):
 
 # ===== 缓存 key 常量 =====
 _MAJOR_INDICES_KEY = 'major_indices'
-_MARKET_BREADTH_KEY = 'market_breadth'
+_MARKET_DISTRIBUTION_KEY = 'market_distribution'
 _SH_MINUTE_KEY = 'sh_minute'
 _FUND_FLOW_KEY = 'fund_flow'
 _TURNOVER_MINUTE_KEY = 'turnover_minute'
@@ -115,7 +115,7 @@ def _next_daily_run_ts():
 
 # 各 poller 的下次执行时间戳
 _next_major_ts = 0.0      # 主要指数
-_next_breadth_ts = 0.0    # 涨跌家数
+_next_distribution_ts = 0.0  # 涨跌分布
 _next_sh_minute_ts = 0.0  # 上证分时
 _next_fund_flow_ts = 0.0  # 资金流
 _next_turnover_ts = 0.0   # 成交额
@@ -128,12 +128,12 @@ def _full_fetch_if_stale():
     cached = db_get(_MAJOR_INDICES_KEY)
     if _is_cache_from_today(cached, today):
         return
-    from money_flow.market import _fetch_and_cache_major_indices, _fetch_and_cache_breadth, _fetch_and_cache_sh_minute, _fetch_and_cache_daily_closes
+    from money_flow.market import _fetch_and_cache_major_indices, _fetch_and_cache_sh_minute, _fetch_and_cache_daily_closes, _fetch_and_cache_distribution
     from money_flow.fund_flow import _fetch_and_cache_fund_flow
     from money_flow.turnover import _fetch_and_cache_turnover
     from money_flow.margin import _fetch_and_cache_margin
     _fetch_and_cache_major_indices()
-    _fetch_and_cache_breadth()
+    _fetch_and_cache_distribution()
     _fetch_and_cache_sh_minute()
     _fetch_and_cache_fund_flow()
     _fetch_and_cache_turnover()
@@ -158,7 +158,7 @@ def check_money_flow_update():
     """资金流/指数行情更新检测：由公共秒级调度器每秒调用一次。
     仅交易时段内工作；各 poller 按自己的下次更新时间戳独立判断是否执行，
     到点即执行并把时间戳推进为 now + 随机间隔（错峰，避免同秒突发）。"""
-    global _next_major_ts, _next_breadth_ts, _next_sh_minute_ts
+    global _next_major_ts, _next_distribution_ts, _next_sh_minute_ts
     global _next_fund_flow_ts, _next_turnover_ts, _next_daily_ts
     now = time.time()
 
@@ -173,10 +173,10 @@ def check_money_flow_update():
         _next_major_ts = now + _rand_interval()
         from money_flow.market import _fetch_and_cache_major_indices
         _fetch_and_cache_major_indices()
-    if now >= _next_breadth_ts:
-        _next_breadth_ts = now + _rand_interval()
-        from money_flow.market import _fetch_and_cache_breadth
-        _fetch_and_cache_breadth()
+    if now >= _next_distribution_ts:
+        _next_distribution_ts = now + _rand_interval()
+        from money_flow.market import _fetch_and_cache_distribution
+        _fetch_and_cache_distribution()
     if now >= _next_sh_minute_ts:
         _next_sh_minute_ts = now + _rand_interval()
         from money_flow.market import _fetch_and_cache_sh_minute
@@ -196,14 +196,14 @@ def init_money_flow_update():
     1) 先执行启动初始化：当日数据缺失则全量抓取一轮；
     2) 为各 poller 设置随机错峰的"下次更新时间戳"；
     3) 返回检测函数供公共秒级调度器注册。"""
-    global _next_major_ts, _next_breadth_ts, _next_sh_minute_ts
+    global _next_major_ts, _next_distribution_ts, _next_sh_minute_ts
     global _next_fund_flow_ts, _next_turnover_ts, _next_daily_ts
     from common import warmup_eastmoney_session
     warmup_eastmoney_session()
     _full_fetch_if_stale()
     now = time.time()
     _next_major_ts = now + _rand_interval()
-    _next_breadth_ts = now + _rand_interval()
+    _next_distribution_ts = now + _rand_interval()
     _next_sh_minute_ts = now + _rand_interval()
     _next_fund_flow_ts = now + _rand_interval()
     _next_turnover_ts = now + _rand_interval()

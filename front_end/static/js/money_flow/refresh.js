@@ -137,6 +137,33 @@ async function refreshRealtimeData() {
                 }
             }
             }
+
+            if (_doMinuteRefresh) {
+            const distRes = await fetch('/api/market-distribution');
+            const distData = await distRes.json();
+            if (distData.success && distData.data) {
+                const dd = distData.data;
+                const dl = dd.labels || [];
+                if (distributionChart) {
+                    distributionChart.data.labels = dl;
+                    distributionChart.data.datasets[0].data = dd.counts || [];
+                    distributionChart.data.datasets[0].backgroundColor = dl.map(function(label) {
+                        if (label === '平盘') return 'rgba(136, 136, 136, 0.85)';
+                        if (label === '跌停' || label.indexOf('-') === 0) return 'rgba(74, 222, 128, 0.85)';
+                        return 'rgba(233, 69, 96, 0.85)';
+                    });
+                    distributionChart.update('none');
+                }
+                const bd = document.getElementById('marketBreadth');
+                if (bd) {
+                    bd.innerHTML = '涨<span style="color:#e94560;">' + (dd.rise != null ? dd.rise : 0) + '</span> ' +
+                        '跌<span style="color:#4ade80;">' + (dd.fall != null ? dd.fall : 0) + '</span> ' +
+                        '平<span style="color:#888;">' + (dd.flat != null ? dd.flat : 0) + '</span> ' +
+                        '涨停<span style="color:#e94560;">' + (dd.limit_up != null ? dd.limit_up : 0) + '</span> ' +
+                        '跌停<span style="color:#4ade80;">' + (dd.limit_down != null ? dd.limit_down : 0) + '</span>';
+                }
+            }
+            }
             if (_doMinuteRefresh) _lastMinuteRefresh = Date.now();
 
             // 融资融券：每天刷新一次
@@ -176,8 +203,6 @@ async function refreshRealtimeData() {
                 _setText('fear-down-ratio', fd.down_ratio, v => v.toFixed(1) + '%');
                 _setText('fear-main-net', fd.main_net, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '亿');
                 _setText('fear-rebound', fd.rebound, v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%');
-                const bDiv = document.getElementById('marketBreadth');
-                if (bDiv) bDiv.innerHTML = `涨<span style="color:#e94560;">${fd.rise}</span> 跌<span style="color:#4ade80;">${fd.fall}</span> 平<span style="color:#888;">${fd.flat}</span>`;
             }
             }  // _doMinuteRefresh
 

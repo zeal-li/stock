@@ -1,8 +1,8 @@
-"""大盘行情、分时走势、涨跌家数、日K收盘价"""
+"""大盘行情、分时走势、涨跌分布、日K收盘价"""
 import datetime
 import time
-from common.http import get_realtime_quotes_ulist, get_em_trends, get_tx_kline
-from money_flow.storage import db_set, db_get, db_has, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY, _DAILY_CLOSES_KEY
+from common.http import get_realtime_quotes_ulist, get_em_trends, get_tx_kline, get_json, HEADERS_EM_DATA
+from money_flow.storage import db_set, db_get, db_has, _MAJOR_INDICES_KEY, _MARKET_DISTRIBUTION_KEY, _SH_MINUTE_KEY, _TURNOVER_MINUTE_KEY, _DAILY_CLOSES_KEY
 
 
 def _fetch_and_cache_major_indices():
@@ -30,16 +30,79 @@ def _fetch_and_cache_major_indices():
     return False
 
 
-def _fetch_and_cache_breadth():
-    """抓取沪深涨跌家数并写入缓存（走 common.http.get_realtime_quotes_ulist）"""
+# 涨跌分布区间标签（东财 getTopicZDFenBu 的 key 为涨跌幅整数区间）
+_DIST_BUCKETS = {
+    '-11': '跌停',
+    '-10': '-10%~-9%',
+    '-9': '-9%~-8%',
+    '-8': '-8%~-7%',
+    '-7': '-7%~-6%',
+    '-6': '-6%~-5%',
+    '-5': '-5%~-4%',
+    '-4': '-4%~-3%',
+    '-3': '-3%~-2%',
+    '-2': '-2%~-1%',
+    '-1': '-1%~0%',
+    '0': '平盘',
+    '1': '0%~1%',
+    '2': '1%~2%',
+    '3': '2%~3%',
+    '4': '3%~4%',
+    '5': '4%~5%',
+    '6': '5%~6%',
+    '7': '6%~7%',
+    '8': '7%~8%',
+    '9': '8%~9%',
+    '10': '9%~10%',
+    '11': '涨停',
+}
+_DIST_URL = 'https://push2ex.eastmoney.com/getTopicZDFenBu'
+_DIST_UT = '7eea3edcaed734bea9cbfc24409ed989'
+
+
+def _fetch_and_cache_distribution():
+    """抓取沪深涨跌分布并写入缓存（走东财 getTopicZDFenBu，单一数据源）"""
     try:
-        quotes = get_realtime_quotes_ulist('1.000001,0.399001')
-        rise = sum(int(q['rise'] or 0) for q in quotes.values())
-        fall = sum(int(q['fall'] or 0) for q in quotes.values())
-        db_set(_MARKET_BREADTH_KEY, [rise, fall], time.time())
+        body = get_json(_DIST_URL, params={'ut': _DIST_UT, 'dpt': 'wz.ztzt'},
+                        headers=HEADERS_EM_DATA, timeout=10)
+        fenbu = (body.get('data') or {}).get('fenbu') or []
+        labels, counts = [], []
+        for key in sorted(_DIST_BUCKETS, key=lambda k: int(k)):
+            count = 0
+            for item in fenbu:
+                v = item.get(key)
+                if v is not None:
+                    count = int(v)
+                    break
+            labels.append(_DIST_BUCKETS[key])
+            counts.append(count)
+        rise = fall = flat = limit_up = limit_down = 0
+        for label, count in zip(labels, counts):
+            if label == '跌停':
+                limit_down = count
+                fall += count
+            elif label == '涨停':
+                limit_up = count
+                rise += count
+            elif label == '平盘':
+                flat = count
+            elif label.startswith('-'):
+                fall += count
+            else:
+                rise += count
+
+        result = {
+            'success': True,
+            'data': {
+                'labels': labels, 'counts': counts,
+                'rise': rise, 'fall': fall, 'flat': flat,
+                'limit_up': limit_up, 'limit_down': limit_down,
+            }
+        }
+        db_set(_MARKET_DISTRIBUTION_KEY, result, time.time())
         return True
     except Exception as e:
-        print(f"[breadth poller] fetch error: {e}")
+        print(f"[distribution poller] fetch error: {e}")
     return False
 
 
@@ -112,3 +175,15 @@ def get_index_minute_data():
     if row:
         return row[0]
     return {'success': False, 'error': '暂无成交额数据'}
+
+
+def get_market_distribution():
+    """沪深涨跌分布（优先读缓存，缓存空时同步抓取，单一数据源）"""
+    row = db_get(_MARKET_DISTRIBUTION_KEY)
+    if row:
+        return row[0]
+    _fetch_and_cache_distribution()
+    row = db_get(_MARKET_DISTRIBUTION_KEY)
+    if row:
+        return row[0]
+    return {'success': False, 'error': '暂无涨跌分布数据'}

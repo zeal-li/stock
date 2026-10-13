@@ -1,8 +1,7 @@
 """市场恐慌指数"""
 from concurrent.futures import ThreadPoolExecutor
-from common.http import get_realtime_quotes_ulist
-from money_flow.storage import db_get, _cache_set, _cached, _MAJOR_INDICES_KEY, _MARKET_BREADTH_KEY, _SH_MINUTE_KEY, _FUND_FLOW_KEY
-from money_flow.market import get_sh000001_minute_data
+from money_flow.storage import db_get, _cache_set, _cached, _MAJOR_INDICES_KEY
+from money_flow.market import get_sh000001_minute_data, get_market_distribution
 from money_flow.fund_flow import get_market_fund_flow
 
 
@@ -32,12 +31,15 @@ def get_fear_index():
         with ThreadPoolExecutor(max_workers=4) as pool:
             fut_min = pool.submit(get_sh000001_minute_data)
             fut_sz = pool.submit(_fetch_sz_intraday)
-            fut_breadth = pool.submit(_fetch_breadth)
+            fut_dist = pool.submit(get_market_distribution)
             fut_fund = pool.submit(get_market_fund_flow)
 
             minute = fut_min.result()
             sz_intraday = fut_sz.result()
-            rise, fall = fut_breadth.result()
+            dist = fut_dist.result()
+            if dist.get('success') and dist.get('data'):
+                rise = dist['data'].get('rise', 0)
+                fall = dist['data'].get('fall', 0)
             fund = fut_fund.result()
 
         avg_idx_change = sum(idx_changes) / len(idx_changes) if idx_changes else 0
@@ -117,7 +119,6 @@ def get_fear_index():
             'success': True,
             'data': {
                 'score': score, 'level': level, 'color': color,
-                'rise': rise, 'fall': fall, 'flat': 0,
                 'avg_index_change': round(avg_idx_change, 2),
                 'intraday_pct': intraday_pct,
                 'max_30m_drop': max_30m_drop,
@@ -135,19 +136,6 @@ def get_fear_index():
         return {'success': False, 'error': str(e)}
 
 
-def _fetch_idx_changes():
-    """东财获取沪深指数涨跌幅（走 common.http.get_realtime_quotes_ulist）"""
-    changes = []
-    try:
-        quotes = get_realtime_quotes_ulist('1.000001,0.399001')
-        for q in quotes.values():
-            if q['pct'] is not None:
-                changes.append(q['pct'])
-    except Exception:
-        pass
-    return changes
-
-
 def _fetch_sz_intraday():
     """获取深证成指日内涨跌（从大盘行情缓存读取）"""
     major_cached = db_get(_MAJOR_INDICES_KEY)
@@ -158,11 +146,3 @@ def _fetch_sz_intraday():
         except (ValueError, AttributeError):
             pass
     return 0.0
-
-
-def _fetch_breadth():
-    """获取沪深涨跌家数（从后台缓存读取）"""
-    cached = db_get(_MARKET_BREADTH_KEY)
-    if cached:
-        return cached[0]
-    return 0, 0

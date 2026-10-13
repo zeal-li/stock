@@ -113,6 +113,10 @@ async function loadIndexWithChart() {
                 </div>
                 <div class="money-flow-row">
                     <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px;">
+                        <div class="chart-box">
+                            <canvas id="distributionChart"></canvas>
+                            <div class="chart-title">涨跌分布</div>
+                        </div>
                         <div class="chart-box" style="position:relative;">
                             <canvas id="minuteChart"></canvas>
                             <div id="minuteLoading" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#888;font-size:14px;pointer-events:none;">加载中...</div>
@@ -280,6 +284,86 @@ async function loadIndexWithChart() {
             })
             .catch(err => console.log('资金流数据加载失败:', err));
 
+        // 涨跌分布柱状图（涨红跌绿：下跌绿色、平盘灰色、上涨红色）
+        fetch('/api/market-distribution')
+            .then(res => res.json())
+            .then(distResult => {
+                const ctxDist = document.getElementById('distributionChart').getContext('2d');
+                if (distributionChart) distributionChart.destroy();
+
+                let distLabels = [];
+                let distCounts = [];
+                if (distResult.success && distResult.data) {
+                    distLabels = distResult.data.labels || [];
+                    distCounts = distResult.data.counts || [];
+
+                    const bd = document.getElementById('marketBreadth');
+                    if (bd) {
+                        const dd = distResult.data;
+                        bd.innerHTML = '涨<span style="color:#e94560;">' + (dd.rise != null ? dd.rise : 0) + '</span> ' +
+                            '跌<span style="color:#4ade80;">' + (dd.fall != null ? dd.fall : 0) + '</span> ' +
+                            '平<span style="color:#888;">' + (dd.flat != null ? dd.flat : 0) + '</span> ' +
+                            '涨停<span style="color:#e94560;">' + (dd.limit_up != null ? dd.limit_up : 0) + '</span> ' +
+                            '跌停<span style="color:#4ade80;">' + (dd.limit_down != null ? dd.limit_down : 0) + '</span>';
+                    }
+                }
+
+                const distColors = distLabels.map(function(label) {
+                    if (label === '平盘') return 'rgba(136, 136, 136, 0.85)';
+                    if (label === '跌停' || label.indexOf('-') === 0) return 'rgba(74, 222, 128, 0.85)';
+                    return 'rgba(233, 69, 96, 0.85)';
+                });
+
+                distributionChart = new Chart(ctxDist, {
+                    type: 'bar',
+                    data: {
+                        labels: distLabels,
+                        datasets: [{
+                            data: distCounts,
+                            backgroundColor: distColors,
+                            borderRadius: 2,
+                            borderSkipped: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
+                                callbacks: { label: function(context) { return '家数: ' + context.raw; } }
+                            }
+                        },
+                        scales: {
+                            x: { grid: { display: false }, ticks: { color: '#888', font: { size: 8 }, maxRotation: 90, minRotation: 90, autoSkip: false } },
+                            y: { grid: { color: 'rgba(255, 255, 255, 0.1)' }, ticks: { color: '#888', font: { size: 10 }, precision: 0 }, grace: '20%' }
+                        }
+                    },
+                    plugins: [{
+                        id: 'distValueLabels',
+                        afterDatasetsDraw: function(chart) {
+                            var ctx = chart.ctx;
+                            chart.data.datasets.forEach(function(dataset, di) {
+                                var meta = chart.getDatasetMeta(di);
+                                meta.data.forEach(function(bar, i) {
+                                    var v = dataset.data[i];
+                                    if (v == null || v <= 0) return;
+                                    ctx.save();
+                                    ctx.fillStyle = '#ddd';
+                                    ctx.font = '9px sans-serif';
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+                                    ctx.fillText(String(v), bar.x, bar.y - 2);
+                                    ctx.restore();
+                                });
+                            });
+                        }
+                    }]
+                });
+            })
+            .catch(err => console.log('涨跌分布数据加载失败:', err));
+
         fetch('/api/margin-trading')
             .then(res => res.json())
             .then(marginResult => {
@@ -390,10 +474,6 @@ async function loadIndexWithChart() {
                 const fearDiv = document.getElementById('fearIndex');
                 if (fearResult.success && fearResult.data) {
                     const d = fearResult.data;
-                    const breadthDiv = document.getElementById('marketBreadth');
-                    if (breadthDiv) {
-                        breadthDiv.innerHTML = `涨<span style="color:#e94560;">${d.rise}</span> 跌<span style="color:#4ade80;">${d.fall}</span> 平<span style="color:#888;">${d.flat}</span>`;
-                    }
                     const fMetrics = '<div style="margin-top:12px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.08); font-size:11px; color:#666; line-height:1.7;">' +
                         '<div>沪深指数平均涨跌: <span id="fear-avg-change" style="color:#ccc;">' + (d.avg_index_change != null ? (d.avg_index_change >= 0 ? '+' : '') + d.avg_index_change.toFixed(2) + '%' : '--') + '</span></div>' +
                         '<div>30分钟最大跌速: <span id="fear-max-drop" style="color:#ccc;">' + (d.max_30m_drop != null ? d.max_30m_drop.toFixed(2) + '%' : '--') + '</span></div>' +

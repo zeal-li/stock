@@ -1,7 +1,8 @@
 """市场风险指数"""
 import time
 from concurrent.futures import ThreadPoolExecutor
-from money_flow.storage import db_get, _cache_set, _cached, _MARGIN_KEY, _MARKET_BREADTH_KEY, _DAILY_CLOSES_KEY
+from money_flow.storage import db_get, _cache_set, _cached, _MARGIN_KEY, _DAILY_CLOSES_KEY
+from money_flow.market import get_market_distribution
 
 
 def get_risk_index():
@@ -21,12 +22,15 @@ def get_risk_index():
             fut_margin = pool.submit(_fetch_margin)
             fut_sh = pool.submit(_fetch_daily_closes, 'sh000001')
             fut_sz = pool.submit(_fetch_daily_closes, 'sz399001')
-            fut_breadth = pool.submit(_fetch_breadth)
+            fut_dist = pool.submit(get_market_distribution)
 
             margin_data = fut_margin.result()
             closes_sh = fut_sh.result()
             closes_sz = fut_sz.result()
-            rise, fall = fut_breadth.result()
+            dist = fut_dist.result()
+            if dist.get('success') and dist.get('data'):
+                rise = dist['data'].get('rise', 0)
+                fall = dist['data'].get('fall', 0)
 
         # === 1. 融资因子 (0-35) ===
         financing_score = 0.0
@@ -120,14 +124,6 @@ def _fetch_daily_closes(symbol):
     if cached:
         return cached[0].get(symbol, [])
     return []
-
-
-def _fetch_breadth():
-    """获取沪深涨跌家数"""
-    cached = db_get(_MARKET_BREADTH_KEY)
-    if cached:
-        return cached[0]
-    return 0, 0
 
 
 def _calc_trend(sh_c, sz_c):

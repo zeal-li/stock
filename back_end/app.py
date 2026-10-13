@@ -15,7 +15,7 @@ from common.utils import is_etf, fmt, fmt_pct, fmt_volume, fmt_amount, fmt_cap, 
 from common.cache import cached_singleflight
 from common.finance import get_goodwill
 from common.browser import init_browser
-from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data
+from money_flow.market import get_major_indices, get_sh000001_minute_data, get_index_minute_data, get_market_distribution
 from money_flow.fund_flow import get_market_fund_flow
 from money_flow.fear_index import get_fear_index
 from money_flow.risk_index import get_risk_index
@@ -323,6 +323,10 @@ def turnover_minute():
 @app.route('/api/market-fund-flow')
 def market_fund_flow():
     return jsonify(get_market_fund_flow())
+
+@app.route('/api/market-distribution')
+def market_distribution():
+    return jsonify(get_market_distribution())
 
 @app.route('/api/fear-index')
 def fear_index():
