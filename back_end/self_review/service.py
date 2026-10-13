@@ -1511,23 +1511,32 @@ def run_stock_review(user_id):
 
     data = {}
     summary = {'pressure': [], 'support': []}
+    seen_pressure = set()
+    seen_support = set()
     try:
         for key, label, stocks in groups:
             items = _analyze_stocks(stocks)  # 小数位逐标的按 is_etf 判断，与分组无关
             data[key] = {'label': label, 'items': items}
             for it in items:
+                code = it['code']
+                # 同一标的可能同时存在于自选股/场内ETF/持仓股，顶部提醒按 code 去重，
+                # 避免同一条「触及支撑/压力位」提示因跨分组重复出现。
                 if key == 'holdings' and it.get('near') == 'pressure':
-                    summary['pressure'].append({
-                        'name': it['name'], 'group': label, 'price': it['price'],
-                        'change_pct': it['change_pct'],
-                        'hint': it['hint'], 'code': it['code'], 'market': it['market'],
-                    })
+                    if code not in seen_pressure:
+                        seen_pressure.add(code)
+                        summary['pressure'].append({
+                            'name': it['name'], 'group': label, 'price': it['price'],
+                            'change_pct': it['change_pct'],
+                            'hint': it['hint'], 'code': it['code'], 'market': it['market'],
+                        })
                 elif it.get('near') == 'support':
-                    summary['support'].append({
-                        'name': it['name'], 'group': label, 'price': it['price'],
-                        'change_pct': it['change_pct'],
-                        'hint': it['hint'], 'code': it['code'], 'market': it['market'],
-                    })
+                    if code not in seen_support:
+                        seen_support.add(code)
+                        summary['support'].append({
+                            'name': it['name'], 'group': label, 'price': it['price'],
+                            'change_pct': it['change_pct'],
+                            'hint': it['hint'], 'code': it['code'], 'market': it['market'],
+                        })
     except Exception:
         # 行情/日K源等内部异常：显式报错（success:false + 具体原因）而不是让 Flask
         # 返回 HTML 500 错误页；完整 traceback 保留在服务端控制台便于定位
