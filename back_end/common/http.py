@@ -485,6 +485,24 @@ def get_em_trends(secid):
     return {'name': str(d.get('name') or ''), 'pre_close': d.get('preClose', 0), 'points': points}
 
 
+def get_em_fflow_kline(secid):
+    """东财资金流向K线（fflow/kline）→ 原始 klines 字符串列表。
+
+    每行字段：f51 时间, f52 主力净流入, f53 小单, f54 中单, f55 大单, f56 超大单。
+    走浏览器 JSONP（_em_jsonp），绕过程序化访问反爬限流。
+    """
+    params = {
+        'secid': secid,
+        'lmt': 0, 'klt': 1,
+        'fields1': 'f1,f2,f3,f7',
+        'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
+        'ut': 'b2884a393a59ad64002292a3e90d46a5',
+    }
+    body = _em_jsonp('https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get',
+                     params, timeout=10)
+    return (body.get('data') or {}).get('klines') or []
+
+
 def get_em_kline(secid, klt, lmt=240):
     """东财分钟K线 → [{datetime, open, high, low, close, volume, amount, turnover}]。
 

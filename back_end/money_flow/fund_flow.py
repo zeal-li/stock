@@ -1,23 +1,14 @@
 """大盘资金净流入"""
 import datetime
-from common.http import get_json, HEADERS_EM_DATA
+from common.http import get_em_fflow_kline
 from money_flow.storage import save_field, get_field
 
 
 def _fetch_and_cache_fund_flow():
-    """抓取大盘资金净流入分时并写入缓存（沪深两市合计，走 common.http）"""
+    """抓取大盘资金净流入分时并写入缓存（沪深两市合计，走浏览器 JSONP）"""
     try:
-        url = "https://push2delay.eastmoney.com/api/qt/stock/fflow/kline/get"
-        base_params = {
-            'lmt': 0, 'klt': 1,
-            'fields1': 'f1,f2,f3,f7', 'fields2': 'f51,f52,f53,f54,f55,f56,f57,f58',
-            'ut': 'b2884a393a59ad64002292a3e90d46a5',
-        }
-
         def _fetch(secid):
-            p = dict(base_params)
-            p['secid'] = secid
-            klines = (get_json(url, params=p, headers=HEADERS_EM_DATA, timeout=10).get('data') or {}).get('klines') or []
+            klines = get_em_fflow_kline(secid)
             result = {}
             for k in klines:
                 parts = str(k).split(',')
