@@ -179,9 +179,6 @@ def _parse_stockcont(soup):
                     seat_name = a_el.get('title', '') or a_el.get_text(strip=True)
                 else:
                     seat_name = tds[0].get_text(strip=True)
-                # 席位标签（游资标签）从 <label> 取
-                label_el = tds[0].find('label')
-                seat_label = label_el.get_text(strip=True) if label_el else ''
 
                 try:
                     buy_amt = (float(tds[1].get_text(strip=True)) * 10000) if tds[1].get_text(strip=True) else 0
@@ -198,7 +195,6 @@ def _parse_stockcont(soup):
 
                 seat_info = {
                     "name": seat_name,
-                    "label": seat_label,
                     "buy_amt": buy_amt,
                     "sell_amt": sell_amt,
                     "net_amt": net_val,

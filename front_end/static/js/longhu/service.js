@@ -47,13 +47,21 @@ var _lhbCurrentData = [];   // 当前日期的全部股票数据（含 buy_seats
 
 // ==================== 前端分类 ====================
 
+function _isYouziSeat(name) {
+    // 游资席位 = 普通营业部/分公司/交易单元等（非机构专用、非沪深股通专用北向席位）
+    if (!name) return false;
+    if (name.indexOf('机构专用') >= 0) return false;
+    if (name.indexOf('股通专用') >= 0) return false;
+    return true;
+}
+
 function _classifyStock(row) {
     var buySeats = row.buy_seats || [];
     var sellSeats = row.sell_seats || [];
     var hasJG = buySeats.some(function(s) { return s.name && s.name.indexOf('机构专用') >= 0; }) ||
                 sellSeats.some(function(s) { return s.name && s.name.indexOf('机构专用') >= 0; });
-    var hasYZ = buySeats.some(function(s) { return s.label; }) ||
-                sellSeats.some(function(s) { return s.label; });
+    var hasYZ = buySeats.some(function(s) { return _isYouziSeat(s.name); }) ||
+                sellSeats.some(function(s) { return _isYouziSeat(s.name); });
     if (hasJG && hasYZ) return 'both';
     if (hasJG) return 'org';
     if (hasYZ) return 'capital';
@@ -242,9 +250,8 @@ function renderLonghuTable(data, tradeDate, tab) {
         var buySeats = row.buy_seats || [];
         for (var bi = 0; bi < buySeats.length; bi++) {
             var bs = buySeats[bi];
-            var label = bs.label ? '<span style="color:#fbbf24;font-size:10px;">[' + bs.label + ']</span> ' : '';
             html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">';
-            html += '<td style="padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="' + (bs.name || '') + '">' + label + (bs.name || '--') + '</td>';
+            html += '<td style="padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="' + (bs.name || '') + '">' + (bs.name || '--') + '</td>';
             html += '<td style="text-align:right;padding:2px 4px;color:#e94560;">' + fmtLHB(bs.buy_amt, 'amt') + '</td>';
             html += '<td style="text-align:right;padding:2px 4px;color:#4ade80;">' + (bs.sell_amt > 0 ? fmtLHB(bs.sell_amt, 'amt') : '--') + '</td>';
             html += '<td style="text-align:right;padding:2px 4px;color:' + getLHBColor(bs.net_amt) + ';">' + fmtLHB(bs.net_amt, 'amt') + '</td>';
@@ -260,9 +267,8 @@ function renderLonghuTable(data, tradeDate, tab) {
         var sellSeats = row.sell_seats || [];
         for (var si = 0; si < sellSeats.length; si++) {
             var ss = sellSeats[si];
-            var slabel = ss.label ? '<span style="color:#fbbf24;font-size:10px;">[' + ss.label + ']</span> ' : '';
             html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03);">';
-            html += '<td style="padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="' + (ss.name || '') + '">' + slabel + (ss.name || '--') + '</td>';
+            html += '<td style="padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;" title="' + (ss.name || '') + '">' + (ss.name || '--') + '</td>';
             html += '<td style="text-align:right;padding:2px 4px;color:#e94560;">' + (ss.buy_amt > 0 ? fmtLHB(ss.buy_amt, 'amt') : '--') + '</td>';
             html += '<td style="text-align:right;padding:2px 4px;color:#4ade80;">' + fmtLHB(ss.sell_amt, 'amt') + '</td>';
             html += '<td style="text-align:right;padding:2px 4px;color:' + getLHBColor(ss.net_amt) + ';">' + fmtLHB(ss.net_amt, 'amt') + '</td>';
