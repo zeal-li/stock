@@ -4,6 +4,10 @@
     cd back_end
     python -m ml_train.train
 
+指数（上证指数）数据：首次运行时自动从同花顺同步最近 5 年日K到
+stock_lib.db（market='index'），之后按需刷新；不能用 000001/hs_main
+（那是平安银行）。
+
 参数可调整以下常量：
     FORWARD_DAYS  未来N天涨幅阈值
     RISE_THRESHOLD 正样本阈值（涨幅超过才标记为1）
@@ -27,6 +31,7 @@ import joblib
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ml_train.features import extract_features
+from market_db.index_klines import get_index_daily_klines
 
 # ===== 训练参数 =====
 FORWARD_DAYS = 3           # 标签：未来 N 个交易日
@@ -35,6 +40,9 @@ TEST_MONTHS = 6              # 最近 N 个月数据作为测试集，之前的�
 # TRAIN_CUTOFF 由当前日期减去 TEST_MONTHS 自动计算
 MIN_KLINES = 180           # 最少需要 180 根日K线（120根特征窗口 + 最大前视）
 MAX_TRAIN_SAMPLES = 2000000 # 训练样本上限
+# 训练口径版本：标签/特征定义变更时 +1。
+# 2 = 标签改为“特征窗口后第 3 个交易日” + 大盘对比改用真实上证指数（market='index'）
+PIPELINE_VERSION = 2
 
 # ===== 路径 =====
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_lib.db')
@@ -78,15 +86,13 @@ def get_klines(code):
 
 
 def get_index_klines():
-    """读取上证指数日K线（按时间升序），用作大盘对比特征"""
-    conn = _kline_conn()
-    rows = conn.execute(
-        'SELECT date, open, high, low, close, volume, amount FROM stock_klines '
-        'WHERE code=? AND market=? AND period=? ORDER BY date ASC',
-        ('000001', 'hs_main', 'daily')
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    """读取上证指数日K线（按时间升序），用作大盘对比特征。
+
+    指数单独存于 market='index'（见 market_db/index_klines.py）：
+    000001/hs_main 是平安银行，不能当上证指数用。
+    库内无数据或过期时会自动从同花顺同步；同步失败直接抛异常。
+    """
+    return get_index_daily_klines()
 
 
 def generate_samples(klines, index_klines):
@@ -104,7 +110,8 @@ def generate_samples(klines, index_klines):
 
     samples = []
     lookback = 120  # 特征计算窗口
-    for i in range(lookback, len(klines) - FORWARD_DAYS):
+    # 特征窗口最后一根是 klines[i-1]，未来第 FORWARD_DAYS 个交易日是 klines[i+FORWARD_DAYS-1]
+    for i in range(lookback, len(klines) - FORWARD_DAYS + 1):
         # 特征窗口: [i-lookback, i)  共 lookback 根K线
         feat_klines = klines[i - lookback:i]
 
@@ -116,8 +123,8 @@ def generate_samples(klines, index_klines):
         if features is None:
             continue
 
-        # 标签：未来 FORWARD_DAYS 天的涨跌幅
-        future_close = klines[i + FORWARD_DAYS]['close']
+        # 标签：特征窗口最后一根之后第 FORWARD_DAYS 个交易日的涨跌幅
+        future_close = klines[i + FORWARD_DAYS - 1]['close']
         current_close = klines[i - 1]['close']
         ret = (future_close / current_close - 1) if current_close > 0 else 0
         label = 1 if ret > RISE_THRESHOLD else 0
@@ -269,24 +276,30 @@ def train():
     # 读取旧最优模型的得分
     old_score = None
     old_ts = None
+    old_version = None
     if os.path.exists(MODEL_PATH):
         old_bundle = joblib.load(MODEL_PATH)
         old_meta = old_bundle['meta']
-        old_score = old_  meta.get('best_score', None)
+        old_score = old_meta.get('best_score', None)
         old_ts = old_meta.get('train_ts', None)
+        old_version = old_meta.get('pipeline_version')
+
+    # 训练口径变更后，新旧模型的 AUC 不可比，不能再用 AUC 决定是否替换
+    version_changed = old_version != PIPELINE_VERSION
 
     # 模型数据
     bundle = {
         'model': model,
         'feature_names': feature_names,
         'meta': {
+            'pipeline_version': PIPELINE_VERSION,
             'forward_days': FORWARD_DAYS,
             'rise_threshold': RISE_THRESHOLD,
             'train_cutoff': train_cutoff,
             'train_samples': len(all_train_samples),
             'test_samples': len(all_test_samples),
             'positive_ratio': float(pos_ratio),
-            'best_score': max(new_score, old_score or 0),
+            'best_score': new_score if (old_score is None or version_changed) else max(new_score, old_score),
             'train_auc': float(train_auc),
             'test_auc': float(test_auc) if test_auc is not None else None,
             'metric_name': metric_name,
@@ -299,6 +312,15 @@ def train():
     if old_score is None:
         replaced = True
         print(f"\n首次训练，{metric_name}={new_score:.4f} → 设为当前最优")
+    elif version_changed:
+        # 训练口径已变更：旧模型 AUC 与新模型不可比，归档旧模型后直接替换
+        if old_ts:
+            archive_path = os.path.join(MODEL_DIR, f'model_{old_ts}.pkl')
+            joblib.dump(old_bundle, archive_path)
+            print(f"\n旧口径模型已归档: model_{old_ts}.pkl  ({metric_name}={old_score:.4f})")
+        replaced = True
+        print(f"训练口径变更 (pipeline_version {old_version} → {PIPELINE_VERSION})，"
+              f"直接替换旧模型: {metric_name}={new_score:.4f}")
     elif new_score > old_score:
         # 旧的最优归档（只保留被淘汰的"前最优"）
         archive_path = os.path.join(MODEL_DIR, f'model_{old_ts}.pkl')

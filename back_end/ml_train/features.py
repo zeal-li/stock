@@ -229,7 +229,9 @@ def extract_features(klines, index_klines=None):
         for d in stock_dates:
             aligned.append(idx_map.get(d, None))
 
-        if len(aligned) >= 60 and all(v is not None for v in aligned[-20:]):
+        # 相关性/Beta 用近 60 日，相对位置用近 120 日：
+        # 计算前必须确认对应对齐窗口内没有缺失值（指数缺某天时该日为 None）
+        if len(aligned) >= 60 and all(v is not None for v in aligned[-60:]):
             # 相对收益率：stock - index
             for n in [1, 5, 10, 20]:
                 if len(closes) > n and aligned[-1] and aligned[-n-1]:
@@ -244,10 +246,12 @@ def extract_features(klines, index_klines=None):
             f['idx_beta_60d'] = _calc_beta(closes, aligned, 60)
 
             # 相对位置：股票相对自身120日高点的位置 vs 指数
-            if len(closes) >= 120:
+            if len(closes) >= 120 and all(v is not None for v in aligned[-120:]):
                 stock_high_pos = (closes[-1] - _min(closes[-120:])) / (_max(closes[-120:]) - _min(closes[-120:]) + 0.0001)
                 idx_high_pos = (aligned[-1] - _min(aligned[-120:])) / (_max(aligned[-120:]) - _min(aligned[-120:]) + 0.0001)
                 f['rel_high_pos'] = stock_high_pos - idx_high_pos
+            else:
+                f['rel_high_pos'] = 0
         else:
             for n in [1, 5, 10, 20]:
                 f[f'rel_ret_{n}d'] = 0

@@ -721,6 +721,12 @@ async function runTechScreen() {
                 if (pd.running) {
                     status.textContent = '扫描中... ' + pd.done + '/' + pd.total + ' | 已找到 ' + pd.results.length + ' 只';
                     _techRenderTable(pd.results);
+                } else if (pd.error) {
+                    clearInterval(_techPollTimer); _techPollTimer = null;
+                    status.textContent = '扫描失败：' + pd.error;
+                    status.style.color = '#e94560';
+                    btn.disabled = false;
+                    _techRenderTable(pd.results);
                 } else {
                     clearInterval(_techPollTimer); _techPollTimer = null;
                     status.textContent = '已完成，共找到 ' + pd.results.length + ' 只';

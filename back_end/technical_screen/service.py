@@ -2,6 +2,8 @@
 import os, json, threading, sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from market_db.index_klines import get_index_daily_klines
+
 from .strategies.rising_channel import calc as rising_channel_calc
 from .strategies.ml_score import calc as ml_score_calc
 
@@ -72,7 +74,7 @@ def _scan_one(code, name, strategy_key):
 
 # ---- 异步扫描 ----
 
-_scan_state = {'running': False, 'total': 0, 'done': 0, 'results': []}
+_scan_state = {'running': False, 'total': 0, 'done': 0, 'results': [], 'error': ''}
 _index_klines_cache = None  # 扫描期间缓存的指数日K数据
 
 
@@ -96,6 +98,7 @@ def run_scan_async(strategy_keys, market=None, max_workers=30):
     _scan_state['done'] = 0
     _scan_state['total'] = 0
     _scan_state['results'] = []
+    _scan_state['error'] = ''
     import threading
     threading.Thread(target=_do_scan, args=(strategy_keys, market, max_workers), daemon=True).start()
     return {'success': True, 'message': '扫描已启动'}
@@ -110,6 +113,7 @@ def get_scan_status():
         'running': _scan_state['running'],
         'total': _scan_state['total'],
         'done': _scan_state['done'],
+        'error': _scan_state.get('error', ''),
         'results': sorted(_scan_state['results'], key=lambda x: x['score'], reverse=True)[:30],
     }
 
@@ -136,13 +140,8 @@ def _do_scan(strategy_keys, market, max_workers):
     global _scan_state, _index_klines_cache
     try:
         # 预加载上证指数数据（大盘对比特征需要）
-        conn_idx = _kline_conn()
-        idx_rows = conn_idx.execute(
-            "SELECT date, open, high, low, close, volume, amount FROM stock_klines "
-            "WHERE code='000001' AND market=? AND period='daily' ORDER BY date ASC",
-            ('hs_main',)).fetchall()
-        conn_idx.close()
-        _index_klines_cache = [dict(r) for r in idx_rows]
+        # 指数单独存于 market='index'；000001/hs_main 是平安银行，不能用
+        _index_klines_cache = get_index_daily_klines()
 
         conn = _list_conn()
         rows = conn.execute('SELECT code, name FROM market_stock_list WHERE market=? ORDER BY code', (market,)).fetchall()
@@ -171,5 +170,9 @@ def _do_scan(strategy_keys, market, max_workers):
             results = _batch_scan(candidates, strategy_key, market, max_workers)
 
         _scan_state['results'] = list(results)
+    except Exception as e:
+        # 指数同步失败等致命错误：记录到状态里，前端轮询时展示，而不是伪装成“扫描完成 0 只”
+        _scan_state['error'] = f'{type(e).__name__}: {e}'
+        print(f'[scan] 扫描失败: {_scan_state["error"]}')
     finally:
         _scan_state['running'] = False

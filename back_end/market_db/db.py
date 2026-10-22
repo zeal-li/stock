@@ -176,6 +176,35 @@ def klines_get(code, market, period, limit=300):
     return [dict(r) for r in reversed(rows)]
 
 
+def klines_replace_daily(code, market, name, rows, ts_str):
+    """整段写入某标的日K并更新日K时间戳（指数专用：允许覆盖当日盘中行）。
+
+    rows: [(code, market, period, date, open, high, low, close, volume, amount, turnover), ...]
+
+    与 stock_info_sync_atomic 的区别：使用 INSERT OR REPLACE，同一日期重复写入
+    会被新数据覆盖（盘中当日K线需要随行情更新）；只更新 daily_ts，保留
+    weekly_ts / monthly_ts。
+    """
+    c = _conn()
+    _init_tables(c)
+    try:
+        c.execute('BEGIN IMMEDIATE')
+        c.executemany(
+            'INSERT OR REPLACE INTO stock_klines '
+            '(code,market,period,date,open,high,low,close,volume,amount,turnover) '
+            'VALUES (?,?,?,?,?,?,?,?,?,?,?)', rows)
+        c.execute(
+            'INSERT INTO stock_info (code, market, name, daily_ts) VALUES (?,?,?,?) '
+            'ON CONFLICT(code, market) DO UPDATE SET name=excluded.name, daily_ts=excluded.daily_ts',
+            (code, market, name, ts_str))
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
+
+
 def klines_batch(codes, market, period='daily', limit=120):
     """批量取多只股票 K 线：{code: [{date, open, ...}]}"""
     if not codes:

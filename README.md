@@ -224,6 +224,8 @@ CREATE TABLE stock_info (
 ```
 
 > `daily_ts` / `weekly_ts` / `monthly_ts`：三个周期独立记录最后更新时间戳。增量更新时各周期独立判断是否需要拉取。
+>
+> 上证指数日K单独存为 `market='index'`、`code='000001'`（数据源同花顺 `sh_1A0001`），不进入个股列表与退市清理；ML 训练/技术选股的“大盘对比”特征读取这份数据。不能用 `000001/hs_main` —— 那是平安银行。首次使用时会自动从同花顺补齐最近 5 年（见 `market_db/index_klines.py`）。
 
 ### data/login.db — 用户账户
 
