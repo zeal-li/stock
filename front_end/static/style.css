@@ -1619,3 +1619,150 @@ body {
     color: #fff;
     border-color: #e94560;
 }
+
+/* ========== 热股榜（同花顺热榜） ========== */
+.hot-stock-list {
+    background: #16213e;
+    border: 1px solid #0f3460;
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.hot-stock-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(15, 52, 96, 0.45);
+    transition: background 0.15s;
+}
+.hot-stock-item:last-child {
+    border-bottom: none;
+}
+.hot-stock-item:hover {
+    background: #1a2440;
+}
+
+.hot-stock-rank {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    line-height: 26px;
+    text-align: center;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #8b8b9e;
+    background: #1e1e3a;
+    margin-top: 1px;
+    font-family: 'Consolas', 'Menlo', monospace;
+}
+.hot-stock-rank.hot-rank-1 { color: #fff; background: #e94560; }
+.hot-stock-rank.hot-rank-2 { color: #fff; background: #e97236; }
+.hot-stock-rank.hot-rank-3 { color: #fff; background: #d4a017; }
+
+.hot-stock-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.hot-stock-line {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.hot-stock-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e8e8f0;
+}
+.hot-stock-item:hover .hot-stock-name {
+    color: #e94560;
+}
+
+.hot-stock-code {
+    font-size: 11px;
+    color: #6b7590;
+    font-family: 'Consolas', 'Menlo', monospace;
+}
+
+.hot-stock-chg {
+    margin-left: auto;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: 'Consolas', 'Menlo', monospace;
+}
+.hot-stock-chg.up { color: #ff5c72; }
+.hot-stock-chg.down { color: #00c9a7; }
+.hot-stock-chg.flat { color: #8b8b9e; }
+
+.hot-stock-heat {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #e0a94a;
+    min-width: 88px;
+    text-align: right;
+    white-space: nowrap;
+}
+.hot-stock-heat .hot-fire {
+    font-style: normal;
+    margin-right: 3px;
+}
+
+.hot-stock-tags {
+    margin-top: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.hot-tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    background: #1e1e3a;
+    color: #8b8b9e;
+    line-height: 1.5;
+}
+.hot-tag-pop {
+    background: rgba(233, 69, 96, 0.15);
+    color: #ff6b81;
+}
+.hot-tag-title {
+    background: rgba(77, 159, 255, 0.12);
+    color: #6bb1ff;
+}
+
+.hot-stock-analyse {
+    margin-top: 6px;
+    font-size: 12px;
+    color: #8b8b9e;
+    line-height: 1.6;
+    white-space: pre-line;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    cursor: pointer;
+}
+.hot-stock-analyse.expanded {
+    -webkit-line-clamp: unset;
+    display: block;
+}
+
+.hot-stock-pe {
+    font-size: 11px;
+    color: #6bb1ff;
+    background: rgba(77, 159, 255, 0.12);
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-family: 'Consolas', 'Menlo', monospace;
+}
+
+.hot-stock-meta {
+    font-size: 11px;
+    color: #6b7590;
+}
+

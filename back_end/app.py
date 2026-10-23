@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock, init_abnormal_center_update
 from market_news.service import get_hot_list
+from hot_stock.service import get_hot_stock
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -377,6 +378,14 @@ def sector_fund():
     period = request.args.get('period', 'today').strip()
     date = request.args.get('date', '').strip()
     return jsonify(get_sector_fund(sector_type, period, date or None))
+
+
+@app.route('/api/hot-stock')
+def hot_stock():
+    """同花顺热股榜：period=hour/day，list_type=normal/skyrocket"""
+    period = request.args.get('period', 'hour').strip()
+    list_type = request.args.get('list_type', 'normal').strip()
+    return jsonify(get_hot_stock(period, list_type))
 
 
 @app.route('/api/sector-stocks')
