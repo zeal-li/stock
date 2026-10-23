@@ -58,7 +58,7 @@ hidden_imports = [
 PyInstaller.__main__.run([
     os.path.join(ROOT, 'back_end', 'app.py'),
     '--name=鑫多多',
-    '--onefile',
+    '--onedir',
     '--console',
     '--clean',
     '--noconfirm',
