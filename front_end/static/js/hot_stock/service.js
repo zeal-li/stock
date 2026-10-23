@@ -1,9 +1,51 @@
-/* 热股榜 — 同花顺热榜数据加载与渲染 */
+/* 热股榜 — 同花顺热榜数据加载与渲染（按日期切换，切换榜单时请求一次） */
 
-var _hotStockPeriod = 'hour';   // hour=1小时榜 / day=24小时榜
+var _hotStockPeriod = 'hour';     // hour=1小时榜 / day=24小时榜
 var _hotStockListType = 'normal'; // normal/skyrocket/new_stock/tech/value/trend
+var _hotStockDate = '';           // 当前选中日期（自然日，默认今天）
+var _hotStockDateList = null;     // 最近30个自然日
+var _hotStockInitialized = false;
 
 var _HOURLY_TYPES = ['normal', 'skyrocket'];
+
+// ==================== 日期栏 ====================
+
+async function fetchHotStockDates() {
+    var res = await fetch('/api/hot-stock-dates?count=30');
+    var result = await res.json();
+    _hotStockDateList = result.data.dates;
+    return _hotStockDateList;
+}
+
+function renderHotStockDateBar(activeDate) {
+    var bar = document.getElementById('hotStockDateBar');
+    if (!bar || !_hotStockDateList) return;
+    var html = '';
+    for (var i = 0; i < _hotStockDateList.length; i++) {
+        var date = _hotStockDateList[i];
+        var mmdd = date.slice(5);  // "MM-DD"
+        var cls = (date === activeDate) ? 'lhb-date-btn active' : 'lhb-date-btn';
+        html += '<span class="' + cls + '" onclick="selectHotStockDate(\'' + date + '\')">' + mmdd + '</span>';
+    }
+    bar.innerHTML = html;
+}
+
+function selectHotStockDate(date) {
+    if (_hotStockDate === date) return;
+    _hotStockDate = date;
+    renderHotStockDateBar(date);
+    loadHotStock();
+}
+
+async function initHotStock() {
+    if (_hotStockInitialized) return;
+    _hotStockInitialized = true;
+    _hotStockDateList = await fetchHotStockDates();
+    _hotStockDate = _hotStockDateList[_hotStockDateList.length - 1];  // 默认最新自然日（今天）
+    renderHotStockDateBar(_hotStockDate);
+}
+
+// ==================== 榜单 / 周期切换 ====================
 
 function _syncHotStockTabs() {
     document.querySelectorAll('#page-hot-stock .hot-type-tab').forEach(function(t) {
@@ -32,14 +74,30 @@ function switchHotStockPeriod(period) {
     loadHotStock();
 }
 
+// ==================== 加载 ====================
+
 function loadHotStock() {
+    if (!_hotStockInitialized) {
+        initHotStock().then(function() { _doLoadHotStock(); });
+        return;
+    }
+    _doLoadHotStock();
+}
+
+function _doLoadHotStock() {
     var wrap = document.getElementById('hotStockList');
     wrap.innerHTML = '<div class="loading">加载中...</div>';
 
-    var url = '/api/hot-stock?list_type=' + _hotStockListType + '&period=' + _hotStockPeriod;
+    var url = '/api/hot-stock?list_type=' + _hotStockListType
+        + '&period=' + _hotStockPeriod
+        + '&date=' + encodeURIComponent(_hotStockDate);
     fetch(url).then(function(r) { return r.json(); }).then(function(res) {
         if (!res.success) {
             wrap.innerHTML = '<div class="loading">' + (res.error || '加载失败') + '</div>';
+            return;
+        }
+        if (res.empty) {
+            wrap.innerHTML = '<div class="loading">暂无该日数据</div>';
             return;
         }
         renderHotStock(res.stocks);
@@ -47,6 +105,8 @@ function loadHotStock() {
         wrap.innerHTML = '<div class="loading">加载失败: ' + e + '</div>';
     });
 }
+
+// ==================== 渲染 ====================
 
 function _hotFmtHeat(n) {
     if (n == null) return '-';
@@ -86,7 +146,7 @@ function _hotTagsHtml(s) {
 function renderHotStock(stocks) {
     var wrap = document.getElementById('hotStockList');
     if (!stocks || !stocks.length) {
-        wrap.innerHTML = '<div class="loading">暂无数据</div>';
+        wrap.innerHTML = '<div class="loading">暂无该日数据</div>';
         return;
     }
 

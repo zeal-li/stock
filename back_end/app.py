@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock, init_abnormal_center_update
 from market_news.service import get_hot_list
-from hot_stock.service import get_hot_stock
+from hot_stock.service import get_hot_stock, init_hot_stock_update
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -382,10 +382,25 @@ def sector_fund():
 
 @app.route('/api/hot-stock')
 def hot_stock():
-    """同花顺热股榜：period=hour/day，list_type=normal/skyrocket"""
+    """同花顺热股榜：period=hour/day，list_type=normal/skyrocket/new_stock/tech/value/trend，date=YYYY-MM-DD"""
     period = request.args.get('period', 'hour').strip()
     list_type = request.args.get('list_type', 'normal').strip()
-    return jsonify(get_hot_stock(period, list_type))
+    date = request.args.get('date', '').strip()
+    return jsonify(get_hot_stock(period, list_type, date or None))
+
+
+@app.route('/api/hot-stock-dates')
+def hot_stock_dates():
+    """返回最近 N 个自然日（常规日期，含周末节假日，与热度榜每天更新对齐）"""
+    import datetime as _dt
+    count = request.args.get('count', 30, type=int)
+    dates = []
+    d = _dt.date.today()
+    for _ in range(count):
+        dates.append(d.isoformat())
+        d -= _dt.timedelta(days=1)
+    dates.reverse()
+    return jsonify({'success': True, 'data': {'dates': dates}})
 
 
 @app.route('/api/sector-stocks')
@@ -1839,6 +1854,7 @@ def start_scheduler():
     register_scheduler_check(init_self_review_update())   # 自助复盘每日 17:00 清理+复盘
     register_scheduler_check(init_sector_fund_update())   # 板块资金盘中轮询 + 每日 17:00 固化
     register_scheduler_check(init_abnormal_center_update())   # 异动中心每日 17:00 清理 + 落库
+    register_scheduler_check(init_hot_stock_update())   # 热股榜每日 23:30 落库
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
 

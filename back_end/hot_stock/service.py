@@ -1,4 +1,4 @@
-"""热股榜 — 同花顺热榜数据。
+"""热股榜 — 同花顺热榜数据（按自然日持久化 + 落库时间刷新判断）。
 
 榜单类型：
 - 大家都在看（normal，支持 1小时/24小时）
@@ -8,12 +8,21 @@
 - 价值投资派（value，固定 24小时）
 - 趋势投资派（trend，固定 24小时）
 
-单一数据源：同花顺热榜公开接口，不做多源兜底，
-请求失败直接抛异常（由 cached_singleflight 透传给调用方）。
+取数规则（单一数据源，不做多源兜底）：
+- 客户端先查库；非最新自然日无数据直接返回 empty，不再请求同花顺。
+- 最新自然日（今天）：无数据先请求同花顺并落库；
+  小时榜（period=hour）落库时间超过 1 小时则重新请求同花顺刷新；
+  并发请求经 cached_singleflight 合并，只向同花顺请求一次。
+- 每天 23:30 定时落库当天所有榜单组合。
 """
+
+import datetime
+import threading
+import time
 
 from common.http import get_json
 from common.cache import cached_singleflight
+from hot_stock.storage import rank_get, rank_set, cleanup_old_data
 
 # 普通热榜（大家在看的 / 快速飙升 / 三个投资流派）
 _STOCK_API = 'https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock'
@@ -38,8 +47,19 @@ _LIST_TYPES = {
 # 支持 1小时/24小时 切换的榜单，其余固定 24 小时
 _HOURLY_TYPES = {'normal', 'skyrocket'}
 
-# 热榜为分钟级更新，内存缓存 60s
-_CACHE_TTL = 60
+# 每天 23:30 定时落库的所有榜单组合
+_ALL_COMBINATIONS = [
+    ('normal', 'hour'), ('normal', 'day'),
+    ('skyrocket', 'hour'), ('skyrocket', 'day'),
+    ('new_stock', 'day'),
+    ('tech', 'day'), ('value', 'day'), ('trend', 'day'),
+]
+
+# 小时榜：落库时间超过该秒数则重新请求同花顺刷新
+_HOUR_REFRESH_SECONDS = 3600
+
+# 每日 23:30 落库任务
+_AUTO_UPDATE_TIME = (23, 30)
 
 
 def _to_int(val):
@@ -109,11 +129,25 @@ def _fetch_new_stock_raw() -> list:
     return stocks
 
 
-def get_hot_stock(period: str = 'hour', list_type: str = 'normal') -> dict:
-    """获取同花顺热股榜（客户端触发，60s 内存缓存 + single-flight）。
+def _fetch_and_save(list_type: str, period: str, date: str) -> list:
+    """请求同花顺并落库。经 cached_singleflight(ttl=0) 合并并发：同一时刻多个客户端只请求一次源。
 
-    list_type: normal/skyrocket/new_stock/tech/value/trend
-    period: hour/day，仅 normal 与 skyrocket 生效，其余固定 day
+    ttl=0 表示不做 TTL 缓存，仅做 single-flight 并发合并；落库时间的刷新判断在调用方完成。
+    """
+    def loader():
+        stocks = (_fetch_new_stock_raw() if list_type == 'new_stock'
+                  else _fetch_stock_raw(period, list_type))
+        rank_set(date, list_type, period, stocks)
+        return stocks
+
+    return cached_singleflight(f'hot-stock-fetch-{list_type}-{period}', loader, ttl=0)
+
+
+def get_hot_stock(period: str = 'hour', list_type: str = 'normal', date: str = None) -> dict:
+    """获取热股榜（客户端触发）。
+
+    - 非最新自然日：仅读库，无数据返回 empty，不请求同花顺。
+    - 最新自然日（今天）：无数据先请求落库；小时榜落库超 1 小时重新请求刷新。
     """
     if list_type not in _LIST_TYPES:
         return {'success': False, 'error': f'未知榜单类型: {list_type}'}
@@ -124,18 +158,78 @@ def get_hot_stock(period: str = 'hour', list_type: str = 'normal') -> dict:
     if list_type not in _HOURLY_TYPES:
         period = 'day'
 
-    if list_type == 'new_stock':
-        stocks = cached_singleflight(
-            'hot-stock-new_stock', _fetch_new_stock_raw, ttl=_CACHE_TTL)
-    else:
-        stocks = cached_singleflight(
-            f'hot-stock-{list_type}-{period}',
-            lambda: _fetch_stock_raw(period, list_type),
-            ttl=_CACHE_TTL)
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    date = date or today
 
-    return {
-        'success': True,
-        'list_type': list_type,
-        'period': period,
-        'stocks': stocks,
-    }
+    cached = rank_get(date, list_type, period)
+
+    if date != today:
+        if cached:
+            data, _ = cached
+            return {'success': True, 'date': date, 'list_type': list_type, 'period': period, 'stocks': data}
+        return {'success': True, 'date': date, 'list_type': list_type, 'period': period, 'stocks': [], 'empty': True}
+
+    # 最新自然日（今天）
+    if cached:
+        data, updated_at = cached
+        # 小时榜：落库时间未超 1 小时直接返回缓存；否则往下重新请求
+        if period != 'hour' or time.time() - updated_at < _HOUR_REFRESH_SECONDS:
+            return {'success': True, 'date': date, 'list_type': list_type, 'period': period, 'stocks': data}
+
+    stocks = _fetch_and_save(list_type, period, today)
+    return {'success': True, 'date': today, 'list_type': list_type, 'period': period, 'stocks': stocks}
+
+
+# =========== 定时任务：每日 23:30 落库 ===========
+
+_auto_next_update = None   # 下一次 23:30 任务时刻
+
+
+def _next_update_time(base):
+    """返回 base 当天 23:30；若已过则返回次日 23:30"""
+    cand = base.replace(hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
+                        second=0, microsecond=0)
+    if cand <= base:
+        cand = (base + datetime.timedelta(days=1)).replace(
+            hour=_AUTO_UPDATE_TIME[0], minute=_AUTO_UPDATE_TIME[1],
+            second=0, microsecond=0)
+    return cand
+
+
+def _run_daily_update():
+    """每日 23:30 任务：清理过期数据，并全量落库当天所有榜单组合。
+
+    绕过 single-flight 缓存，直接打源落库（覆盖当天盘中/请求时的快照为收盘数据）。
+    """
+    cleanup_old_data()
+
+    today = datetime.date.today().strftime('%Y-%m-%d')
+    for list_type, period in _ALL_COMBINATIONS:
+        try:
+            stocks = (_fetch_new_stock_raw() if list_type == 'new_stock'
+                      else _fetch_stock_raw(period, list_type))
+            rank_set(today, list_type, period, stocks)
+        except Exception as e:
+            print(f'[hot_stock] 23:30 落库失败 {list_type}/{period}: {e}')
+    print(f'[hot_stock] 23:30 落库完成: {today}')
+
+
+def check_hot_stock_update():
+    """热股榜定时检测：由公共秒级调度器每秒调用一次，每日 23:30 触发落库。
+
+    落库任务耗时较长（要抓取全部 8 个榜单组合），放到独立线程执行，避免阻塞调度器。
+    """
+    global _auto_next_update
+    now_dt = datetime.datetime.now()
+    if now_dt >= _auto_next_update:
+        _auto_next_update = _next_update_time(now_dt)
+        threading.Thread(target=_run_daily_update, daemon=True, name='hot-stock-daily').start()
+
+
+def init_hot_stock_update():
+    """初始化热股榜定时任务，返回检测函数供公共调度器注册（由 app.py 启动时调用）。"""
+    global _auto_next_update
+    now_dt = datetime.datetime.now()
+    _auto_next_update = _next_update_time(now_dt)
+    print(f'[hot_stock] 定时任务已初始化（23:30 落库下次: {_auto_next_update:%Y-%m-%d %H:%M}）')
+    return check_hot_stock_update
