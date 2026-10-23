@@ -1688,7 +1688,6 @@ body {
 }
 
 .hot-stock-chg {
-    margin-left: auto;
     font-size: 14px;
     font-weight: 600;
     font-family: 'Consolas', 'Menlo', monospace;
@@ -1699,6 +1698,7 @@ body {
 
 .hot-stock-heat {
     flex-shrink: 0;
+    margin-left: auto;
     font-size: 12px;
     color: #e0a94a;
     min-width: 88px;
