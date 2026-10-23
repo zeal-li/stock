@@ -5,7 +5,9 @@ import os
 import sqlite3
 import time
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'hot_stock.db')
+from common.utils import data_dir
+
+DB_PATH = os.path.join(data_dir(), 'hot_stock.db')
 
 # 只保留最近 N 个自然日的数据（与前端日期栏的 30 个自然日对齐）
 _KEEP_DAYS = 30

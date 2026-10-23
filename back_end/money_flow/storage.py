@@ -11,10 +11,10 @@ import sqlite3
 import threading
 import time
 
-from common.utils import is_a_trading_time, is_a_share_trading_day
+from common.utils import is_a_trading_time, is_a_share_trading_day, data_dir
 
 # 数据库路径（与 watchlist.db 同级在 data/ 目录下）
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'money_flow.db')
+DB_PATH = os.path.join(data_dir(), 'money_flow.db')
 
 # 只保留最近 N 个交易日（与前端日期栏的 30 个交易日对齐）
 _KEEP_TRADING_DAYS = 30
@@ -222,8 +222,12 @@ def init_money_flow_update():
     global _next_major_ts, _next_distribution_ts, _next_sh_minute_ts
     global _next_fund_flow_ts, _next_turnover_ts, _next_daily_ts
     from common import warmup_eastmoney_session
-    warmup_eastmoney_session()
-    _full_fetch_if_stale()
+    # 启动初始化（预热 + 当日快照缺失时全量抓取）放到后台线程执行，
+    # 避免阻塞 Flask 服务启动（浏览器应能立刻访问后端，行情数据稍后就绪）。
+    def _startup_fetch():
+        warmup_eastmoney_session()
+        _full_fetch_if_stale()
+    threading.Thread(target=_startup_fetch, daemon=True, name='money_flow_startup').start()
     now = time.time()
     _next_major_ts = now + _rand_interval()
     _next_distribution_ts = now + _rand_interval()

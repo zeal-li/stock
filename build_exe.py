@@ -37,6 +37,8 @@ datas = [
     (os.path.join(ROOT, 'front_end', 'static'), 'front_end\\static'),
     (os.path.join(ROOT, 'back_end', 'data'), 'back_end\\data'),
     (akshare_path, 'akshare\\file_fold'),
+    # ML 量化打分模型（ml_score.py 运行时按 ml_train/ 目录加载）
+    (os.path.join(ROOT, 'back_end', 'ml_train', 'model.pkl'), 'ml_train'),
 ]
 
 # 隐式导入的服务模块
@@ -49,6 +51,7 @@ hidden_imports = [
     'watchlist', 'watchlist.__init__', 'watchlist.service',
     'technical_screen', 'technical_screen.__init__', 'technical_screen.service',
     'market_db', 'market_db.__init__', 'market_db.db', 'market_db.sync',
+    'ml_train', 'ml_train.features',
     'chinese_calendar',
 ]
 
@@ -63,4 +66,5 @@ PyInstaller.__main__.run([
     '--add-data=' + os.pathsep.join([datas[1][0], datas[1][1]]),
     '--add-data=' + os.pathsep.join([datas[2][0], datas[2][1]]),
     '--add-data=' + os.pathsep.join([datas[3][0], datas[3][1]]),
+    '--add-data=' + os.pathsep.join([datas[4][0], datas[4][1]]),
 ] + [f'--hidden-import={m}' for m in hidden_imports])

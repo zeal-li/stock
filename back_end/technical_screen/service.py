@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from market_db.index_klines import get_index_daily_klines
 
+from common.utils import data_dir
+
 from .strategies.rising_channel import calc as rising_channel_calc
 from .strategies.ml_score import calc as ml_score_calc
 
@@ -24,7 +26,7 @@ STRATEGIES = {
 
 def _kline_conn():
     import sqlite3
-    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_lib.db')
+    path = os.path.join(data_dir(), 'stock_lib.db')
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
@@ -32,7 +34,7 @@ def _kline_conn():
 
 def _list_conn():
     import sqlite3
-    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_lib.db')
+    path = os.path.join(data_dir(), 'stock_lib.db')
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn

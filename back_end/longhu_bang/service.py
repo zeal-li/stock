@@ -5,9 +5,9 @@ import os
 import sqlite3
 from bs4 import BeautifulSoup
 from common.http import get_text, HEADERS_THS_LONGHU
-from common.utils import is_a_share_trading_day
+from common.utils import is_a_share_trading_day, data_dir
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'longhu_bang.db')
+DB_PATH = os.path.join(data_dir(), 'longhu_bang.db')
 
 
 def _db():

@@ -5,9 +5,9 @@ import os
 import sqlite3
 import time
 
-from common.utils import is_a_share_trading_day
+from common.utils import is_a_share_trading_day, data_dir
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'sector_fund.db')
+DB_PATH = os.path.join(data_dir(), 'sector_fund.db')
 
 # 只保留最近 N 个交易日的数据（与前端日期栏的 30 个交易日对齐）
 _KEEP_TRADING_DAYS = 30

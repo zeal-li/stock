@@ -1,6 +1,19 @@
 """通用格式化函数 & 市场常量"""
 
+import os
+import sys as _sys
 from datetime import datetime, timedelta, time
+
+# ========================= 数据目录 =========================
+
+
+def data_dir():
+    """返回数据目录（.db 文件存放处）：
+    - 打包成 exe 后：exe 同级 data/ 目录（可持久化，重启不丢）；
+    - 开发模式：back_end/data/。"""
+    if getattr(_sys, 'frozen', False):
+        return os.path.join(os.path.dirname(_sys.executable), 'data')
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 
 # ========================= 市场常量 =========================
 # market code → 数据源前缀（各功能模块统一引用，不再各自写死）

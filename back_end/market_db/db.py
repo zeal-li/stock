@@ -4,7 +4,9 @@
 import os
 import sqlite3
 
-_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'stock_lib.db')
+from common.utils import data_dir
+
+_DB_PATH = os.path.join(data_dir(), 'stock_lib.db')
 
 
 def _conn():
