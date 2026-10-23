@@ -91,8 +91,10 @@ def _fetch_stock_raw(period: str, list_type: str) -> list:
     stocks = []
     for item in stock_list:
         popularity_tag, concept_tags = _parse_tag(item.get('tag'))
+        # 榜单内排名：流派榜（tech/value/trend）用 display_order，order 是其在全市场总榜的排名
+        rank = item.get('display_order') if item.get('display_order') is not None else item.get('order')
         stocks.append({
-            'rank': item.get('order'),
+            'rank': rank,
             'code': item.get('code', ''),
             'name': item.get('name', ''),
             'heat': _to_int(item.get('rate')),
