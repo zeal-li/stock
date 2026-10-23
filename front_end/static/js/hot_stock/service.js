@@ -143,6 +143,11 @@ function _hotTagsHtml(s) {
     return html;
 }
 
+function _hotNameHtml(s) {
+    var name = (s.name || '').replace(/'/g, "\\'");
+    return '<span class="hot-stock-name" onclick="KlinePopup.open(\'' + s.code + '\',\'' + guessMarket(s.code) + '\',\'' + name + '\')">' + s.name + '</span>';
+}
+
 function renderHotStock(stocks) {
     var wrap = document.getElementById('hotStockList');
     if (!stocks || !stocks.length) {
@@ -164,7 +169,7 @@ function renderHotStock(stocks) {
             var pe = s.pe != null ? '<span class="hot-stock-pe">PE ' + s.pe + '</span>' : '';
             var date = s.order_date ? '<span class="hot-stock-meta">上市 ' + _hotFmtDate(s.order_date) + '</span>' : '';
             line = ''
-                + '<span class="hot-stock-name">' + s.name + '</span>'
+                + _hotNameHtml(s)
                 + '<span class="hot-stock-code">' + s.code + '</span>'
                 + pe
                 + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
@@ -172,7 +177,7 @@ function renderHotStock(stocks) {
         } else {
             var chg = _hotFmtChg(s.change_pct);
             line = ''
-                + '<span class="hot-stock-name">' + s.name + '</span>'
+                + _hotNameHtml(s)
                 + '<span class="hot-stock-code">' + s.code + '</span>'
                 + '<span class="hot-stock-chg ' + chg.cls + '">' + chg.text + '</span>'
                 + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
