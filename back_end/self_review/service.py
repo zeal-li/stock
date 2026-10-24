@@ -623,7 +623,7 @@ def _build_index_item(spec, q, k):
     decimals = spec.get('decimals', 2)
 
     # 近20日低点（供日内形态"20日低点联动"使用）
-    low_20 = min(lows[-min(20, len(highs)):])
+    low_20 = min(lows[-min(20, len(lows)):])
 
     # 复用自选复盘的成交密集区关键点位（20/60/120日筹码密集区 + 趋势/成本）
     lv = _stock_levels({'code': spec['code'], 'market': spec['secid'].split('.')[0]}, q, k, decimals=decimals)
@@ -695,15 +695,14 @@ def _analyze_synergy(indices):
 
         sh = pct_of.get('上证指数')
         cyb = pct_of.get('创业板指')
-        hs300 = pct_of.get('沪深300')
         kc50 = pct_of.get('科创50')
-        # 权重(沪深300) vs 成长(创业板/科创50)
+        # 权重(上证指数) vs 成长(创业板/科创50)。复盘指数不含沪深300，用上证指数作权重蓝筹代表。
         growth_avg = [v for v in (cyb, kc50) if v is not None]
         growth = sum(growth_avg) / len(growth_avg) if growth_avg else None
-        if growth is not None and hs300 is not None:
-            gap = growth - hs300
+        if growth is not None and sh is not None:
+            gap = growth - sh
             if gap >= 0.4:
-                summary += '创业板/科创50明显强于沪深300，资金偏向成长与中小盘，题材与个股活跃度提升。'
+                summary += '创业板/科创50明显强于上证指数，资金偏向成长与中小盘，题材与个股活跃度提升。'
             elif gap <= -0.4:
                 summary += ('权重蓝筹明显强于创业板/科创50，这种"涨权重、杀成长"的背离并非普涨/普跌，'
                             '更多是资金调仓换股、高低切换，注意风格切换带来的结构性风险。')
@@ -1466,7 +1465,7 @@ def run_review():
         now = datetime.datetime.now()
         if is_a_trading_time():
             market_status = '盘中'
-        elif now.weekday() >= 5:
+        elif not is_a_share_trading_day(now.date()):
             market_status = '休市'
         else:
             market_status = '已收盘'
@@ -1517,7 +1516,7 @@ def run_stock_review(user_id):
                 code = it['code']
                 # 同一标的可能同时存在于自选股/场内ETF/持仓股，顶部提醒按 code 去重，
                 # 避免同一条「触及支撑/压力位」提示因跨分组重复出现。
-                if key == 'holdings' and it.get('near') == 'pressure':
+                if it.get('near') == 'pressure':
                     if code not in seen_pressure:
                         seen_pressure.add(code)
                         summary['pressure'].append({
