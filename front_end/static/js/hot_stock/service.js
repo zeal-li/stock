@@ -177,6 +177,7 @@ function renderHotStock(stocks) {
                 + '<span class="hot-stock-code">' + s.code + '</span>'
                 + pe
                 + '<span class="hot-stock-analyse-btn" onclick="HotStockAnalyse.open(\'' + s.code + '\')">异动解读</span>'
+                + '<span class="hot-stock-analyse-btn" onclick="openHotStockDetail(\'' + s.code + '\')">热度详情</span>'
                 + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = date ? '<div class="hot-stock-tags">' + date + '</div>' : '';
         } else {
@@ -186,6 +187,7 @@ function renderHotStock(stocks) {
                 + '<span class="hot-stock-code">' + s.code + '</span>'
                 + '<span class="hot-stock-chg ' + chg.cls + '">' + chg.text + '</span>'
                 + '<span class="hot-stock-analyse-btn" onclick="HotStockAnalyse.open(\'' + s.code + '\')">异动解读</span>'
+                + '<span class="hot-stock-analyse-btn" onclick="openHotStockDetail(\'' + s.code + '\')">热度详情</span>'
                 + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = s.analyse
                 ? '<div class="hot-stock-analyse expanded" onclick="_hotToggleAnalyse(this)" title="点击展开/收起">' + s.analyse + '</div>'
@@ -426,3 +428,22 @@ var HotStockAnalyse = (function() {
 
     return { open: open, close: close };
 })();
+
+// ==================== 热度详情 ====================
+// 点击打开同花顺热度详情页（ms.10jqka.com.cn/thsHotDetail）
+
+function _thsMarketCode(code) {
+    var m = guessMarket(code);
+    if (m === '1') return '17';   // 沪市（含科创板）
+    if (m === '2') return '151';  // 北交所
+    return '33';                   // 深市
+}
+
+function openHotStockDetail(code) {
+    var s = _hotStockCache[code];
+    if (!s) return;
+    var url = 'https://ms.10jqka.com.cn/thsHotDetail/?name=' + encodeURIComponent(s.name || '')
+        + '&code=' + encodeURIComponent(code)
+        + '&marketCode=' + _thsMarketCode(code);
+    window.open(url, '_blank');
+}
