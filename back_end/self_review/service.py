@@ -1514,9 +1514,9 @@ def run_stock_review(user_id):
             data[key] = {'label': label, 'items': items}
             for it in items:
                 code = it['code']
-                # 同一标的可能同时存在于自选股/场内ETF/持仓股，顶部提醒按 code 去重，
-                # 避免同一条「触及支撑/压力位」提示因跨分组重复出现。
-                if it.get('near') == 'pressure':
+                # 触及压力位：只统计持仓股（holdings），自选股/场内ETF 分组不纳入顶部压力提醒。
+                # 触及支撑位：三个分组均统计，同一标的按 code 去重，避免跨分组重复出现。
+                if key == 'holdings' and it.get('near') == 'pressure':
                     if code not in seen_pressure:
                         seen_pressure.add(code)
                         summary['pressure'].append({
