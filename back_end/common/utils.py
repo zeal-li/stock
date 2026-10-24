@@ -17,6 +17,14 @@ def data_dir():
 
 # ========================= 市场常量 =========================
 # market code → 数据源前缀（各功能模块统一引用，不再各自写死）
+#
+# 市场代码（market code）统一约定：
+#   '0'   深交所（深A主板 / 创业板 / 深ETF 等）
+#   '1'   上交所（沪A主板 / 科创板 / 沪ETF 等）
+#   '2'   北交所
+#   '90'  板块指数（东方财富 f13=90）
+#   '116' 港股
+#   '106' 美股
 
 # 新浪行情前缀
 SINA_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj', '90': 'sz'}
@@ -24,8 +32,8 @@ SINA_PREFIX = {'1': 'sh', '0': 'sz', '2': 'bj', '90': 'sz'}
 # 东方财富 F10 前缀（概念题材/主营业务 API）
 EM_F10_PREFIX = {'0': 'SZ', '1': 'SH', '2': 'BJ', '90': 'SZ'}
 
-# 同花顺 K线 API 前缀
-THS_PREFIX = {'0': 'sz', '1': 'sh', '2': 'sh', '90': 'sh'}
+# 同花顺 K线 API 前缀（北交所 K 线实际走新浪 bj，不经同花顺）
+THS_PREFIX = {'0': 'sz', '1': 'sh', '2': 'bj', '90': 'sh'}
 
 # Yahoo Finance 代码构造
 YAHOO_PREFIX = {'116': '.HK', '106': ''}
@@ -79,12 +87,14 @@ MARKET_HOURS = {
     'us_main':  {'open': (21, 30), 'close': (4, 0)},   # 美股夏令时 21:30-04:00
 }
 
-# market code → seg_key 映射（用于通过 market code 查市场时间）
+# market code → 交易时段 key（仅供 is_market_opened 查开盘时间）
+# 该映射只关心"开盘时间"：A股各子市场（深/沪主板、创业板、科创板、北交所、板块指数）
+# 均为 9:30 开盘，统一归到 hs_main；与 K 线库分段 seg_key（market_db/sync.py 的 SEGMENTS）无对应关系。
 _MARKET_TO_SEG = {
-    '0': 'hs_main',   # 深交所主板
-    '1': 'hs_main',   # 上交所主板
-    '2': 'hs_etf',    # 场内基金
-    '90': 'gem',      # 创业板/科创板
+    '0': 'hs_main',   # 深交所（A股）
+    '1': 'hs_main',   # 上交所（A股）
+    '2': 'hs_main',   # 北交所（A股）
+    '90': 'hs_main',  # 板块指数（跟随 A股）
     '116': 'hk_main', # 港股
     '106': 'us_main', # 美股
 }

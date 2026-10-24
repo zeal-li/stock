@@ -474,7 +474,7 @@ def _latest_possible_trading_day():
     return today.strftime('%Y%m%d')
 
 
-def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, latest_trading, ts_str):
+def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, latest_trading):
     """同步单只股票 K 线 — per-period 独立判断是否需要拉取"""
     if _sync_status.get('cancel'):
         return
@@ -515,6 +515,7 @@ def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, late
 
         all_rows = []
         synced_periods = set()
+        latest_dates = {}  # period → 该周期本次实际拉到的最新K线日期 'YYYYMMDD'
         with _TPE(max_workers=len(periods)) as pool:
             futs = {pool.submit(_fetch_period, p): p for p in periods}
             for fut in _ac(futs):
@@ -522,12 +523,19 @@ def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, late
                 rows = fut.result()
                 if rows:
                     synced_periods.add(p)
+                    latest_dates[p] = max(r[3] for r in rows)
                     for r in rows:
                         all_rows.append(r)
 
         if all_rows:
             # 原子写入（拿到多少写多少，不丢进度）
-            period_dates = {p: ts_str for p in synced_periods}
+            # daily_ts/weekly_ts/monthly_ts 记录"该周期实际最新K线日期"，而非同步完成时刻。
+            # 消费方 _needs/_fetch_period 把 ts[:10] 当"上次已拉到的最新K线日"做增量起点，
+            # 若存同步时刻（如周五05:30只拉到周四却记"周五"），周六 latest_trading=周五 时会被误判"已最新"而漏拉周五。
+            period_dates = {
+                p: f"{latest_dates[p][:4]}-{latest_dates[p][4:6]}-{latest_dates[p][6:8]}"
+                for p in synced_periods
+            }
             stock_info_sync_atomic(code, market, name, all_rows, period_dates)
             if synced_periods == set(periods):
                 # 所有需要的周期都拉到了 → 完整成功
@@ -675,7 +683,6 @@ def _run_init(seg_key):
         t0 = time.time()
         daily_map = {}; weekly_map = {}; monthly_map = {}  # 新市场全空
         latest_trading = _latest_possible_trading_day()
-        ts_str = _now_ts_str()
         cancelled = False
         success_count = 0
         no_data_count = 0
@@ -684,7 +691,7 @@ def _run_init(seg_key):
         exception_count = 0
         partial_count = 0
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], daily_map, weekly_map, monthly_map, latest_trading, ts_str): s for s in stocks}
+            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], daily_map, weekly_map, monthly_map, latest_trading): s for s in stocks}
             for fut in as_completed(futs):
                 if _sync_status.get('cancel'):
                     cancelled = True
@@ -992,7 +999,6 @@ def _run_update(seg_key):
         print(f"[sync] {label} 增量同步 K 线 (已是最新: {skipped} 只，需要更新: {len(to_update)} 只，4 线程)...")
 
         t0 = time.time()
-        ts_str = _now_ts_str()
         cancelled = False
         success_count = 0
         no_data_count = 0
@@ -1001,7 +1007,7 @@ def _run_update(seg_key):
         exception_count = 0
         partial_count = 0
         with ThreadPoolExecutor(max_workers=4) as pool:
-            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], daily_map, weekly_map, monthly_map, latest_trading, ts_str): s for s in to_update}
+            futs = {pool.submit(_sync_one_stock, s[0], s[1], s[2], daily_map, weekly_map, monthly_map, latest_trading): s for s in to_update}
             for fut in as_completed(futs):
                 if _sync_status.get('cancel'):
                     cancelled = True
