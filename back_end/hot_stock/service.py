@@ -61,6 +61,11 @@ _REFRESH_SECONDS = 3600
 # 每日 23:30 落库任务
 _AUTO_UPDATE_TIME = (23, 30)
 
+# 个股异动解读（同花顺 thsHotDetail 页同源接口，按日期返回该股最近的异动解读列表）
+_ANOMALY_HISTORY_API = 'https://dq.10jqka.com.cn/fuyao/transaction_history/service/v1/get/{ths_market}_{code}.txt'
+# 前端市场标识（0深/1沪/2北）→ 同花顺市场代码
+_THS_MARKET_MAP = {'0': '33', '1': '17', '2': '151'}
+
 
 def _to_int(val):
     """热度值转 int（接口返回字符串，如 '702464.0'）"""
@@ -180,6 +185,43 @@ def get_hot_stock(period: str = 'hour', list_type: str = 'normal', date: str = N
 
     stocks = _fetch_and_save(list_type, period, today)
     return {'success': True, 'date': today, 'list_type': list_type, 'period': period, 'stocks': stocks}
+
+
+def get_stock_anomaly(code: str, market: str) -> dict:
+    """个股异动解读列表（同花顺，按日期倒序，最多最近几天）。
+
+    market 为前端市场标识（0深/1沪/2北）。返回 items:
+    [{date, tag(涨停/大跌等), title(关键词拼接), reason(解读正文)}]；
+    该股无异动记录返回空列表。
+
+    后端不做缓存，每次请求直接打同花顺；缓存由前端 localStorage（1 小时有效）负责。
+    """
+    code = (code or '').strip()
+    ths_market = _THS_MARKET_MAP.get(str(market or '').strip())
+    if not code or not ths_market:
+        return {'success': False, 'error': '缺少股票代码或市场参数'}
+
+    url = _ANOMALY_HISTORY_API.format(ths_market=ths_market, code=code)
+
+    try:
+        data = get_json(url, headers=_HEADERS, timeout=10)
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+    if not isinstance(data, dict) or data.get('status_code') != 0:
+        return {'success': False, 'error': f'同花顺异动解读接口返回异常: {data}'}
+
+    lst = (data.get('data') or {}).get('anomalyAnalysisList') or []
+    items = [
+        {
+            'date': it.get('date') or '',
+            'tag': it.get('tagName') or '',
+            'title': '+'.join(it.get('keywordList') or []),
+            'reason': it.get('reason') or '',
+        }
+        for it in lst
+    ]
+    return {'success': True, 'code': code, 'items': items}
 
 
 # =========== 定时任务：每日 23:30 落库 ===========
