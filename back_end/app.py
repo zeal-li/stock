@@ -310,10 +310,6 @@ def sh000001_minute():
 
 # ==================== 成交额 ====================
 
-@app.route('/api/index-minute')
-def index_minute():
-    return jsonify(get_index_minute_data())
-
 @app.route('/api/turnover-minute')
 def turnover_minute():
     return jsonify(get_index_minute_data())

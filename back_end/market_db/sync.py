@@ -26,7 +26,7 @@ from .db import (
     market_list_ts_get, market_list_ts_set, market_remove,
     stock_list_all, stock_list_by_market, stock_list_replace_market,
     stock_info_all, stock_info_kline_maps, stock_info_remove, stock_info_clear_market,
-    stock_info_sync_atomic, klines_get, klines_count_market,
+    stock_info_sync_atomic, klines_count_market,
 )
 from common import BROWSER_HEADERS
 from common.http import (
@@ -386,8 +386,6 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
     return rows
 
 
-# ---- 同花顺 A 股 K 线 ----
-
 # ---- Yahoo Finance 限流 ----
 
 _yahoo_rate_lock = threading.Lock()
@@ -476,7 +474,7 @@ def _latest_possible_trading_day():
     return today.strftime('%Y%m%d')
 
 
-def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, latest_trading, ts_str, force_today=False):
+def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, latest_trading, ts_str):
     """同步单只股票 K 线 — per-period 独立判断是否需要拉取"""
     if _sync_status.get('cancel'):
         return
@@ -489,14 +487,14 @@ def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, late
         return date < latest_trading
 
     periods = []
-    if _needs(daily_map.get((code, market))) or force_today:
+    if _needs(daily_map.get((code, market))):
         periods.append('daily')
-    if _needs(weekly_map.get((code, market))) or (force_today and not periods):
+    if _needs(weekly_map.get((code, market))):
         periods.append('weekly')
-    if _needs(monthly_map.get((code, market))) or (force_today and not periods):
+    if _needs(monthly_map.get((code, market))):
         periods.append('monthly')
 
-    if not periods and not force_today:
+    if not periods:
         return
 
     try:
@@ -510,10 +508,7 @@ def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, late
             }.get(p)
             if ts:
                 last_date = _parse_date(ts[:10].replace('-', ''))
-                if force_today and ts[:10].replace('-', '') == latest_trading:
-                    start = latest_trading
-                else:
-                    start = (last_date + datetime.timedelta(days=1)).strftime('%Y%m%d')
+                start = (last_date + datetime.timedelta(days=1)).strftime('%Y%m%d')
             else:
                 start = '19900101'
             return _fetch_kline(code, market, p, start, latest_trading)
@@ -913,7 +908,7 @@ def _list_need_refresh(seg_key):
             last_open_date -= datetime.timedelta(days=1)
         last_open_dt = datetime.datetime.combine(last_open_date, datetime.time(open_h, open_m))
 
-    # stocks.sync_ts >= 最近开盘时间 → 列表仍是新的
+    # list_sync_ts >= 最近开盘时间 → 列表仍是新的
     return last_ts < last_open_dt
 
 

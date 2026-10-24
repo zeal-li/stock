@@ -2,7 +2,7 @@
     data/self_review.db
 
 每交易日由调度器收盘后自动跑一次大盘复盘并把结果存盘，便于历史回看与跨日对比。
-自选复盘不在自动调度内（由用户主动触发即点即算）；stock_review 表预留给手动落盘场景。
+自选复盘不在自动调度内（由用户主动触发即点即算）；stock_review 表用于手动落盘场景。
 单一数据源：复盘 JSON 整段入库，不做多源兜底。
 
 两张表：
@@ -85,17 +85,6 @@ def get_market_review(trade_date):
     }
 
 
-def list_market_reviews(limit=30):
-    """最近 N 个有大盘复盘记录的交易日（按交易日降序）"""
-    conn = _db()
-    rows = conn.execute(
-        'SELECT trade_date, update_time, market_status FROM market_review '
-        'ORDER BY trade_date DESC LIMIT ?',
-        (limit,)).fetchall()
-    conn.close()
-    return [{'trade_date': r[0], 'update_time': r[1], 'market_status': r[2]} for r in rows]
-
-
 # ==================== stock_review 自选复盘 ====================
 
 def save_stock_review(trade_date, user_id, data, update_time=None):
@@ -127,17 +116,6 @@ def get_stock_review(trade_date, user_id):
         'update_time': row[2],
         'data': json.loads(row[3]),
     }
-
-
-def list_stock_reviews(user_id, limit=30):
-    """某用户最近 N 个有自选复盘记录的交易日（按交易日降序）"""
-    conn = _db()
-    rows = conn.execute(
-        'SELECT trade_date, update_time FROM stock_review WHERE user_id=? '
-        'ORDER BY trade_date DESC LIMIT ?',
-        (user_id, limit)).fetchall()
-    conn.close()
-    return [{'trade_date': r[0], 'update_time': r[1]} for r in rows]
 
 
 # ==================== 跨天清理（保留最近 N 个交易日） ====================
