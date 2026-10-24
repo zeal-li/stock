@@ -1690,7 +1690,6 @@ body {
 
 .hot-stock-chg {
     font-size: 14px;
-    font-weight: 600;
     font-family: 'Consolas', 'Menlo', monospace;
 }
 .hot-stock-chg.up { color: #ff5c72; }
