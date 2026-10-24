@@ -796,9 +796,9 @@ def _need_update(seg_key):
 
     # 计算两个时间之间排除周末的天数差异
     def _trading_days_between(d1, d2):
-        """计算 d1 到 d2 之间的交易日数（排除周末），不含 d2 当天"""
+        """计算 d1 到 d2 之间的交易日数（排除周末），不含 d1 当天和 d2 当天"""
         count = 0
-        cur = d1.date()
+        cur = d1.date() + datetime.timedelta(days=1)
         end = d2.date()
         while cur < end:
             if cur.weekday() < 5:
