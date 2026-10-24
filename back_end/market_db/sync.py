@@ -273,7 +273,8 @@ def _fetch_hk_stocks():
                     'ut': 'bd1d9ddb04089700cf9c27f6f7426281',
                 }, headers=headers, timeout=15)
                 break
-            except Exception:
+            except Exception as e:
+                print(f"[sync] {label} 第{page}页请求失败（第{attempt+1}次）: {type(e).__name__}: {e}")
                 if attempt < 2: _time.sleep(2 * (attempt + 1))
         if jd is None:
             print(f"[sync] {label} 第{page}页请求失败（已重试3次）")
@@ -445,12 +446,14 @@ def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
                     None,
                 ))
             return rows
-        except Exception:
+        except Exception as e:
             if attempt < 3:
+                print(f"[sync] Yahoo K线 {symbol} {period} 第{attempt+1}次拉取失败: {type(e).__name__}: {e}")
                 time.sleep(1.5 * (attempt + 1))
             else:
                 with _sync_fail_lock:
                     _sync_fail_count += 1
+                print(f"[sync] Yahoo K线 {symbol} {period} 拉取失败（已重试4次）: {type(e).__name__}: {e}")
     return []
 
 
