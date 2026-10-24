@@ -155,6 +155,10 @@ function renderHotStock(stocks) {
         return;
     }
 
+    // 缓存当前榜单，供异动解读弹窗按 code 取数
+    _hotStockCache = {};
+    stocks.forEach(function(s) { _hotStockCache[s.code] = s; });
+
     var isNewStock = _hotStockListType === 'new_stock';
     var html = '';
 
@@ -172,7 +176,8 @@ function renderHotStock(stocks) {
                 + _hotNameHtml(s)
                 + '<span class="hot-stock-code">' + s.code + '</span>'
                 + pe
-                + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
+                + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>'
+                + '<span class="hot-stock-analyse-btn" onclick="HotStockAnalyse.open(\'' + s.code + '\')">异动解读</span>';
             extra = date ? '<div class="hot-stock-tags">' + date + '</div>' : '';
         } else {
             var chg = _hotFmtChg(s.change_pct);
@@ -180,7 +185,8 @@ function renderHotStock(stocks) {
                 + _hotNameHtml(s)
                 + '<span class="hot-stock-code">' + s.code + '</span>'
                 + '<span class="hot-stock-chg ' + chg.cls + '">' + chg.text + '</span>'
-                + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
+                + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>'
+                + '<span class="hot-stock-analyse-btn" onclick="HotStockAnalyse.open(\'' + s.code + '\')">异动解读</span>';
             extra = s.analyse
                 ? '<div class="hot-stock-analyse expanded" onclick="_hotToggleAnalyse(this)" title="点击展开/收起">' + s.analyse + '</div>'
                 : '';
@@ -199,3 +205,147 @@ function renderHotStock(stocks) {
 
     wrap.innerHTML = html;
 }
+
+// ==================== 异动解读弹窗 ====================
+// 榜单项「异动解读」按钮 → 弹窗显示同花顺解读（analyse）+ 技术面异动分析
+var _hotStockCache = {};  // code -> 当前榜单 stock 对象
+
+var HotStockAnalyse = (function() {
+    var _overlay = null;
+    var _activeCode = '';
+
+    function _ensureDOM() {
+        if (_overlay) return;
+        _overlay = document.createElement('div');
+        _overlay.id = 'hotStockAnalyseOverlay';
+        _overlay.style.cssText = 'display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;justify-content:center;align-items:center;';
+        _overlay.onclick = function(e) { if (e.target === _overlay) close(); };
+        document.body.appendChild(_overlay);
+    }
+
+    function open(code) {
+        var s = _hotStockCache[code];
+        if (!s) return;
+        _ensureDOM();
+        _activeCode = code;
+
+        var tags = _hotTagsHtml(s);
+        var chg = _hotFmtChg(s.change_pct);
+
+        var analyseHtml;
+        if (s.analyse) {
+            analyseHtml =
+                '<div style="margin-top:12px;">' +
+                    '<div style="font-size:13px;color:#e0a94a;margin-bottom:6px;">📌 同花顺异动解读</div>' +
+                    '<div style="font-size:13px;color:#ccc;line-height:1.7;white-space:pre-line;">' + s.analyse + '</div>' +
+                '</div>';
+        } else {
+            analyseHtml =
+                '<div style="margin-top:12px;">' +
+                    '<div style="font-size:13px;color:#e0a94a;margin-bottom:6px;">📌 同花顺异动解读</div>' +
+                    '<div style="font-size:13px;color:#666;">同花顺暂无该股异动解读</div>' +
+                '</div>';
+        }
+
+        _overlay.innerHTML =
+            '<div style="width:600px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;background:#1e1e2e;border-radius:12px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.5);">' +
+                '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:14px 18px 12px;background:#1a1a2e;flex-shrink:0;">' +
+                    '<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">' +
+                        '<span style="font-size:18px;color:#fff;font-weight:600;">' + (s.name || '') + '</span>' +
+                        '<span style="font-size:13px;color:#888;">' + s.code + '</span>' +
+                        (s.change_pct != null ? '<span class="hot-stock-chg ' + chg.cls + '">' + chg.text + '</span>' : '') +
+                        '<span style="font-size:12px;color:#e0a94a;">🔥' + _hotFmtHeat(s.heat) + '热度</span>' +
+                    '</div>' +
+                    '<span style="color:#666;font-size:20px;cursor:pointer;padding:0 4px;line-height:1;" onclick="HotStockAnalyse.close()">✕</span>' +
+                '</div>' +
+                '<div class="hot-stock-analyse-body" style="padding:14px 18px;overflow-y:auto;flex:1;">' +
+                    (tags ? '<div class="hot-stock-tags" style="margin-top:0;">' + tags + '</div>' : '') +
+                    '<div style="margin-top:16px;border-top:1px solid #2a2a4e;padding-top:12px;">' +
+                        '<div style="font-size:13px;color:#6bb1ff;margin-bottom:10px;">📊 技术面异动分析</div>' +
+                        '<div id="hotStockAnalyseTech" style="color:#8b8b9e;font-size:13px;">加载中...</div>' +
+                    '</div>' +
+                    analyseHtml +
+                '</div>' +
+            '</div>';
+        _overlay.style.display = 'flex';
+
+        _loadTech(code);
+    }
+
+    function _loadTech(code) {
+        var el = document.getElementById('hotStockAnalyseTech');
+        if (!el) return;
+        var formData = new FormData();
+        formData.append('code', code);
+        formData.append('market', guessMarket(code));
+        fetch('/api/abnormal/analyze', { method: 'POST', body: formData })
+            .then(function(r) { return r.json(); })
+            .then(function(resp) {
+                if (code !== _activeCode) return;
+                if (!resp.success || !resp.data) {
+                    el.innerHTML = '<div style="color:#8b8b9e;">' + (resp.error || '暂无分析数据') + '</div>';
+                    return;
+                }
+                el.innerHTML = _techHtml(resp.data);
+            })
+            .catch(function() {
+                if (code !== _activeCode) return;
+                el.innerHTML = '<div style="color:#ef5350;">分析请求失败</div>';
+            });
+    }
+
+    function _techHtml(d) {
+        var w = (d.regular_abnormal && d.regular_abnormal.window) || {};
+        var lu = d.limit_up_projection || {};
+        var cur = lu.current || {};
+
+        function pct(v) {
+            if (v == null) return '-';
+            return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+        }
+        function card(label, value, cls) {
+            return '<div style="flex:1;min-width:0;">' +
+                '<div style="font-size:11px;color:#8b8b9e;margin-bottom:2px;">' + label + '</div>' +
+                '<div class="' + (cls || '') + '" style="font-size:14px;' + (cls ? '' : 'color:#ccc;') + '">' + value + '</div>' +
+                '</div>';
+        }
+        function row(cells) {
+            return '<div style="display:flex;gap:16px;margin-bottom:12px;">' + cells.join('') + '</div>';
+        }
+
+        var warnHtml = '';
+        if (d.warnings && d.warnings.length) {
+            warnHtml = '<div style="background:#2a1a1a;border:1px solid #e94560;border-radius:6px;padding:10px 12px;margin-bottom:12px;">' +
+                '<div style="font-size:12px;color:#e94560;margin-bottom:4px;">⚠ 风险提示</div>' +
+                d.warnings.map(function(w2) { return '<div style="font-size:12px;color:#ff9999;margin:2px 0;">• ' + w2 + '</div>'; }).join('') +
+                '</div>';
+        }
+
+        return warnHtml +
+            row([
+                card('5日涨跌', pct(w.pct_5d), w.pct_5d >= 0 ? 'change-up' : 'change-down'),
+                card('10日涨跌', pct(w.pct_10d), w.pct_10d >= 0 ? 'change-up' : 'change-down'),
+                card('20日涨跌', pct(w.pct_20d), w.pct_20d >= 0 ? 'change-up' : 'change-down'),
+                card('20日振幅', w.amplitude_20d != null ? w.amplitude_20d.toFixed(2) + '%' : '-')
+            ]) +
+            row([
+                card('偏离10日线', pct(cur.deviation_10d), cur.deviation_10d >= 0 ? 'change-up' : 'change-down'),
+                card('偏离30日线', pct(cur.deviation_30d), cur.deviation_30d >= 0 ? 'change-up' : 'change-down'),
+                card('20日高点回撤', w.drawdown_20d != null ? w.drawdown_20d.toFixed(2) + '%' : '-'),
+                card('连续' + (w.consecutive_dir === 'up' ? '上涨' : '下跌'), w.consecutive_days != null ? w.consecutive_days + '天' : '-', w.consecutive_dir === 'up' ? 'change-up' : 'change-down')
+            ]) +
+            row([
+                card('10日均价', w.ma10 != null ? w.ma10.toFixed(2) : '-'),
+                card('30日均价', w.ma30 != null ? w.ma30.toFixed(2) : '-'),
+                card('涨停价', lu.limit_up_price != null ? lu.limit_up_price.toFixed(2) : '-', 'change-up'),
+                card('跌停价', lu.limit_down_price != null ? lu.limit_down_price.toFixed(2) : '-', 'change-down')
+            ]);
+    }
+
+    function close() {
+        if (_overlay) _overlay.style.display = 'none';
+        _activeCode = '';
+    }
+
+    return { open: open, close: close };
+})();

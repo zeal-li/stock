@@ -1736,6 +1736,42 @@ body {
     color: #6bb1ff;
 }
 
+.hot-stock-analyse-btn {
+    flex-shrink: 0;
+    margin-left: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #6bb1ff;
+    background: rgba(77, 159, 255, 0.12);
+    cursor: pointer;
+    white-space: nowrap;
+    line-height: 1.5;
+}
+.hot-stock-analyse-btn:hover {
+    background: rgba(77, 159, 255, 0.25);
+    color: #9cc8ff;
+}
+
+/* 异动解读弹窗内容区滚动条（与左侧菜单栏 .nav-section 一致） */
+.hot-stock-analyse-body {
+    scrollbar-width: thin;
+    scrollbar-color: #3b4a6b transparent;
+}
+.hot-stock-analyse-body::-webkit-scrollbar {
+    width: 4px;
+}
+.hot-stock-analyse-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+.hot-stock-analyse-body::-webkit-scrollbar-thumb {
+    background: #3b4a6b;
+    border-radius: 4px;
+}
+.hot-stock-analyse-body::-webkit-scrollbar-thumb:hover {
+    background: #4a5a7f;
+}
+
 .hot-stock-analyse {
     margin-top: 6px;
     font-size: 12px;
