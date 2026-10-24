@@ -182,7 +182,7 @@ function renderHotStock(stocks) {
                 + '<span class="hot-stock-chg ' + chg.cls + '">' + chg.text + '</span>'
                 + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = s.analyse
-                ? '<div class="hot-stock-analyse" onclick="_hotToggleAnalyse(this)" title="点击展开/收起">' + s.analyse + '</div>'
+                ? '<div class="hot-stock-analyse expanded" onclick="_hotToggleAnalyse(this)" title="点击展开/收起">' + s.analyse + '</div>'
                 : '';
         }
 
