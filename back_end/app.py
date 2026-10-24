@@ -702,7 +702,7 @@ def stock_extra():
         return jsonify({'success': True,
             'data': {
                 'volume_ratio': round(float(vr) / 100, 2) if vr is not None and vr != '-' else '-',
-                'bid_ratio': (str(round(br / 100, 2)) + '%') if br is not None and br != '-' else '-',
+                'bid_ratio': (str(round(float(br) / 100, 2)) + '%') if br is not None and br != '-' else '-',
             }
         })
     except Exception as e:
