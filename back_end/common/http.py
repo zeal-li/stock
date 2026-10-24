@@ -541,6 +541,38 @@ def get_em_kline(secid, klt, lmt=240):
     return rows
 
 
+def get_em_daily_kline(secid, count=240):
+    """东财日K（前复权）→ {name, rows: [{date, open, close, high, low, volume}]}（按日期升序）。
+
+    secid 如 1.600000 / 0.000001 / 0.832566（北交所归 0）。volume 单位：手。
+    """
+    params = {
+        'secid': secid, 'klt': '101', 'fqt': '1',
+        'beg': '0', 'end': '20500101', 'lmt': str(count),
+        'fields1': 'f1,f2,f3,f4,f5,f6',
+        'fields2': 'f51,f52,f53,f54,f55,f56,f57',
+        'ut': EM_UT,
+    }
+    body = _em_jsonp('https://push2his.eastmoney.com/api/qt/stock/kline/get',
+                     params, timeout=10)
+    d = body.get('data') or {}
+    name = str(d.get('name') or '')
+    rows = []
+    for line in d.get('klines') or []:
+        parts = line.split(',')
+        if len(parts) < 6:
+            continue
+        rows.append({
+            'date': parts[0],
+            'open': float(parts[1]),
+            'close': float(parts[2]),
+            'high': float(parts[3]),
+            'low': float(parts[4]),
+            'volume': float(parts[5]),
+        })
+    return {'name': name, 'rows': rows}
+
+
 def get_em_trade_details(secid):
     """东财逐笔成交 → [{time, price, volume, side}]（side: 1买 2卖 0中性）"""
     params = {

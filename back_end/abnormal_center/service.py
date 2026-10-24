@@ -4,8 +4,8 @@ import logging
 import threading
 import time
 
-from common.http import get_json, get_tx_kline
-from common.utils import is_a_share_trading_day, is_market_opened, get_market_hours
+from common.http import get_json, get_tx_kline, get_em_daily_kline
+from common.utils import is_a_share_trading_day, is_market_opened, get_market_hours, guess_market
 from common.cache import cached_singleflight
 from abnormal_center.storage import (
     prediction_get, prediction_set, monitor_get, monitor_set, cleanup_old_data,
@@ -158,25 +158,21 @@ def analyze_stock(code, market=''):
         return {'success': False, 'error': '缺少股票代码'}
 
     try:
-        # 获取股票K线数据用于分析
-        from common.utils import is_etf
-
-        # 确定市场
+        # 确定市场（统一走 common.utils.guess_market：0=深 1=沪 2=北交所）
         if not market:
-            code_str = str(code)
-            if code_str.startswith(('6', '9')):
-                market = '1'
-            elif code_str.startswith(('0', '3')):
-                market = '0'
-            elif code_str.startswith(('4', '8')):
-                market = '0'
-            else:
-                return {'success': False, 'error': '无法判断市场，请提供market参数'}
+            market = guess_market(code)
+        code_str = str(code)
 
-        # 拉取K线（最近80天，统一走 common.http.get_tx_kline）
-        prefix = 'sh' if market in ('1', '2') else 'sz'
-        kline = get_tx_kline(f"{prefix}{code}", 80, 'qfq')
-        klines = kline['rows']
+        # 拉取K线（最近80天）：北交所走东财日K（腾讯/新浪对北交所日K覆盖不全），沪深走腾讯
+        if market == '2':
+            kline = get_em_daily_kline(f"0.{code_str}", 80)
+            klines = kline['rows']
+            name = kline['name'] or code_str
+        else:
+            prefix = 'sh' if market == '1' else 'sz'
+            kline = get_tx_kline(f"{prefix}{code_str}", 80, 'qfq')
+            klines = kline['rows']
+            name = kline['name'] or code_str
 
         if not klines:
             return {'success': False, 'error': '无法获取K线数据'}
@@ -194,8 +190,6 @@ def analyze_stock(code, market=''):
 
         if len(closes) < 5:
             return {'success': False, 'error': 'K线数据不足'}
-
-        name = kline['name'] or code
 
         # ---- 分析项 ----
         warnings = []
@@ -244,10 +238,10 @@ def analyze_stock(code, market=''):
         if drawdown_20d > 20:
             warnings.append(f'从20日高点回撤{drawdown_20d}%，回撤较大')
 
-        # 涨停板测算（A股主板10%，科创/创业板20%）
-        if market in ('1', '2') and not code.startswith('68'):
-            limit_pct = 10
-        elif code.startswith(('30', '68')):
+        # 涨停板测算（主板10%，创业板/科创板20%，北交所30%）
+        if market == '2':
+            limit_pct = 30
+        elif code_str.startswith(('30', '68')):
             limit_pct = 20
         else:
             limit_pct = 10
