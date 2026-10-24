@@ -11,7 +11,7 @@
 取数规则（单一数据源，不做多源兜底）：
 - 客户端先查库；非最新自然日无数据直接返回 empty，不再请求同花顺。
 - 最新自然日（今天）：无数据先请求同花顺并落库；
-  小时榜（period=hour）落库时间超过 1 小时则重新请求同花顺刷新；
+  落库时间超过 1 小时则重新请求同花顺刷新（不区分 1小时/24小时口径）；
   并发请求经 cached_singleflight 合并，只向同花顺请求一次。
 - 每天 23:30 定时落库当天所有榜单组合。
 """
@@ -55,8 +55,8 @@ _ALL_COMBINATIONS = [
     ('tech', 'day'), ('value', 'day'), ('trend', 'day'),
 ]
 
-# 小时榜：落库时间超过该秒数则重新请求同花顺刷新
-_HOUR_REFRESH_SECONDS = 3600
+# 统一刷新阈值：落库时间超过该秒数则重新请求同花顺刷新（不区分 1小时/24小时）
+_REFRESH_SECONDS = 3600
 
 # 每日 23:30 落库任务
 _AUTO_UPDATE_TIME = (23, 30)
@@ -149,7 +149,7 @@ def get_hot_stock(period: str = 'hour', list_type: str = 'normal', date: str = N
     """获取热股榜（客户端触发）。
 
     - 非最新自然日：仅读库，无数据返回 empty，不请求同花顺。
-    - 最新自然日（今天）：无数据先请求落库；小时榜落库超 1 小时重新请求刷新。
+    - 最新自然日（今天）：无数据先请求落库；落库超 1 小时重新请求刷新（不区分 1小时/24小时）。
     """
     if list_type not in _LIST_TYPES:
         return {'success': False, 'error': f'未知榜单类型: {list_type}'}
@@ -174,8 +174,8 @@ def get_hot_stock(period: str = 'hour', list_type: str = 'normal', date: str = N
     # 最新自然日（今天）
     if cached:
         data, updated_at = cached
-        # 小时榜：落库时间未超 1 小时直接返回缓存；否则往下重新请求
-        if period != 'hour' or time.time() - updated_at < _HOUR_REFRESH_SECONDS:
+        # 统一：落库时间未超 1 小时直接返回缓存；否则往下重新请求同花顺刷新
+        if time.time() - updated_at < _REFRESH_SECONDS:
             return {'success': True, 'date': date, 'list_type': list_type, 'period': period, 'stocks': data}
 
     stocks = _fetch_and_save(list_type, period, today)
