@@ -3,6 +3,7 @@ from flask import Flask, jsonify, render_template, request, session, g
 from flask_cors import CORS
 import json
 import re
+import datetime
 
 from common.http import (
     get_realtime_quotes_ulist, get_realtime_quotes_gtimg, get_em_stock_fields, get_em_trade_details, get_em_trends,
@@ -388,13 +389,12 @@ def hot_stock():
 @app.route('/api/hot-stock-dates')
 def hot_stock_dates():
     """返回最近 N 个自然日（常规日期，含周末节假日，与热度榜每天更新对齐）"""
-    import datetime as _dt
     count = request.args.get('count', 30, type=int)
     dates = []
-    d = _dt.date.today()
+    d = datetime.date.today()
     for _ in range(count):
         dates.append(d.isoformat())
-        d -= _dt.timedelta(days=1)
+        d -= datetime.timedelta(days=1)
     dates.reverse()
     return jsonify({'success': True, 'data': {'dates': dates}})
 
@@ -918,10 +918,8 @@ def stock_minute():
                 i = j
         elif is_overseas(market):
             # 港股/美股多日：Yahoo Finance 5分钟K线
-            import datetime as _dt2
-            from datetime import timezone as _tz, timedelta as _td
             symbol = to_yahoo_symbol(code, market)
-            _yh_tz = _tz(_td(hours=8)) if is_hk(market) else _tz(_td(hours=-5))  # HK UTC+8 / 美股 UTC-5
+            _yh_tz = datetime.timezone(datetime.timedelta(hours=8)) if is_hk(market) else datetime.timezone(datetime.timedelta(hours=-5))  # HK UTC+8 / 美股 UTC-5
 
             yh = get_yahoo_chart(symbol, '5d', '5m')
             if not yh:
@@ -933,7 +931,7 @@ def stock_minute():
                 v = yh['volume'][i]
                 if c is None:
                     continue
-                dt = _dt2.datetime.fromtimestamp(ts, tz=_yh_tz)
+                dt = datetime.datetime.fromtimestamp(ts, tz=_yh_tz)
                 raw_points.append({
                     'date': dt.strftime('%Y-%m-%d'),
                     'time': dt.strftime('%H:%M'),
@@ -1019,7 +1017,6 @@ def stock_minute():
 @app.route('/api/stock-kline')
 def stock_kline():
     """股票K线（日K/周K/月K/分钟K线）"""
-    import re, json, datetime as _dt
     code = request.args.get('code', '')
     market = request.args.get('market', '')
     period = request.args.get('period', 'day')  # day / week / month / 1min / 5min / 15min / 30min / 60min / 120min
@@ -1041,9 +1038,9 @@ def stock_kline():
             # A股 1min → 东财push2delay（固定240条，刚好1天，够用且快）
             if is_a_share(market) and period == '1min':
                 bars = get_em_kline(f"{to_em_market(market)}.{code}", 1, 240)
-                tz_cn = _dt.timezone(_dt.timedelta(hours=8))
+                tz_cn = datetime.timezone(datetime.timedelta(hours=8))
                 for bar in bars:
-                    dt_obj = _dt.datetime.strptime(bar['datetime'], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                    dt_obj = datetime.datetime.strptime(bar['datetime'], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
                     rows.append({
                         'time': int(dt_obj.timestamp()),
                         'open': bar['open'], 'close': bar['close'],
@@ -1058,11 +1055,11 @@ def stock_kline():
                 d_sina = get_sina_klines(sina_sym, _SINA_SCALE[period], _SINA_DATALEN[period])
                 if not d_sina:
                     return jsonify({'success': False, 'error': '暂无分钟K线数据'})
-                tz_cn = _dt.timezone(_dt.timedelta(hours=8))
+                tz_cn = datetime.timezone(datetime.timedelta(hours=8))
                 for bar in d_sina:
                     if bar['close'] <= 0:
                         continue
-                    dt_obj = _dt.datetime.strptime(bar['datetime'][:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                    dt_obj = datetime.datetime.strptime(bar['datetime'][:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
                     rows.append({
                         'time': int(dt_obj.timestamp()),
                         'open': bar['open'], 'close': bar['close'],
@@ -1076,12 +1073,12 @@ def stock_kline():
                 d_sina = get_sina_klines(sina_sym, 60, 480)
                 if len(d_sina) < 2:
                     return jsonify({'success': False, 'error': '暂无120分钟K线数据'})
-                tz_cn = _dt.timezone(_dt.timedelta(hours=8))
+                tz_cn = datetime.timezone(datetime.timedelta(hours=8))
                 bars_60 = []
                 for bar in d_sina:
                     if bar['close'] <= 0:
                         continue
-                    dt_obj = _dt.datetime.strptime(bar['datetime'][:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
+                    dt_obj = datetime.datetime.strptime(bar['datetime'][:16], '%Y-%m-%d %H:%M').replace(tzinfo=tz_cn)
                     bars_60.append({'time': int(dt_obj.timestamp()), 'open': bar['open'], 'close': bar['close'],
                                     'high': bar['high'], 'low': bar['low'], 'volume': int(bar['volume'])})
                 i = 0
@@ -1175,14 +1172,14 @@ def stock_kline():
 
             db_period = {'day': 'daily', 'week': 'weekly', 'month': 'monthly'}[period]
             ths_period_code = {'day': '01', 'week': '11', 'month': '21'}[period]
-            current_year = _dt.datetime.now().year
-            today = _dt.date.today()
+            current_year = datetime.datetime.now().year
+            today = datetime.date.today()
             today_str = today.strftime('%Y%m%d')
             today_is_trading = is_workday(today)
             # 最近交易日（从今天往前找第一个 is_workday）
             _d = today
             while not is_workday(_d):
-                _d = _d - _dt.timedelta(days=1)
+                _d = _d - datetime.timedelta(days=1)
             latest_trading = _d.strftime('%Y%m%d')
 
             # 市场是否已在技术选股页加载（stock_market 有记录）；seg_key 为空（如北交所）或未加载时不读/写库
@@ -1202,7 +1199,7 @@ def stock_kline():
                 if db_period == 'daily':
                     return d_str == today_str
                 if db_period == 'weekly':
-                    k_iso = _dt.datetime.strptime(d_str, '%Y%m%d').isocalendar()[:2]
+                    k_iso = datetime.datetime.strptime(d_str, '%Y%m%d').isocalendar()[:2]
                     return k_iso == today.isocalendar()[:2]
                 if db_period == 'monthly':
                     return d_str[:6] == today_str[:6]
@@ -1250,7 +1247,7 @@ def stock_kline():
                                          p['open'], p['high'], p['low'], p['close'],
                                          p['volume'], p['amount'], p['turnover']))
                 if new_rows:
-                    period_dates = {db_period: _dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                    period_dates = {db_period: datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                     stock_info_sync_atomic(code, seg_key, None, new_rows, period_dates)
 
             # 5. 组装返回
@@ -1318,7 +1315,7 @@ def stock_kline():
                     o = yh['open'][i]
                     if o is None:
                         continue
-                    dt = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
+                    dt = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
                     rows.append({
                         'time': dt.strftime('%Y-%m-%d'),
                         'open': round(float(o), 3),
@@ -1406,8 +1403,7 @@ def market_db_status():
 @app.route('/api/is-trading-day')
 def is_trading_day():
     """判断今天是否为A股交易日（排除周末和法定节假日，周末不随调休补班）"""
-    import datetime as _dt
-    today = _dt.date.today()
+    today = datetime.date.today()
     result = is_a_share_trading_day(today)
     return jsonify({'date': today.isoformat(), 'is_trading_day': result})
 
@@ -1415,15 +1411,14 @@ def is_trading_day():
 @app.route('/api/trading-days')
 def trading_days():
     """返回最近N个A股交易日（排除周末和法定节假日，周末不随调休补班）"""
-    import datetime as _dt
     count = request.args.get('count', 15, type=int)
 
     dates = []
-    d = _dt.date.today()
+    d = datetime.date.today()
     while len(dates) < count:
         if is_a_share_trading_day(d):
             dates.append(d.isoformat())
-        d = d - _dt.timedelta(days=1)
+        d = d - datetime.timedelta(days=1)
     dates.reverse()
     return jsonify({'success': True, 'data': {'trading_days': dates}})
 
@@ -1450,8 +1445,7 @@ def announcements_list():
         if not target_codes:
             return jsonify({'success': True, 'data': []})
 
-        from datetime import datetime as _dt, timedelta
-        cutoff = (_dt.now() - timedelta(days=15)).strftime('%Y-%m-%d')
+        cutoff = (datetime.datetime.now() - timedelta(days=15)).strftime('%Y-%m-%d')
 
         result = []
         for page in (1, 2):
@@ -1578,8 +1572,7 @@ def earnings_list():
 
         code_list_str = ','.join(f'"{c}"' for c in sorted(target_codes))
 
-        from datetime import datetime as _dt
-        this_year = _dt.now().year
+        this_year = datetime.datetime.now().year
         # 覆盖最近 3 个完整财年（当年 + 前两年）
         start_year = this_year - 2
         cutoff = f'{start_year}-01-01'

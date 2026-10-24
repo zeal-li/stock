@@ -19,7 +19,7 @@ import sys
 import math
 import csv
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -137,7 +137,6 @@ def generate_samples(klines, index_klines):
 def train():
     """主训练流程"""
     print(f"=== ML策略训练 ===")
-    from datetime import datetime, timedelta
     train_cutoff = (datetime.now() - timedelta(days=TEST_MONTHS * 30)).strftime('%Y-%m-%d')
 
     print(f"  DB: {DB_PATH}")

@@ -323,13 +323,11 @@ def _fetch_stocks_by_segment(seg_key):
 
 def _parse_date(date_str):
     """将 'YYYYMMDD' 字符串转为 date 对象"""
-    import datetime as _dt
-    return _dt.datetime.strptime(date_str, '%Y%m%d').date()
+    return datetime.datetime.strptime(date_str, '%Y%m%d').date()
 
 
 def _fetch_kline(code, seg_key, period, start_date, end_date):
     """获取 K 线：A股用同花顺 v4 逐年拉取（common.http.get_ths_klines），港股/美股用 Yahoo Finance"""
-    import datetime as _dt
 
     if seg_key in ('hk_main', 'us_main'):
         return _fetch_kline_yahoo(code, seg_key, period, start_date, end_date)
@@ -338,7 +336,7 @@ def _fetch_kline(code, seg_key, period, start_date, end_date):
 
     c = str(code)
     period_name = {'daily': 'day', 'weekly': 'week', 'monthly': 'month'}.get(period, 'day')
-    current_year = _dt.datetime.now().year
+    current_year = datetime.datetime.now().year
 
     # 同花顺前缀：按交易所区分
     # 上交所：60xxxx/688xxx(沪A/科创), 51xxxx/56xxxx/58xxxx(沪ETF/基), 11xxxx(沪债), 9xxxxx(沪B)
@@ -403,7 +401,6 @@ _syncing_markets_lock = threading.Lock()
 def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
     """Yahoo Finance K 线（港股/美股，走 common.http.get_yahoo_chart）"""
     global _yahoo_last_req, _sync_fail_count
-    import datetime as _dt
 
     if seg_key == 'hk_main':
         symbol = str(int(code)).zfill(4) + '.HK'
@@ -428,7 +425,7 @@ def _fetch_kline_yahoo(code, seg_key, period, start_date, end_date):
                 o = yh['open'][i]
                 if o is None:
                     continue
-                dt_val = _dt.datetime.fromtimestamp(ts, tz=_dt.timezone.utc)
+                dt_val = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc)
                 date_str = dt_val.strftime('%Y%m%d')
                 if start_date and date_str < start_date:
                     continue
@@ -498,8 +495,6 @@ def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, late
         return
 
     try:
-        from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
-
         def _fetch_period(p):
             ts = {  # per-period 旧时间戳
                 'daily': daily_map.get((code, market)),
@@ -516,9 +511,9 @@ def _sync_one_stock(code, market, name, daily_map, weekly_map, monthly_map, late
         all_rows = []
         synced_periods = set()
         latest_dates = {}  # period → 该周期本次实际拉到的最新K线日期 'YYYYMMDD'
-        with _TPE(max_workers=len(periods)) as pool:
+        with ThreadPoolExecutor(max_workers=len(periods)) as pool:
             futs = {pool.submit(_fetch_period, p): p for p in periods}
-            for fut in _ac(futs):
+            for fut in as_completed(futs):
                 p = futs[fut]
                 rows = fut.result()
                 if rows:

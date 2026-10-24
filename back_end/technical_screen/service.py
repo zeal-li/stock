@@ -24,16 +24,7 @@ STRATEGIES = {
 }
 
 
-def _kline_conn():
-    import sqlite3
-    path = os.path.join(data_dir(), 'stock_lib.db')
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _list_conn():
-    import sqlite3
+def _stock_lib_conn():
     path = os.path.join(data_dir(), 'stock_lib.db')
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
@@ -45,7 +36,7 @@ def _scan_one(code, name, strategy_key):
     strategy = STRATEGIES.get(strategy_key)
     if not strategy:
         return None
-    conn = _kline_conn()
+    conn = _stock_lib_conn()
     daily_rows = conn.execute(
         'SELECT date, open, high, low, close, volume, amount FROM stock_klines '
         'WHERE code=? AND period=? ORDER BY date DESC LIMIT 120',
@@ -145,12 +136,12 @@ def _do_scan(strategy_keys, market, max_workers):
         # 指数单独存于 market='index'；000001/hs_main 是平安银行，不能用
         _index_klines_cache = get_index_daily_klines()
 
-        conn = _list_conn()
+        conn = _stock_lib_conn()
         rows = conn.execute('SELECT code, name FROM market_stock_list WHERE market=? ORDER BY code', (market,)).fetchall()
         conn.close()
         all_stocks = [(r['code'], r['name']) for r in rows]
 
-        conn2 = _kline_conn()
+        conn2 = _stock_lib_conn()
         has_kline = set(r['code'] for r in
             conn2.execute('SELECT DISTINCT code FROM stock_klines WHERE period="daily" AND market=?', (market,)).fetchall())
         conn2.close()
