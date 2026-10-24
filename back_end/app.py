@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock, init_abnormal_center_update
 from market_news.service import get_hot_list
-from hot_stock.service import get_hot_stock, init_hot_stock_update, get_stock_anomaly
+from hot_stock.service import get_hot_stock, init_hot_stock_update
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -387,14 +387,6 @@ def hot_stock():
     list_type = request.args.get('list_type', 'normal').strip()
     date = request.args.get('date', '').strip()
     return jsonify(get_hot_stock(period, list_type, date or None))
-
-
-@app.route('/api/hot-stock-anomaly')
-def hot_stock_anomaly():
-    """个股异动解读（同花顺，按日期）：code=股票代码，market=0深/1沪/2北"""
-    code = request.args.get('code', '').strip()
-    market = request.args.get('market', '').strip()
-    return jsonify(get_stock_anomaly(code, market))
 
 
 @app.route('/api/hot-stock-dates')

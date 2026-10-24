@@ -155,7 +155,7 @@ function renderHotStock(stocks) {
         return;
     }
 
-    // 缓存当前榜单，供异动解读弹窗按 code 取数
+    // 缓存当前榜单，供技术面分析弹窗按 code 取数
     _hotStockCache = {};
     stocks.forEach(function(s) { _hotStockCache[s.code] = s; });
 
@@ -176,7 +176,7 @@ function renderHotStock(stocks) {
                 + _hotNameHtml(s)
                 + '<span class="hot-stock-code">' + s.code + '</span>'
                 + pe
-                + '<span class="hot-stock-analyse-btn" onclick="HotStockAnalyse.open(\'' + s.code + '\')">异动解读</span>'
+                + '<span class="hot-stock-analyse-btn" onclick="HotStockAnalyse.open(\'' + s.code + '\')">异动分析</span>'
                 + '<span class="hot-stock-analyse-btn" onclick="openHotStockDetail(\'' + s.code + '\')">热度详情</span>'
                 + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = date ? '<div class="hot-stock-tags">' + date + '</div>' : '';
@@ -186,7 +186,7 @@ function renderHotStock(stocks) {
                 + _hotNameHtml(s)
                 + '<span class="hot-stock-code">' + s.code + '</span>'
                 + '<span class="hot-stock-chg ' + chg.cls + '">' + chg.text + '</span>'
-                + '<span class="hot-stock-analyse-btn" onclick="HotStockAnalyse.open(\'' + s.code + '\')">异动解读</span>'
+                + '<span class="hot-stock-analyse-btn" onclick="HotStockAnalyse.open(\'' + s.code + '\')">异动分析</span>'
                 + '<span class="hot-stock-analyse-btn" onclick="openHotStockDetail(\'' + s.code + '\')">热度详情</span>'
                 + '<span class="hot-stock-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = s.analyse
@@ -208,8 +208,8 @@ function renderHotStock(stocks) {
     wrap.innerHTML = html;
 }
 
-// ==================== 异动解读弹窗 ====================
-// 榜单项「异动解读」按钮 → 弹窗显示同花顺解读（analyse）+ 技术面异动分析
+// ==================== 技术面分析弹窗 ====================
+// 榜单项「异动分析」按钮 → 弹窗显示技术面异动分析
 var _hotStockCache = {};  // code -> 当前榜单 stock 对象
 
 var HotStockAnalyse = (function() {
@@ -251,16 +251,11 @@ var HotStockAnalyse = (function() {
                         '<div style="font-size:13px;color:#6bb1ff;margin-bottom:10px;">📊 技术面异动分析</div>' +
                         '<div id="hotStockAnalyseTech" style="color:#8b8b9e;font-size:13px;">加载中...</div>' +
                     '</div>' +
-                    '<div style="margin-top:16px;border-top:1px solid #2a2a4e;padding-top:12px;">' +
-                        '<div style="font-size:13px;color:#e0a94a;margin-bottom:10px;">📌 异动解读</div>' +
-                        '<div id="hotStockAnalyseAnomaly" style="color:#8b8b9e;font-size:13px;">加载中...</div>' +
-                    '</div>' +
                 '</div>' +
             '</div>';
         _overlay.style.display = 'flex';
 
         _loadTech(code);
-        _loadAnomaly(code);
     }
 
     function _loadTech(code) {
@@ -283,94 +278,6 @@ var HotStockAnalyse = (function() {
                 if (code !== _activeCode) return;
                 el.innerHTML = '<div style="color:#ef5350;">分析请求失败</div>';
             });
-    }
-
-    // ---- 异动解读（前端 localStorage 缓存，1 小时有效） ----
-    var _ANOMALY_CACHE_KEY = 'hot_stock_anomaly_cache';
-    var _ANOMALY_CACHE_TTL = 3600;  // 秒
-
-    function _getAnomalyCache(code) {
-        try {
-            var all = JSON.parse(localStorage.getItem(_ANOMALY_CACHE_KEY) || '{}');
-            return all[code] || null;
-        } catch (e) { return null; }
-    }
-
-    function _setAnomalyCache(code, items) {
-        try {
-            var all = JSON.parse(localStorage.getItem(_ANOMALY_CACHE_KEY) || '{}');
-            all[code] = { ts: Math.floor(Date.now() / 1000), items: items };
-            localStorage.setItem(_ANOMALY_CACHE_KEY, JSON.stringify(all));
-        } catch (e) {}
-    }
-
-    function _renderAnomaly(el, items, code) {
-        if (code !== _activeCode) return;
-        if (!items || !items.length) {
-            el.innerHTML = '<div style="color:#666;">暂无异动解读记录</div>';
-            return;
-        }
-        el.innerHTML = items.map(_anomalyItemHtml).join('');
-    }
-
-    function _loadAnomaly(code) {
-        var el = document.getElementById('hotStockAnalyseAnomaly');
-        if (!el) return;
-
-        // 先查前端缓存：1 小时内有效，直接渲染不请求后端
-        var cached = _getAnomalyCache(code);
-        if (cached && cached.items && (Math.floor(Date.now() / 1000) - cached.ts) < _ANOMALY_CACHE_TTL) {
-            _renderAnomaly(el, cached.items, code);
-            return;
-        }
-
-        fetch('/api/hot-stock-anomaly?code=' + encodeURIComponent(code)
-            + '&market=' + encodeURIComponent(guessMarket(code)))
-            .then(function(r) { return r.json(); })
-            .then(function(resp) {
-                if (code !== _activeCode) return;
-                if (!resp.success) {
-                    el.innerHTML = '<div style="color:#8b8b9e;">' + (resp.error || '加载失败') + '</div>';
-                    return;
-                }
-                var items = resp.items || [];
-                // 空结果不缓存，避免 1 小时内都拿不到新数据
-                if (items.length) {
-                    _setAnomalyCache(code, items);
-                }
-                _renderAnomaly(el, items, code);
-            })
-            .catch(function() {
-                if (code !== _activeCode) return;
-                el.innerHTML = '<div style="color:#ef5350;">请求失败</div>';
-            });
-    }
-
-    function _anomalyTagCls(tag) {
-        if (tag.indexOf('涨停') >= 0 || tag.indexOf('大涨') >= 0 || tag.indexOf('拉升') >= 0) return 'change-up';
-        if (tag.indexOf('大跌') >= 0 || tag.indexOf('跌停') >= 0 || tag.indexOf('跳水') >= 0) return 'change-down';
-        return '';
-    }
-
-    function _anomalyItemHtml(it) {
-        var tagCls = _anomalyTagCls(it.tag);
-        var tagHtml = it.tag
-            ? '<span class="' + tagCls + '" style="font-size:11px;' + (tagCls ? '' : 'color:#8b8b9e;') + '">【' + it.tag + '】</span>'
-            : '';
-        var html = '<div style="margin-bottom:14px;">' +
-            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
-                '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#3b4a6b;flex-shrink:0;"></span>' +
-                '<span style="font-size:12px;color:#8b8b9e;">' + (it.date || '') + '</span>' +
-                tagHtml +
-            '</div>';
-        if (it.title) {
-            html += '<div style="font-size:14px;color:#fff;font-weight:600;margin-bottom:4px;">' + it.title + '</div>';
-        }
-        if (it.reason) {
-            html += '<div style="font-size:12px;color:#8b8b9e;line-height:1.7;white-space:pre-line;">' + it.reason + '</div>';
-        }
-        html += '</div>';
-        return html;
     }
 
     function _techHtml(d) {

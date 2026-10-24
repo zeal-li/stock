@@ -1753,7 +1753,7 @@ body {
     color: #9cc8ff;
 }
 
-/* 异动解读弹窗内容区滚动条（与左侧菜单栏 .nav-section 一致） */
+/* 技术面分析弹窗内容区滚动条（与左侧菜单栏 .nav-section 一致） */
 .hot-stock-analyse-body {
     scrollbar-width: thin;
     scrollbar-color: #3b4a6b transparent;
