@@ -1,6 +1,6 @@
 # 鑫多多
 
-A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股/场内ETF/持仓股（SQLite 持久化）、K 线弹窗（日/周/月 + 分钟K线 + 五档盘口 + 逐笔成交）、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告、异动中心、市场资讯、龙虎榜、全球行情（指数/大宗商品/外汇）、板块资金流向、ML 训练（XGBoost）。内置用户账户体系（注册/登录 + 普通用户/管理员/root 三级权限）与用户管理、系统设置。
+A股/港股/美股实时行情监控面板，支持指数分时走势、资金流向、选股、自选股/场内ETF/持仓股（SQLite 持久化）、K 线弹窗（日/周/月 + 分钟K线 + 五档盘口 + 逐笔成交）、融资融券、恐慌/风险指数、技术选股、解禁列表、业绩报告、公司公告、异动中心、市场资讯、龙虎榜、热股榜、全球行情（指数/大宗商品/外汇）、板块资金流向、ML 训练（XGBoost）。内置用户账户体系（注册/登录 + 普通用户/管理员/root 三级权限）与用户管理、系统设置。
 
 ## 目录结构
 
@@ -36,6 +36,7 @@ stock/
 │   │   ├── longhu_bang.db             # 龙虎榜每日明细（SQLite 缓存，90 天自动清理）
 │   │   ├── sector_fund.db             # 板块资金排行榜 + 成分股（按交易日持久化，保留30个交易日）
 │   │   ├── abnormal_center.db         # 异动预测 + 异动监控（按交易日持久化，保留30个交易日）
+│   │   ├── hot_stock.db               # 热股榜（按自然日 + 榜单类型 + 周期持久化，保留30个自然日）
 │   │   └── self_review.db            # 自动复盘数据（大盘复盘 + 自选复盘，按交易日）
 │   │
 │   ├── market_db/                     # 全市场股票数据库
@@ -84,6 +85,11 @@ stock/
 │   │   ├── __init__.py
 │   │   ├── service.py                 # 异动预测/监控 API 代理 + 股票异动分析 + 每日 17:00 固化
 │   │   └── storage.py                 # SQLite 持久化（abnormal_prediction / abnormal_monitor 两表）
+│   │
+│   ├── hot_stock/                     # 热股榜模块（同花顺）
+│   │   ├── __init__.py
+│   │   ├── service.py                 # 热股榜榜单数据 + 每日 23:30 固化
+│   │   └── storage.py                 # SQLite 持久化（hot_stock_rank 表）
 │   │
 │   ├── market_news/                   # 市场资讯模块
 │   │   ├── __init__.py
@@ -140,6 +146,8 @@ stock/
 │           │   └── service.js         # 业绩预告/快报/报表获取 + 渲染 + 股票筛选
 │           ├── abnormal/              # 异动中心前端
 │           │   └── service.js         # 异动预测/监控 + 异动分析器 + 搜索历史
+│           ├── hot_stock/             # 热股榜前端
+│           │   └── service.js         # 榜单渲染 + 日期/榜单/周期切换 + 异动分析弹窗 + 热度详情跳转
 │           ├── market-news/           # 市场资讯前端
 │           │   └── service.js         # 东方财富资讯获取 + 分页渲染
 │           ├── stock_pick/            # 选股前端
@@ -167,6 +175,7 @@ stock/
 | 业绩报告 | 业绩预告 + 业绩快报 + 业绩报表（近三年），按年报/半年报/季报细分，支持股票筛选 |
 | 公司公告 | 上市公司公告信息（最近 15 天），按重要性颜色标记，支持股票筛选 |
 | 异动中心 | 异动预测 + 异动监控（30 天交易日日期栏切换）+ 异动分析器（单股偏离度/回撤/均线偏离分析） |
+| 热股榜 | 同花顺热股榜（大家都在看/快速飙升/新股热度榜/技术交易派/价值投资派/趋势投资派），1小时/24小时榜切换 + 30 自然日日期栏，异动分析弹窗（技术面），热度详情跳同花顺 H5 |
 | 市场资讯 | 东方财富全球财经资讯（200条，含标题/摘要/时间/原文链接），缓存30分钟，前端分页 |
 | 龙虎榜 | 每日龙虎榜明细（同花顺数据源），日期选择器 + 分类标签（全部/机构/游资/机构+游资）+ 席位明细展开 |
 | 全球行情 | 全球指数（A股8大 + 海外7大）+ 大宗商品（贵金属/有色/能化/黑色/农产品）+ 外汇汇率 |
@@ -369,6 +378,23 @@ CREATE TABLE abnormal_monitor (
 >
 > `updated_at` 缓存判断逻辑同 `sector_fund.db`：最新交易日盘中 30 分钟内直接返回缓存；超过 30 分钟时，若缓存是收盘后落盘的也直接返回；仅盘中落盘且过期的才重新请求数据源。历史日期数据已固化，不做 TTL 判断。每日 17:00 强制打源一次，把盘中快照覆盖为收盘最终数据。
 
+### data/hot_stock.db — 热股榜榜单（按自然日 + 榜单类型 + 周期持久化）
+
+```sql
+CREATE TABLE hot_stock_rank (
+    date       TEXT NOT NULL,        -- 自然日 'YYYY-MM-DD'
+    list_type  TEXT NOT NULL,        -- normal / skyrocket / new_stock / tech / value / trend
+    period     TEXT NOT NULL,        -- hour（1小时榜）/ day（24小时榜）
+    data       TEXT NOT NULL,        -- 榜单股票列表（JSON 数组）
+    updated_at REAL NOT NULL,        -- 落库时间戳（最新自然日 1 小时刷新判断用）
+    PRIMARY KEY (date, list_type, period)
+);
+```
+
+> `INSERT OR REPLACE` 语义：同一主键重复写入即覆盖。数据保留最近 30 个自然日，更早记录由每日 23:30 固化任务清理。
+>
+> 取数规则：历史日期仅读库，无数据返回空、不请求数据源；最新自然日（今天）按 `updated_at` 判断——落库超过 1 小时重新打源（不区分 1小时/24小时口径），未超 1 小时直接返回缓存。数据由客户端请求时触发抓取落地，每日 23:30 统一全量落库 8 个榜单组合（覆盖盘中快照为收盘数据）。
+
 ### data/self_review.db — 自动复盘数据（大盘复盘自动生成 / 自选复盘手动触发）
 
 ```sql
@@ -568,6 +594,13 @@ update_market(seg_key)
 | `/api/abnormal/monitor` | GET | 异动监控（支持交易日 `?date=` 读指定日期快照） |
 | `/api/abnormal/analyze` | POST | 异动分析器（单股偏离度/回撤/均线偏离） |
 
+### 热股榜
+
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/api/hot-stock` | GET | 热股榜榜单（period=hour/day，list_type=normal/skyrocket/new_stock/tech/value/trend，date=YYYY-MM-DD） |
+| `/api/hot-stock-dates` | GET | 最近 N 个自然日日期栏（默认 30 天） |
+
 ### 技术选股 + 市场数据库
 
 | 路由 | 方法 | 说明 |
@@ -692,6 +725,7 @@ cd back_end
 | 板块成分股 | `sector-stocks-{date}-{code}` | 10 分钟 | 盘中并发合并，`get_sector_stocks` 触发 |
 | 异动预测 | `abnormal-prediction-{date}` | 30 分钟 | 盘中并发合并，`get_prediction` 触发 |
 | 异动监控 | `abnormal-monitor-{date}` | 30 分钟 | 盘中并发合并，`get_monitor` 触发 |
+| 热股榜榜单 | `hot-stock-fetch-{list_type}-{period}` | 0 | 仅并发合并；实际刷新靠 SQLite 落库时间（超 1 小时重新打源） |
 
 > 设计约定：`cached_singleflight` 只包裹「请求数据源」这一步（各模块拆出 `_xxx_raw` 原始取数函数），**每日 17:00 固化任务必须调用 `_xxx_raw` 强制打源**，否则会命中内存缓存、落库的还是盘中快照。`cached_singleflight` 为进程内内存缓存，服务重启后丢失，但 SQLite 持久缓存仍在，重启后首次请求会重新打源。
 
@@ -733,6 +767,8 @@ cd back_end
 | A 股 K 线（日/周/月，前复权） | `d.10jqka.com.cn/v4/line/` |
 | 全市场成交额分时 | `dq.10jqka.com.cn/fuyao/market_analysis_api/chart/v1/get_chart_data` |
 | 龙虎榜每日明细 | `data.10jqka.com.cn/ifmarket/lhbggxq/report/` |
+| 热股榜（大家都在看/快速飙升/投资流派榜） | `dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock` |
+| 新股热度榜 | `eq.10jqka.com.cn/open/api/hot_list/rank/v1/new_stock.txt` |
 
 ### 新浪财经
 
