@@ -559,13 +559,13 @@ function renderStockReview(d) {
     var html = '';
     html += _srStockSummary(d.summary);
     var groups = d.groups || {};
-    var order = ['watchlist', 'etf', 'holdings'];
+    var order = ['holdings', 'watchlist', 'etf'];
     order.forEach(function(key) {
         var g = groups[key];
         if (g) html += _srStockTable(g.label, g.items);
     });
     if (!html) {
-        html = '<div class="index-card sr-card"><div style="color:#666;font-size:13px;">暂无自选股 / 场内ETF / 持仓股，请先到「自选股」页面添加。</div></div>';
+        html = '<div class="index-card sr-card"><div style="color:#666;font-size:13px;">暂无持仓股 / 自选股 / 场内ETF，请先到「自选股」页面添加。</div></div>';
     }
     document.getElementById('srStockContent').innerHTML = html;
 }

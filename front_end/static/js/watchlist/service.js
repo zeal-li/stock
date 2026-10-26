@@ -2,7 +2,7 @@
 
 var watchlistStocks = [];
 
-var _currentWatchlistTab = 'watchlist';
+var _currentWatchlistTab = 'holdings';
 
 function switchWatchlistTab(tab) {
     document.querySelectorAll('#page-watchlist .sector-tab').forEach(function(t) { t.classList.remove('active'); });

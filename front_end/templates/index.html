@@ -237,34 +237,34 @@
                         <div id="wlSearchResults" class="watchlist-search-dropdown" style="display:none;"></div>
                     </div>
                     <div class="sector-tabs">
-                        <span class="sector-tab active" data-tab="watchlist" onclick="switchWatchlistTab('watchlist')">自选股</span>
+                        <span class="sector-tab active" data-tab="holdings" onclick="switchWatchlistTab('holdings')">持仓股</span>
+                        <span class="sector-tab" data-tab="watchlist" onclick="switchWatchlistTab('watchlist')">自选股</span>
                         <span class="sector-tab" data-tab="etf" onclick="switchWatchlistTab('etf')">场内ETF</span>
-                        <span class="sector-tab" data-tab="holdings" onclick="switchWatchlistTab('holdings')">持仓股</span>
-                    </div>
-                    <div id="holdingsSummary" style="display:none;margin-left:16px;flex-wrap:wrap;gap:20px;">
-                        <div class="holdings-summary-item">
-                            <span style="color:#8b8b9e;font-size:13px;">持仓市值</span>
-                            <span id="holdingsCapSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
-                        </div>
-                        <div class="holdings-summary-item">
-                            <span style="color:#8b8b9e;font-size:13px;">持仓成本</span>
-                            <span id="holdingsCostSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
-                        </div>
-                        <div class="holdings-summary-item">
-                            <span style="color:#8b8b9e;font-size:13px;">当日收益</span>
-                            <span id="holdingsDailySummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
-                        </div>
-                        <div class="holdings-summary-item">
-                            <span style="color:#8b8b9e;font-size:13px;">总收益</span>
-                            <span id="holdingsTotalSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
-                        </div>
                     </div>
                     <div style="margin-left:auto;display:flex;gap:8px;">
                         <button class="refresh-btn" style="padding:6px 14px;font-size:13px;" onclick="openWatchlistImportModal()">导入</button>
                         <button class="refresh-btn" style="padding:6px 14px;font-size:13px;" onclick="openWatchlistExportModal()">导出</button>
                     </div>
                 </div>
-                <div id="watchlist-tab-watchlist" class="watchlist-tab-content active">
+                <div id="holdingsSummary" style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:16px;">
+                    <div class="holdings-summary-item">
+                        <span style="color:#8b8b9e;font-size:13px;">持仓市值</span>
+                        <span id="holdingsCapSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
+                    </div>
+                    <div class="holdings-summary-item">
+                        <span style="color:#8b8b9e;font-size:13px;">持仓成本</span>
+                        <span id="holdingsCostSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
+                    </div>
+                    <div class="holdings-summary-item">
+                        <span style="color:#8b8b9e;font-size:13px;">当日收益</span>
+                        <span id="holdingsDailySummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
+                    </div>
+                    <div class="holdings-summary-item">
+                        <span style="color:#8b8b9e;font-size:13px;">总收益</span>
+                        <span id="holdingsTotalSummary" style="font-size:20px;font-weight:bold;color:#ddd;margin-left:8px;">-</span>
+                    </div>
+                </div>
+                <div id="watchlist-tab-watchlist" class="watchlist-tab-content">
                     <div class="index-card" style="padding:30px;">
                         <div id="watchlistStocks" style="margin-top:8px;"></div>
                     </div>
@@ -284,7 +284,7 @@
                         </div>
                     </div>
                 </div>
-                <div id="watchlist-tab-holdings" class="watchlist-tab-content">
+                <div id="watchlist-tab-holdings" class="watchlist-tab-content active">
                     <div class="index-card" style="padding:30px;">
                         <div id="holdingsContent" style="margin-top:8px;"></div>
                     </div>
