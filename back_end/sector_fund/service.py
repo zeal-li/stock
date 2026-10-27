@@ -127,10 +127,10 @@ def _updated_after_close(updated_at) -> bool:
 
 def _fetch_rank_raw(fs: str, sector_type: str, period: str, trade_date: str):
     """请求东财流入+流出排行，写入 sector_fund_rank，返回 (inflow, outflow)。
-    空数据不落库，避免用空列表覆盖已有数据 / 固化空数据。"""
+    流入/流出任一为空都不落库，避免用空列表覆盖已有数据 / 固化空数据。"""
     inflow = _request_top(fs, period, po="1")
     outflow = _request_top(fs, period, po="0")
-    if inflow or outflow:
+    if inflow and outflow:
         rank_set(trade_date, sector_type, period, inflow, outflow)
     return inflow, outflow
 
