@@ -233,6 +233,9 @@ def system_register_toggle():
 
 @app.route('/api/auth/users')
 def auth_users():
+    from common.utils import USER_TYPE_ADMIN
+    if session.get('user_type', 0) < USER_TYPE_ADMIN:
+        return jsonify({'success': False, 'error': '权限不足', 'code': 403}), 403
     from auth.service import get_all_users
     return jsonify({'success': True, 'data': get_all_users()})
 
