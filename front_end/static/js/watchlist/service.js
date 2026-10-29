@@ -645,6 +645,24 @@ function _dragInit(tbody, stocksArr, dataAttr, apiUrl) {
     _dragState.apiUrl = apiUrl;
 }
 
+// 根据被拖拽的行所属列表，动态确定当前拖拽操作的股票数组/数据属性/保存接口。
+// 避免全局 _dragState 被多个列表的 _dragInit 相互覆盖导致排序写到错误列表。
+function _setDragListByRow(row) {
+    if (row.hasAttribute('data-wcode')) {
+        _dragState.stocksArr = watchlistStocks;
+        _dragState.dataAttr = 'wcode';
+        _dragState.apiUrl = '/api/watchlist/reorder';
+    } else if (row.hasAttribute('data-ecode')) {
+        _dragState.stocksArr = etfStocks;
+        _dragState.dataAttr = 'ecode';
+        _dragState.apiUrl = '/api/etf/reorder';
+    } else if (row.hasAttribute('data-hcode')) {
+        _dragState.stocksArr = holdingsStocks;
+        _dragState.dataAttr = 'hcode';
+        _dragState.apiUrl = '/api/holdings/reorder';
+    }
+}
+
 function _dragOnDown(e) {
     // 排除可点击元素（删除按钮、加选价格、名称链接）
     if (e.target.closest('span[onclick]') || e.target.tagName === 'INPUT') return;
@@ -656,6 +674,7 @@ function _dragOnDown(e) {
     var y = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
     _dragState.startY = y;
     var row = this;
+    _setDragListByRow(row);
     _dragState.pendingRow = row;
     _dragState.pendingY = y;
 
