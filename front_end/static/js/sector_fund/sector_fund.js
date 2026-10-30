@@ -26,7 +26,12 @@ async function loadSectorFund(type, period) {
     fetch(url)
         .then(function(r) { return r.json(); })
         .then(function(res) {
-            if (!res.success || res.empty) {
+            if (!res.success) {
+                renderSectorTable('sectorInflowTable', [], true, '加载失败');
+                renderSectorTable('sectorOutflowTable', [], false, '加载失败');
+                return;
+            }
+            if (res.empty) {
                 renderSectorTable('sectorInflowTable', []);
                 renderSectorTable('sectorOutflowTable', []);
                 return;
@@ -36,8 +41,8 @@ async function loadSectorFund(type, period) {
         })
         .catch(function(e) {
             console.log('板块资金加载失败:', e);
-            renderSectorTable('sectorInflowTable', []);
-            renderSectorTable('sectorOutflowTable', []);
+            renderSectorTable('sectorInflowTable', [], true, '加载失败');
+            renderSectorTable('sectorOutflowTable', [], false, '加载失败');
         });
 }
 
@@ -121,7 +126,7 @@ function showStockPool(sectorCode, sectorName, isInflow) {
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res.success) {
-                document.getElementById('stockPoolTableWrap').innerHTML = '<div class="loading">暂无数据</div>';
+                document.getElementById('stockPoolTableWrap').innerHTML = '<div class="loading">加载失败</div>';
                 return;
             }
             renderStockPoolTable(res.stocks || [], res.total || 0);
@@ -203,12 +208,12 @@ function openLeadStockKline(code, name) {
     }
 }
 
-function renderSectorTable(containerId, list, isInflow) {
+function renderSectorTable(containerId, list, isInflow, emptyMsg) {
     var container = document.getElementById(containerId);
     if (!container) return;
 
     if (!list || list.length === 0) {
-        container.innerHTML = '<div class="loading">暂无数据</div>';
+        container.innerHTML = '<div class="loading">' + (emptyMsg || '暂无数据') + '</div>';
         return;
     }
 

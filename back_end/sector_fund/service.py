@@ -65,7 +65,7 @@ def _request_top(fs: str, period: str, po: str) -> list:
            "&fid=" + cfg["fid"] + "&fs=" + fs + "&fields=" + _FIELDS + "&ut=" + _EM_BKZJ_UT)
     data = jsonp_get(url)
     if not isinstance(data, dict) or "__error__" in data:
-        return []
+        raise RuntimeError(f"东财板块资金接口请求失败: {data}")
     if not data.get("data") or not data["data"].get("diff"):
         return []
 
@@ -149,7 +149,7 @@ def _fetch_stocks_raw(sector_code: str):
            "&fid=f3&fs=b:" + sector_code + "&fields=" + _STOCK_FIELDS + "&ut=" + _EM_BKZJ_UT)
     data = jsonp_get(url)
     if not isinstance(data, dict) or "__error__" in data:
-        return [], 0
+        raise RuntimeError(f"东财板块成分股接口请求失败: {data}")
     if not data.get("data") or not data["data"].get("diff"):
         return [], 0
 
@@ -234,7 +234,10 @@ def get_sector_fund(sector_type: str = "concept", period: str = "today", date: s
         return {"success": True, "date": trade_date, "inflow": [], "outflow": [], "empty": True}
 
     fs = _SECTOR_TYPES[sector_type]
-    inflow, outflow = _fetch_rank(fs, sector_type, period, trade_date)
+    try:
+        inflow, outflow = _fetch_rank(fs, sector_type, period, trade_date)
+    except Exception as e:
+        return {"success": False, "error": f"板块资金请求失败: {e}"}
     return {"success": True, "date": trade_date, "inflow": inflow, "outflow": outflow}
 
 
@@ -264,7 +267,10 @@ def get_sector_stocks(sector_code: str, date: str = None) -> dict:
     if trade_date == today_str and not is_market_opened('0'):
         return {"success": True, "stocks": [], "total": 0, "empty": True}
 
-    stocks, total = _fetch_stocks(sector_code, trade_date)
+    try:
+        stocks, total = _fetch_stocks(sector_code, trade_date)
+    except Exception as e:
+        return {"success": False, "error": f"板块成分股请求失败: {e}"}
     if stocks:
         form_set(trade_date, sector_code, stocks)
     return {"success": True, "stocks": stocks, "total": total}
@@ -304,7 +310,10 @@ def _run_daily_update():
     #    注意：17:00 固化必须绕过 single-flight 缓存，强制打源
     for sector_type, fs in _SECTOR_TYPES.items():
         for period in _PERIOD_CONFIG:
-            _fetch_rank_raw(fs, sector_type, period, trade_date)
+            try:
+                _fetch_rank_raw(fs, sector_type, period, trade_date)
+            except Exception as e:
+                print(f'[sector_fund] 排行榜抓取失败 {sector_type}/{period}: {e}')
 
     # 2. 收集所有排行榜中的板块代码，全量抓成分股（覆盖）
     sector_codes = set()
