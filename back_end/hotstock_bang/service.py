@@ -142,10 +142,10 @@ def _fetch_and_save(list_type: str, period: str, date: str) -> list:
         rank_set(date, list_type, period, stocks)
         return stocks
 
-    return cached_singleflight(f'hot-stock-fetch-{list_type}-{period}', loader, ttl=0)
+    return cached_singleflight(f'hotstock-bang-fetch-{list_type}-{period}', loader, ttl=0)
 
 
-def get_hot_stock(period: str = 'hour', list_type: str = 'normal', date: str = None) -> dict:
+def get_hotstock_bang(period: str = 'hour', list_type: str = 'normal', date: str = None) -> dict:
     """获取热股榜（客户端触发）。
 
     - 非最新自然日：仅读库，无数据返回 empty，不请求同花顺。
@@ -216,7 +216,7 @@ def _run_daily_update():
     print(f'[hotstock_bang] 23:30 落库完成: {today}')
 
 
-def check_hot_stock_update():
+def check_hotstock_bang_update():
     """热股榜定时检测：由公共秒级调度器每秒调用一次，每日 23:30 触发落库。
 
     落库任务耗时较长（要抓取全部 8 个榜单组合），放到独立线程执行，避免阻塞调度器。
@@ -225,13 +225,13 @@ def check_hot_stock_update():
     now_dt = datetime.datetime.now()
     if now_dt >= _auto_next_update:
         _auto_next_update = _next_update_time(now_dt)
-        threading.Thread(target=_run_daily_update, daemon=True, name='hot-stock-daily').start()
+        threading.Thread(target=_run_daily_update, daemon=True, name='hotstock-bang-daily').start()
 
 
-def init_hot_stock_update():
+def init_hotstock_bang_update():
     """初始化热股榜定时任务，返回检测函数供公共调度器注册（由 app.py 启动时调用）。"""
     global _auto_next_update
     now_dt = datetime.datetime.now()
     _auto_next_update = _next_update_time(now_dt)
     print(f'[hotstock_bang] 定时任务已初始化（23:30 落库下次: {_auto_next_update:%Y-%m-%d %H:%M}）')
-    return check_hot_stock_update
+    return check_hotstock_bang_update

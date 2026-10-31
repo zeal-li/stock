@@ -1621,14 +1621,14 @@ body {
 }
 
 /* ========== 热股榜（同花顺热榜） ========== */
-.hot-stock-list {
+.hotstock-bang-list {
     background: #16213e;
     border: 1px solid #0f3460;
     border-radius: 10px;
     overflow: hidden;
 }
 
-.hot-stock-item {
+.hotstock-bang-item {
     display: flex;
     align-items: flex-start;
     gap: 12px;
@@ -1636,14 +1636,14 @@ body {
     border-bottom: 1px solid rgba(15, 52, 96, 0.45);
     transition: background 0.15s;
 }
-.hot-stock-item:last-child {
+.hotstock-bang-item:last-child {
     border-bottom: none;
 }
-.hot-stock-item:hover {
+.hotstock-bang-item:hover {
     background: #1a2440;
 }
 
-.hot-stock-rank {
+.hotstock-bang-rank {
     flex-shrink: 0;
     width: 26px;
     height: 26px;
@@ -1657,46 +1657,46 @@ body {
     margin-top: 1px;
     font-family: 'Consolas', 'Menlo', monospace;
 }
-.hot-stock-rank.hot-rank-1 { color: #fff; background: #e94560; }
-.hot-stock-rank.hot-rank-2 { color: #fff; background: #e97236; }
-.hot-stock-rank.hot-rank-3 { color: #fff; background: #d4a017; }
+.hotstock-bang-rank.hot-rank-1 { color: #fff; background: #e94560; }
+.hotstock-bang-rank.hot-rank-2 { color: #fff; background: #e97236; }
+.hotstock-bang-rank.hot-rank-3 { color: #fff; background: #d4a017; }
 
-.hot-stock-main {
+.hotstock-bang-main {
     flex: 1;
     min-width: 0;
 }
 
-.hot-stock-line {
+.hotstock-bang-line {
     display: flex;
     align-items: baseline;
     gap: 10px;
 }
 
-.hot-stock-name {
+.hotstock-bang-name {
     font-size: 14px;
     color: #e8e8f0;
     text-decoration: underline;
     cursor: pointer;
 }
-.hot-stock-item:hover .hot-stock-name {
+.hotstock-bang-item:hover .hotstock-bang-name {
     color: #e94560;
 }
 
-.hot-stock-code {
+.hotstock-bang-code {
     font-size: 11px;
     color: #6b7590;
     font-family: 'Consolas', 'Menlo', monospace;
 }
 
-.hot-stock-chg {
+.hotstock-bang-chg {
     font-size: 14px;
     font-family: 'Consolas', 'Menlo', monospace;
 }
-.hot-stock-chg.up { color: #ff5c72; }
-.hot-stock-chg.down { color: #00c9a7; }
-.hot-stock-chg.flat { color: #8b8b9e; }
+.hotstock-bang-chg.up { color: #ff5c72; }
+.hotstock-bang-chg.down { color: #00c9a7; }
+.hotstock-bang-chg.flat { color: #8b8b9e; }
 
-.hot-stock-heat {
+.hotstock-bang-heat {
     flex-shrink: 0;
     margin-left: auto;
     font-size: 12px;
@@ -1705,12 +1705,12 @@ body {
     text-align: right;
     white-space: nowrap;
 }
-.hot-stock-heat .hot-fire {
+.hotstock-bang-heat .hot-fire {
     font-style: normal;
     margin-right: 3px;
 }
 
-.hot-stock-tags {
+.hotstock-bang-tags {
     margin-top: 4px;
     display: flex;
     flex-wrap: wrap;
@@ -1735,7 +1735,7 @@ body {
     color: #6bb1ff;
 }
 
-.hot-stock-analyse-btn {
+.hotstock-bang-analyse-btn {
     flex-shrink: 0;
     margin-left: 4px;
     padding: 2px 8px;
@@ -1747,31 +1747,31 @@ body {
     white-space: nowrap;
     line-height: 1.5;
 }
-.hot-stock-analyse-btn:hover {
+.hotstock-bang-analyse-btn:hover {
     background: rgba(77, 159, 255, 0.25);
     color: #9cc8ff;
 }
 
 /* 技术面分析弹窗内容区滚动条（与左侧菜单栏 .nav-section 一致） */
-.hot-stock-analyse-body {
+.hotstock-bang-analyse-body {
     scrollbar-width: thin;
     scrollbar-color: #3b4a6b transparent;
 }
-.hot-stock-analyse-body::-webkit-scrollbar {
+.hotstock-bang-analyse-body::-webkit-scrollbar {
     width: 4px;
 }
-.hot-stock-analyse-body::-webkit-scrollbar-track {
+.hotstock-bang-analyse-body::-webkit-scrollbar-track {
     background: transparent;
 }
-.hot-stock-analyse-body::-webkit-scrollbar-thumb {
+.hotstock-bang-analyse-body::-webkit-scrollbar-thumb {
     background: #3b4a6b;
     border-radius: 4px;
 }
-.hot-stock-analyse-body::-webkit-scrollbar-thumb:hover {
+.hotstock-bang-analyse-body::-webkit-scrollbar-thumb:hover {
     background: #4a5a7f;
 }
 
-.hot-stock-analyse {
+.hotstock-bang-analyse {
     margin-top: 6px;
     font-size: 12px;
     color: #8b8b9e;
@@ -1783,12 +1783,12 @@ body {
     overflow: hidden;
     cursor: pointer;
 }
-.hot-stock-analyse.expanded {
+.hotstock-bang-analyse.expanded {
     -webkit-line-clamp: unset;
     display: block;
 }
 
-.hot-stock-pe {
+.hotstock-bang-pe {
     font-size: 11px;
     color: #6bb1ff;
     background: rgba(77, 159, 255, 0.12);
@@ -1797,7 +1797,7 @@ body {
     font-family: 'Consolas', 'Menlo', monospace;
 }
 
-.hot-stock-meta {
+.hotstock-bang-meta {
     font-size: 11px;
     color: #6b7590;
 }

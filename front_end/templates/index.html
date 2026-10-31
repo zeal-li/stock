@@ -41,7 +41,7 @@
                     <span class="nav-icon">📊</span>
                     <span>板块资金</span>
                 </div>
-                <div class="nav-item" data-page="hot-stock">
+                <div class="nav-item" data-page="hotstock-bang">
                     <span class="nav-icon">🔥</span>
                     <span>热股榜</span>
                 </div>
@@ -161,7 +161,7 @@
             </div>
 
             <!-- 热股榜页面 -->
-            <div id="page-hot-stock" style="display:none;">
+            <div id="page-hotstock-bang" style="display:none;">
                 <div class="page-header" style="flex-wrap:wrap; justify-content:flex-start; gap:10px;">
                     <h1 class="page-title" style="margin-right:4px;">🔥 热股榜</h1>
                     <div class="sector-tabs" style="margin-left:0; flex-wrap:wrap;">
@@ -173,12 +173,12 @@
                         <span class="sector-tab hot-type-tab" data-list-type="trend" onclick="switchHotListType('trend')">趋势投资派</span>
                     </div>
                     <div class="sector-tabs" id="hotPeriodTabs" style="margin-left:4px;">
-                        <span class="sector-tab hot-period-tab active" data-period="hour" onclick="switchHotStockPeriod('hour')">1小时</span>
-                        <span class="sector-tab hot-period-tab" data-period="day" onclick="switchHotStockPeriod('day')">24小时</span>
+                        <span class="sector-tab hot-period-tab active" data-period="hour" onclick="switchHotstockBangPeriod('hour')">1小时</span>
+                        <span class="sector-tab hot-period-tab" data-period="day" onclick="switchHotstockBangPeriod('day')">24小时</span>
                     </div>
                 </div>
-                <div id="hotStockDateBar" style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;"></div>
-                <div id="hotStockList" class="hot-stock-list">
+                <div id="hotstockBangDateBar" style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;"></div>
+                <div id="hotstockBangList" class="hotstock-bang-list">
                     <div class="loading">加载中...</div>
                 </div>
             </div>
@@ -590,7 +590,7 @@
                 currentNavPage = page;
                 document.getElementById('page-money-flow').style.display = page === 'money-flow' ? 'block' : 'none';
                 document.getElementById('page-sector-fund').style.display = page === 'sector-fund' ? 'block' : 'none';
-                document.getElementById('page-hot-stock').style.display = page === 'hot-stock' ? 'block' : 'none';
+                document.getElementById('page-hotstock-bang').style.display = page === 'hotstock-bang' ? 'block' : 'none';
                 document.getElementById('page-global-market').style.display = page === 'global-market' ? 'block' : 'none';
                 document.getElementById('page-longhu').style.display = page === 'longhu' ? 'block' : 'none';
                 document.getElementById('page-lianban').style.display = page === 'lianban' ? 'block' : 'none';
@@ -608,7 +608,7 @@
                 document.getElementById('page-abnormal').style.display = page === 'abnormal' ? 'block' : 'none';
                 if (page === 'money-flow') loadAllData();
                 if (page === 'sector-fund') { loadSectorFund(); _lastSectorFundRefresh = Date.now(); }
-                if (page === 'hot-stock') loadHotStock();
+                if (page === 'hotstock-bang') loadHotstockBang();
                 if (page === 'global-market') { loadGlobalCommodities(); loadGlobalForex(); }
                 if (page === 'longhu') loadLonghuBang();
                 if (page === 'lianban') loadLianban();

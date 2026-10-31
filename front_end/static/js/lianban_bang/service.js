@@ -1,5 +1,5 @@
 // ==================== 连板榜 ====================
-// 数据源：后端 /api/lianban（东方财富涨停池，按连板数降序）
+// 数据源：后端 /api/lianban_bang（东方财富涨停池，按连板数降序）
 
 var _lianbanDateList = null;
 var _lianbanDate = '';
@@ -72,7 +72,7 @@ function _doLoadLianban() {
     if (!container) return;
     container.innerHTML = '<div class="loading">加载中...</div>';
 
-    fetch('/api/lianban?date=' + encodeURIComponent(_lianbanDate))
+    fetch('/api/lianban_bang?date=' + encodeURIComponent(_lianbanDate))
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res.success) {

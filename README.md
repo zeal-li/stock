@@ -600,7 +600,7 @@ update_market(seg_key)
 | `/api/earnings` | GET | 自选+持仓+选股 业绩报告（近三年） |
 | `/api/market-news` | GET | 东方财富全球财经资讯 |
 | `/api/longhu-bang` | GET | 龙虎榜每日明细 |
-| `/api/lianban` | GET | 连板榜（涨停池按连板数降序，date=YYYY-MM-DD） |
+| `/api/lianban_bang` | GET | 连板榜（涨停池按连板数降序，date=YYYY-MM-DD） |
 | `/api/global-commodities` | GET | 全球大宗商品 + 全球指数 |
 | `/api/global-forex` | GET | 全球外汇汇率 |
 | `/api/sector-fund` | GET | 板块资金流向排行（行业/概念 + 今日/5日/10日 + 交易日 date） |
@@ -621,8 +621,8 @@ update_market(seg_key)
 
 | 路由 | 方法 | 说明 |
 |------|------|------|
-| `/api/hot-stock` | GET | 热股榜榜单（period=hour/day，list_type=normal/skyrocket/new_stock/tech/value/trend，date=YYYY-MM-DD） |
-| `/api/hot-stock-dates` | GET | 最近 N 个自然日日期栏（默认 30 天） |
+| `/api/hotstock-bang` | GET | 热股榜榜单（period=hour/day，list_type=normal/skyrocket/new_stock/tech/value/trend，date=YYYY-MM-DD） |
+| `/api/hotstock-bang-dates` | GET | 最近 N 个自然日日期栏（默认 30 天） |
 
 ### 技术选股 + 市场数据库
 
@@ -748,7 +748,7 @@ cd back_end
 | 板块成分股 | `sector-stocks-{date}-{code}` | 10 分钟 | 盘中并发合并，`get_sector_stocks` 触发 |
 | 异动预测 | `abnormal-prediction-{date}` | 30 分钟 | 盘中并发合并，`get_prediction` 触发 |
 | 异动监控 | `abnormal-monitor-{date}` | 30 分钟 | 盘中并发合并，`get_monitor` 触发 |
-| 热股榜榜单 | `hot-stock-fetch-{list_type}-{period}` | 0 | 仅并发合并；实际刷新靠 SQLite 落库时间（超 1 小时重新打源） |
+| 热股榜榜单 | `hotstock-bang-fetch-{list_type}-{period}` | 0 | 仅并发合并；实际刷新靠 SQLite 落库时间（超 1 小时重新打源） |
 | 连板榜涨停池 | `lianban-bang-fetch-{date}` | 0 | 仅并发合并；实际刷新靠 SQLite 落库时间（盘中超 10 分钟重新打源） |
 
 > 设计约定：`cached_singleflight` 只包裹「请求数据源」这一步（各模块拆出 `_xxx_raw` 原始取数函数），**每日 17:00 固化任务必须调用 `_xxx_raw` 强制打源**，否则会命中内存缓存、落库的还是盘中快照。`cached_singleflight` 为进程内内存缓存，服务重启后丢失，但 SQLite 持久缓存仍在，重启后首次请求会重新打源。

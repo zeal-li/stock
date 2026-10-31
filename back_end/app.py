@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock, init_abnormal_center_update
 from market_news.service import get_hot_list
-from hotstock_bang.service import get_hot_stock, init_hot_stock_update
+from hotstock_bang.service import get_hotstock_bang, init_hotstock_bang_update
 from lianban_bang.service import get_lianban, init_lianban_bang_update
 
 import sys as _sys, os as _os
@@ -360,7 +360,7 @@ def longhu_bang():
     return jsonify(get_longhu_bang(trade_date or None))
 
 
-@app.route('/api/lianban')
+@app.route('/api/lianban_bang')
 def lianban():
     """连板榜：东财涨停池按连板数降序，返回当天全部涨停股"""
     date = request.args.get('date', '').strip()
@@ -388,17 +388,17 @@ def sector_fund():
     return jsonify(get_sector_fund(sector_type, period, date or None))
 
 
-@app.route('/api/hot-stock')
-def hot_stock():
+@app.route('/api/hotstock-bang')
+def hotstock_bang():
     """同花顺热股榜：period=hour/day，list_type=normal/skyrocket/new_stock/tech/value/trend，date=YYYY-MM-DD"""
     period = request.args.get('period', 'hour').strip()
     list_type = request.args.get('list_type', 'normal').strip()
     date = request.args.get('date', '').strip()
-    return jsonify(get_hot_stock(period, list_type, date or None))
+    return jsonify(get_hotstock_bang(period, list_type, date or None))
 
 
-@app.route('/api/hot-stock-dates')
-def hot_stock_dates():
+@app.route('/api/hotstock-bang-dates')
+def hotstock_bang_dates():
     """返回最近 N 个自然日（常规日期，含周末节假日，与热度榜每天更新对齐）"""
     count = request.args.get('count', 30, type=int)
     dates = []
@@ -1854,7 +1854,7 @@ def start_scheduler():
     register_scheduler_check(init_self_review_update())   # 自助复盘每日 17:00 清理+复盘
     register_scheduler_check(init_sector_fund_update())   # 板块资金盘中轮询 + 每日 17:00 固化
     register_scheduler_check(init_abnormal_center_update())   # 异动中心每日 17:00 清理 + 落库
-    register_scheduler_check(init_hot_stock_update())   # 热股榜每日 23:30 落库
+    register_scheduler_check(init_hotstock_bang_update())   # 热股榜每日 23:30 落库
     register_scheduler_check(init_lianban_bang_update())   # 连板榜每日 17:00 落库
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
