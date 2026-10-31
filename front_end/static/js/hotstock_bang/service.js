@@ -176,7 +176,7 @@ function renderHotstockBang(stocks) {
                 + _hotNameHtml(s)
                 + '<span class="hotstock-bang-code">' + s.code + '</span>'
                 + pe
-                + '<span class="hotstock-bang-analyse-btn" onclick="HotstockBangAnalyse.open(\'' + s.code + '\', s)">异动分析</span>'
+                + '<span class="hotstock-bang-analyse-btn" onclick="openHotstockBangAnalyse(\'' + s.code + '\')">异动分析</span>'
                 + '<span class="hotstock-bang-analyse-btn" onclick="openHotstockBangDetail(\'' + s.code + '\')">热度详情</span>'
                 + '<span class="hotstock-bang-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = date ? '<div class="hotstock-bang-tags">' + date + '</div>' : '';
@@ -186,7 +186,7 @@ function renderHotstockBang(stocks) {
                 + _hotNameHtml(s)
                 + '<span class="hotstock-bang-code">' + s.code + '</span>'
                 + '<span class="hotstock-bang-chg ' + chg.cls + '">' + chg.text + '</span>'
-                + '<span class="hotstock-bang-analyse-btn" onclick="HotstockBangAnalyse.open(\'' + s.code + '\', s)">异动分析</span>'
+                + '<span class="hotstock-bang-analyse-btn" onclick="openHotstockBangAnalyse(\'' + s.code + '\')">异动分析</span>'
                 + '<span class="hotstock-bang-analyse-btn" onclick="openHotstockBangDetail(\'' + s.code + '\')">热度详情</span>'
                 + '<span class="hotstock-bang-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = s.analyse
@@ -335,6 +335,15 @@ var HotstockBangAnalyse = (function() {
 
     return { open: open, close: close };
 })();
+
+// ==================== 异动分析入口 ====================
+// 榜单项「异动分析」按钮 → 从当前榜单缓存取数后打开技术面异动分析弹窗
+
+function openHotstockBangAnalyse(code) {
+    var s = _hotstockBangCache[code];
+    if (!s) return;
+    HotstockBangAnalyse.open(code, s);
+}
 
 // ==================== 热度详情 ====================
 // 点击打开同花顺热度详情页（ms.10jqka.com.cn/thsHotDetail）
