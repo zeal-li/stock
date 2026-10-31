@@ -176,7 +176,7 @@ function renderHotstockBang(stocks) {
                 + _hotNameHtml(s)
                 + '<span class="hotstock-bang-code">' + s.code + '</span>'
                 + pe
-                + '<span class="hotstock-bang-analyse-btn" onclick="HotstockBangAnalyse.open(\'' + s.code + '\')">异动分析</span>'
+                + '<span class="hotstock-bang-analyse-btn" onclick="HotstockBangAnalyse.open(\'' + s.code + '\', s)">异动分析</span>'
                 + '<span class="hotstock-bang-analyse-btn" onclick="openHotstockBangDetail(\'' + s.code + '\')">热度详情</span>'
                 + '<span class="hotstock-bang-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = date ? '<div class="hotstock-bang-tags">' + date + '</div>' : '';
@@ -186,7 +186,7 @@ function renderHotstockBang(stocks) {
                 + _hotNameHtml(s)
                 + '<span class="hotstock-bang-code">' + s.code + '</span>'
                 + '<span class="hotstock-bang-chg ' + chg.cls + '">' + chg.text + '</span>'
-                + '<span class="hotstock-bang-analyse-btn" onclick="HotstockBangAnalyse.open(\'' + s.code + '\')">异动分析</span>'
+                + '<span class="hotstock-bang-analyse-btn" onclick="HotstockBangAnalyse.open(\'' + s.code + '\', s)">异动分析</span>'
                 + '<span class="hotstock-bang-analyse-btn" onclick="openHotstockBangDetail(\'' + s.code + '\')">热度详情</span>'
                 + '<span class="hotstock-bang-heat"><i class="hot-fire">🔥</i>' + _hotFmtHeat(s.heat) + '热度</span>';
             extra = s.analyse
@@ -225,8 +225,8 @@ var HotstockBangAnalyse = (function() {
         document.body.appendChild(_overlay);
     }
 
-    function open(code) {
-        var s = _hotstockBangCache[code];
+    function open(code, stock) {
+        var s = stock;
         if (!s) return;
         _ensureDOM();
         _activeCode = code;
@@ -241,7 +241,7 @@ var HotstockBangAnalyse = (function() {
                         '<span style="font-size:18px;color:#fff;font-weight:600;">' + (s.name || '') + '</span>' +
                         '<span style="font-size:13px;color:#888;">' + s.code + '</span>' +
                         (s.change_pct != null ? '<span class="hotstock-bang-chg ' + chg.cls + '">' + chg.text + '</span>' : '') +
-                        '<span style="font-size:12px;color:#e0a94a;">🔥' + _hotFmtHeat(s.heat) + '热度</span>' +
+                        (s.heat != null ? '<span style="font-size:12px;color:#e0a94a;">🔥' + _hotFmtHeat(s.heat) + '热度</span>' : '') +
                     '</div>' +
                     '<span style="color:#666;font-size:20px;cursor:pointer;padding:0 4px;line-height:1;" onclick="HotstockBangAnalyse.close()">✕</span>' +
                 '</div>' +

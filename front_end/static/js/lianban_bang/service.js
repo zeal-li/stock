@@ -4,6 +4,7 @@
 var _lianbanBangDateList = null;
 var _lianbanBangDate = '';
 var _lianbanBangInitialized = false;
+var _lianbanBangCache = {};  // code -> 当前榜单 row（供异动分析弹窗取数）
 
 function fmtLianbanBangAmt(v) {
     if (v == null) return '--';
@@ -94,6 +95,7 @@ function _doLoadLianbanBang() {
 
 function renderLianbanBangTable(list) {
     var container = document.getElementById('lianbanBangContent');
+    _lianbanBangCache = {};
     var html = '<div style="margin-bottom:8px;font-size:12px;color:#888;">共 <b style="color:#fbbf24;">' + list.length + '</b> 只涨停股（按连板数降序）</div>';
     html += '<table class="lhb-table">';
     html += '<thead><tr>';
@@ -112,6 +114,7 @@ function renderLianbanBangTable(list) {
 
     for (var i = 0; i < list.length; i++) {
         var row = list[i];
+        _lianbanBangCache[row.code] = row;
         var lbc = row.lbc || 1;
         var changeClass = (row.change_pct != null && Number(row.change_pct) >= 0) ? 'change-up' : 'change-down';
 
@@ -125,7 +128,7 @@ function renderLianbanBangTable(list) {
 
         html += '<tr class="lhb-row">';
         html += '<td style="text-align:center;">';
-        html += '<span style="display:inline-block;min-width:36px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700;' + badgeStyle + '">' + lbcText + '</span>';
+        html += '<span style="display:inline-block;min-width:36px;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;' + badgeStyle + '" onclick="openLianbanBangAnalyse(\'' + row.code + '\')" title="异动分析">' + lbcText + '</span>';
         if (zttjText) html += '<div style="font-size:10px;color:#888;margin-top:2px;">' + zttjText + '</div>';
         html += '</td>';
         html += '<td><span class="lhb-stock-name" onclick="KlinePopup.open(\'' + row.code + '\',\'' + guessMarket(row.code) + '\',\'' + (row.name || row.code) + '\')">' + (row.name || row.code) + '</span><span style="color:#888;font-size:11px;margin-left:4px;">' + row.code + '</span></td>';
@@ -143,4 +146,13 @@ function renderLianbanBangTable(list) {
 
     html += '</tbody></table>';
     container.innerHTML = html;
+}
+
+// ==================== 异动分析弹窗 ====================
+// 点击连板徽章 → 复用热股榜的异动分析弹窗（技术面异动分析）
+
+function openLianbanBangAnalyse(code) {
+    var row = _lianbanBangCache[code];
+    if (!row) return;
+    HotstockBangAnalyse.open(code, row);
 }
