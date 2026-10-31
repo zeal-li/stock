@@ -99,9 +99,12 @@ function renderLianbanTable(list) {
     html += '<thead><tr>';
     html += '<th style="width:70px;text-align:center;">连板</th>';
     html += '<th style="width:120px;">股票</th>';
+    html += '<th style="min-width:80px;">行业</th>';
     html += '<th style="width:60px;text-align:right;">现价</th>';
     html += '<th style="width:70px;text-align:right;">涨跌幅</th>';
-    html += '<th style="min-width:80px;">行业</th>';
+    html += '<th style="width:80px;text-align:right;">成交额</th>';
+    html += '<th style="width:90px;text-align:right;">流通市值</th>';
+    html += '<th style="width:70px;text-align:right;">换手率</th>';
     html += '<th style="width:60px;text-align:center;">首封</th>';
     html += '<th style="width:55px;text-align:center;">炸板</th>';
     html += '<th style="width:90px;text-align:right;">封单资金</th>';
@@ -126,9 +129,12 @@ function renderLianbanTable(list) {
         if (zttjText) html += '<div style="font-size:10px;color:#888;margin-top:2px;">' + zttjText + '</div>';
         html += '</td>';
         html += '<td><span class="lhb-stock-name" onclick="KlinePopup.open(\'' + row.code + '\',\'' + guessMarket(row.code) + '\',\'' + (row.name || row.code) + '\')">' + (row.name || row.code) + '</span><span style="color:#888;font-size:11px;margin-left:4px;">' + row.code + '</span></td>';
+        html += '<td style="color:#aaa;font-size:12px;">' + (row.industry || '--') + '</td>';
         html += '<td style="text-align:right;color:#ccc;">' + (row.price != null ? row.price.toFixed(2) : '--') + '</td>';
         html += '<td style="text-align:right;" class="' + changeClass + '">' + fmtLianbanPct(row.change_pct) + '</td>';
-        html += '<td style="color:#aaa;font-size:12px;">' + (row.industry || '--') + '</td>';
+        html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanAmt(row.amount) + '</td>';
+        html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanAmt(row.float_cap) + '</td>';
+        html += '<td style="text-align:right;color:#ccc;">' + (row.turnover != null ? row.turnover.toFixed(2) + '%' : '--') + '</td>';
         html += '<td style="text-align:center;color:#ccc;">' + (row.fbt || '--') + '</td>';
         html += '<td style="text-align:center;color:' + (row.zbc > 0 ? '#e94560' : '#888') + ';">' + (row.zbc || 0) + '</td>';
         html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanAmt(row.fund) + '</td>';
