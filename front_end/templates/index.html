@@ -45,7 +45,7 @@
                     <span class="nav-icon">🔥</span>
                     <span>热股榜</span>
                 </div>
-                <div class="nav-item" data-page="lianban">
+                <div class="nav-item" data-page="lianban_bang">
                     <span class="nav-icon">📈</span>
                     <span>连板榜</span>
                 </div>
@@ -233,13 +233,13 @@
             </div>
 
             <!-- 连板榜页面 -->
-            <div id="page-lianban" style="display:none;">
+            <div id="page-lianban_bang" style="display:none;">
                 <div class="page-header">
                     <h1 class="page-title">📈 连板榜</h1>
                 </div>
-                <div id="lianbanDateBar" style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;"></div>
+                <div id="lianbanBangDateBar" style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;"></div>
                 <div class="index-card" style="padding:18px;">
-                    <div id="lianbanContent" style="max-height:650px; overflow-y:auto;">
+                    <div id="lianbanBangContent" style="max-height:650px; overflow-y:auto;">
                         <div class="loading">加载中...</div>
                     </div>
                 </div>
@@ -593,7 +593,7 @@
                 document.getElementById('page-hotstock-bang').style.display = page === 'hotstock-bang' ? 'block' : 'none';
                 document.getElementById('page-global-market').style.display = page === 'global-market' ? 'block' : 'none';
                 document.getElementById('page-longhu').style.display = page === 'longhu' ? 'block' : 'none';
-                document.getElementById('page-lianban').style.display = page === 'lianban' ? 'block' : 'none';
+                document.getElementById('page-lianban_bang').style.display = page === 'lianban_bang' ? 'block' : 'none';
                 document.getElementById('page-stock-pick').style.display = page === 'stock-pick' ? 'block' : 'none';
                 document.getElementById('page-watchlist').style.display = page === 'watchlist' ? 'block' : 'none';
                 document.getElementById('page-tech-pick').style.display = page === 'tech-pick' ? 'block' : 'none';
@@ -611,7 +611,7 @@
                 if (page === 'hotstock-bang') loadHotstockBang();
                 if (page === 'global-market') { loadGlobalCommodities(); loadGlobalForex(); }
                 if (page === 'longhu') loadLonghuBang();
-                if (page === 'lianban') loadLianban();
+                if (page === 'lianban_bang') loadLianbanBang();
 
                 if (page === 'market-news') loadMarketNews();
                 if (page === 'unlock-list') { populateStockFilters(); loadUnlockList(); }

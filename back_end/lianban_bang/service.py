@@ -111,7 +111,7 @@ def _is_after_close(ts):
     return to_minutes(dt.hour, dt.minute) >= to_minutes(*_CLOSE_TIME)
 
 
-def get_lianban(date=None):
+def get_lianban_bang(date=None):
     """获取连板榜数据。date: 'YYYY-MM-DD' 或 None（None 时取最新交易日）。"""
     now = datetime.datetime.now()
     today = now.date()

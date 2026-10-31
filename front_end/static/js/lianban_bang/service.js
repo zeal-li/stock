@@ -1,11 +1,11 @@
 // ==================== 连板榜 ====================
 // 数据源：后端 /api/lianban_bang（东方财富涨停池，按连板数降序）
 
-var _lianbanDateList = null;
-var _lianbanDate = '';
-var _lianbanInitialized = false;
+var _lianbanBangDateList = null;
+var _lianbanBangDate = '';
+var _lianbanBangInitialized = false;
 
-function fmtLianbanAmt(v) {
+function fmtLianbanBangAmt(v) {
     if (v == null) return '--';
     v = Number(v);
     if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + '亿';
@@ -13,7 +13,7 @@ function fmtLianbanAmt(v) {
     return String(v);
 }
 
-function fmtLianbanPct(v) {
+function fmtLianbanBangPct(v) {
     if (v == null) return '--';
     var n = Number(v);
     return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
@@ -21,58 +21,58 @@ function fmtLianbanPct(v) {
 
 // ==================== 交易日历 ====================
 
-async function fetchLianbanTradingDays() {
+async function fetchLianbanBangTradingDays() {
     var res = await fetch('/api/trading-days?count=30');
     var result = await res.json();
-    _lianbanDateList = result.data.trading_days;
-    return _lianbanDateList;
+    _lianbanBangDateList = result.data.trading_days;
+    return _lianbanBangDateList;
 }
 
-function renderLianbanDateBar(activeDate) {
-    var bar = document.getElementById('lianbanDateBar');
-    if (!bar || !_lianbanDateList) return;
+function renderLianbanBangDateBar(activeDate) {
+    var bar = document.getElementById('lianbanBangDateBar');
+    if (!bar || !_lianbanBangDateList) return;
     var html = '';
-    for (var i = 0; i < _lianbanDateList.length; i++) {
-        var date = _lianbanDateList[i];
+    for (var i = 0; i < _lianbanBangDateList.length; i++) {
+        var date = _lianbanBangDateList[i];
         var mmdd = date.slice(5);
         var cls = (date === activeDate) ? 'lhb-date-btn active' : 'lhb-date-btn';
-        html += '<span class="' + cls + '" onclick="selectLianbanDate(\'' + date + '\')">' + mmdd + '</span>';
+        html += '<span class="' + cls + '" onclick="selectLianbanBangDate(\'' + date + '\')">' + mmdd + '</span>';
     }
     bar.innerHTML = html;
 }
 
-function selectLianbanDate(date) {
-    _lianbanDate = date;
-    renderLianbanDateBar(date);
-    loadLianban();
+function selectLianbanBangDate(date) {
+    _lianbanBangDate = date;
+    renderLianbanBangDateBar(date);
+    loadLianbanBang();
 }
 
 // ==================== 初始化 ====================
 
-async function initLianban() {
-    if (_lianbanInitialized) return;
-    _lianbanInitialized = true;
-    _lianbanDateList = await fetchLianbanTradingDays();
-    _lianbanDate = _lianbanDateList[_lianbanDateList.length - 1];
-    renderLianbanDateBar(_lianbanDate);
+async function initLianbanBang() {
+    if (_lianbanBangInitialized) return;
+    _lianbanBangInitialized = true;
+    _lianbanBangDateList = await fetchLianbanBangTradingDays();
+    _lianbanBangDate = _lianbanBangDateList[_lianbanBangDateList.length - 1];
+    renderLianbanBangDateBar(_lianbanBangDate);
 }
 
 // ==================== 数据加载 ====================
 
-function loadLianban() {
-    if (!_lianbanInitialized) {
-        initLianban().then(function() { _doLoadLianban(); });
+function loadLianbanBang() {
+    if (!_lianbanBangInitialized) {
+        initLianbanBang().then(function() { _doLoadLianbanBang(); });
         return;
     }
-    _doLoadLianban();
+    _doLoadLianbanBang();
 }
 
-function _doLoadLianban() {
-    var container = document.getElementById('lianbanContent');
+function _doLoadLianbanBang() {
+    var container = document.getElementById('lianbanBangContent');
     if (!container) return;
     container.innerHTML = '<div class="loading">加载中...</div>';
 
-    fetch('/api/lianban_bang?date=' + encodeURIComponent(_lianbanDate))
+    fetch('/api/lianban_bang?date=' + encodeURIComponent(_lianbanBangDate))
         .then(function(r) { return r.json(); })
         .then(function(res) {
             if (!res.success) {
@@ -83,7 +83,7 @@ function _doLoadLianban() {
                 container.innerHTML = '<div class="error">暂无该日数据</div>';
                 return;
             }
-            renderLianbanTable(res.list);
+            renderLianbanBangTable(res.list);
         })
         .catch(function() {
             container.innerHTML = '<div class="error">连板榜加载失败</div>';
@@ -92,8 +92,8 @@ function _doLoadLianban() {
 
 // ==================== 表格渲染 ====================
 
-function renderLianbanTable(list) {
-    var container = document.getElementById('lianbanContent');
+function renderLianbanBangTable(list) {
+    var container = document.getElementById('lianbanBangContent');
     var html = '<div style="margin-bottom:8px;font-size:12px;color:#888;">共 <b style="color:#fbbf24;">' + list.length + '</b> 只涨停股（按连板数降序）</div>';
     html += '<table class="lhb-table">';
     html += '<thead><tr>';
@@ -131,13 +131,13 @@ function renderLianbanTable(list) {
         html += '<td><span class="lhb-stock-name" onclick="KlinePopup.open(\'' + row.code + '\',\'' + guessMarket(row.code) + '\',\'' + (row.name || row.code) + '\')">' + (row.name || row.code) + '</span><span style="color:#888;font-size:11px;margin-left:4px;">' + row.code + '</span></td>';
         html += '<td style="color:#aaa;font-size:12px;">' + (row.industry || '--') + '</td>';
         html += '<td style="text-align:right;color:#ccc;">' + (row.price != null ? row.price.toFixed(2) : '--') + '</td>';
-        html += '<td style="text-align:right;" class="' + changeClass + '">' + fmtLianbanPct(row.change_pct) + '</td>';
-        html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanAmt(row.amount) + '</td>';
-        html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanAmt(row.float_cap) + '</td>';
+        html += '<td style="text-align:right;" class="' + changeClass + '">' + fmtLianbanBangPct(row.change_pct) + '</td>';
+        html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanBangAmt(row.amount) + '</td>';
+        html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanBangAmt(row.float_cap) + '</td>';
         html += '<td style="text-align:right;color:#ccc;">' + (row.turnover != null ? row.turnover.toFixed(2) + '%' : '--') + '</td>';
         html += '<td style="text-align:center;color:#ccc;">' + (row.fbt || '--') + '</td>';
         html += '<td style="text-align:center;color:' + (row.zbc > 0 ? '#e94560' : '#888') + ';">' + (row.zbc || 0) + '</td>';
-        html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanAmt(row.fund) + '</td>';
+        html += '<td style="text-align:right;color:#ccc;">' + fmtLianbanBangAmt(row.fund) + '</td>';
         html += '</tr>';
     }
 
