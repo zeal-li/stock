@@ -22,7 +22,7 @@ import time
 
 from common.http import get_json
 from common.cache import cached_singleflight
-from hot_stock.storage import rank_get, rank_set, cleanup_old_data
+from hotstock_bang.storage import rank_get, rank_set, cleanup_old_data
 
 # 普通热榜（大家在看的 / 快速飙升 / 三个投资流派）
 _STOCK_API = 'https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock'
@@ -212,8 +212,8 @@ def _run_daily_update():
                       else _fetch_stock_raw(period, list_type))
             rank_set(today, list_type, period, stocks)
         except Exception as e:
-            print(f'[hot_stock] 23:30 落库失败 {list_type}/{period}: {e}')
-    print(f'[hot_stock] 23:30 落库完成: {today}')
+            print(f'[hotstock_bang] 23:30 落库失败 {list_type}/{period}: {e}')
+    print(f'[hotstock_bang] 23:30 落库完成: {today}')
 
 
 def check_hot_stock_update():
@@ -233,5 +233,5 @@ def init_hot_stock_update():
     global _auto_next_update
     now_dt = datetime.datetime.now()
     _auto_next_update = _next_update_time(now_dt)
-    print(f'[hot_stock] 定时任务已初始化（23:30 落库下次: {_auto_next_update:%Y-%m-%d %H:%M}）')
+    print(f'[hotstock_bang] 定时任务已初始化（23:30 落库下次: {_auto_next_update:%Y-%m-%d %H:%M}）')
     return check_hot_stock_update

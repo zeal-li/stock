@@ -37,8 +37,8 @@ logger = logging.getLogger(__name__)
 from technical_screen.service import run_scan_async, get_scan_status, get_strategies
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock, init_abnormal_center_update
 from market_news.service import get_hot_list
-from hot_stock.service import get_hot_stock, init_hot_stock_update
-from lianban.service import get_lianban
+from hotstock_bang.service import get_hot_stock, init_hot_stock_update
+from lianban_bang.service import get_lianban, init_lianban_bang_update
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -1855,6 +1855,7 @@ def start_scheduler():
     register_scheduler_check(init_sector_fund_update())   # 板块资金盘中轮询 + 每日 17:00 固化
     register_scheduler_check(init_abnormal_center_update())   # 异动中心每日 17:00 清理 + 落库
     register_scheduler_check(init_hot_stock_update())   # 热股榜每日 23:30 落库
+    register_scheduler_check(init_lianban_bang_update())   # 连板榜每日 17:00 落库
     threading.Thread(target=_scheduler_loop, daemon=True, name='scheduler').start()
     print('[scheduler] 公共秒级调度器已启动')
 

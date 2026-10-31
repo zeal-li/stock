@@ -80,7 +80,7 @@ function _doLoadLianban() {
                 return;
             }
             if (!res.list || res.list.length === 0) {
-                container.innerHTML = '<div class="error">' + (res.date || '') + ' 暂无涨停数据（非交易日或数据未更新）</div>';
+                container.innerHTML = '<div class="error">暂无该日数据</div>';
                 return;
             }
             renderLianbanTable(res.list);
