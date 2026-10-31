@@ -38,6 +38,7 @@ from technical_screen.service import run_scan_async, get_scan_status, get_strate
 from abnormal_center.service import get_prediction, get_monitor, analyze_stock, init_abnormal_center_update
 from market_news.service import get_hot_list
 from hot_stock.service import get_hot_stock, init_hot_stock_update
+from lianban.service import get_lianban
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -357,6 +358,13 @@ def longhu_bang():
     """龙虎榜每日明细，返回当天全部数据，前端负责分类筛选和排序"""
     trade_date = request.args.get('date', '').strip()
     return jsonify(get_longhu_bang(trade_date or None))
+
+
+@app.route('/api/lianban')
+def lianban():
+    """连板榜：东财涨停池按连板数降序，返回当天全部涨停股"""
+    date = request.args.get('date', '').strip()
+    return jsonify(get_lianban(date or None))
 
 
 @app.route('/api/global-commodities')
