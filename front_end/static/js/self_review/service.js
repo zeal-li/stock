@@ -675,3 +675,35 @@ function _srConclusionCell(it) {
     }
     return '<td style="text-align:left;font-size:12px;color:#8b8b9e;white-space:normal;min-width:260px;">' + html + '</td>';
 }
+
+// ==================== 每日 17:00 自动重新复盘 ====================
+// 只要浏览器打开了主页面，到点自动触发一次自选复盘（大盘复盘由服务器自动计算，无需请求），
+// 替代每天手动点「重新复盘」。仅交易日触发，周末/节假日跳过。
+function startAutoReviewTimer() {
+    var HOUR = 17, MINUTE = 0;
+
+    function schedule() {
+        var now = new Date();
+        var next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), HOUR, MINUTE, 0, 0);
+        if (next <= now) {
+            next.setDate(next.getDate() + 1);
+        }
+        setTimeout(function() {
+            schedule(); // 先安排下一次，保证定时器持续运行
+            fetch('/api/is-trading-day')
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    if (res && res.is_trading_day) {
+                        console.log('[auto-review] ' + new Date().toLocaleString() + ' 交易日，触发自动复盘（自选）');
+                        fetch('/api/self-review/stocks?refresh=1');
+                    } else {
+                        console.log('[auto-review] ' + new Date().toLocaleString() + ' 非交易日，跳过自动复盘');
+                    }
+                });
+        }, next - now);
+    }
+
+    schedule();
+}
+
+startAutoReviewTimer();
