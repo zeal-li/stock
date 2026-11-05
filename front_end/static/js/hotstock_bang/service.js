@@ -4,16 +4,14 @@ var _hotstockBangPeriod = 'hour';     // hour=1小时榜 / day=24小时榜
 var _hotstockBangListType = 'normal'; // normal/skyrocket/new_stock/tech/value/trend
 var _hotstockBangDate = '';           // 当前选中日期（自然日，默认今天）
 var _hotstockBangDateList = null;     // 最近30个自然日
-var _hotstockBangInitialized = false;
 
 var _HOURLY_TYPES = ['normal', 'skyrocket'];
 
 // ==================== 日期栏 ====================
 
 async function fetchHotstockBangDates() {
-    var res = await fetch('/api/hotstock-bang-dates?count=30');
-    var result = await res.json();
-    _hotstockBangDateList = result.data.dates;
+    var cache = await getDateLists();
+    _hotstockBangDateList = cache.calendar_days;
     return _hotstockBangDateList;
 }
 
@@ -38,10 +36,12 @@ function selectHotstockBangDate(date) {
 }
 
 async function initHotstockBang() {
-    if (_hotstockBangInitialized) return;
-    _hotstockBangInitialized = true;
+    var prevLatest = _hotstockBangDateList ? _hotstockBangDateList[_hotstockBangDateList.length - 1] : '';
     _hotstockBangDateList = await fetchHotstockBangDates();
-    _hotstockBangDate = _hotstockBangDateList[_hotstockBangDateList.length - 1];  // 默认最新自然日（今天）
+    var latest = _hotstockBangDateList[_hotstockBangDateList.length - 1];
+    if (!_hotstockBangDate || _hotstockBangDate === prevLatest) {
+        _hotstockBangDate = latest;
+    }
     renderHotstockBangDateBar(_hotstockBangDate);
 }
 
@@ -77,10 +77,6 @@ function switchHotstockBangPeriod(period) {
 // ==================== 加载 ====================
 
 function loadHotstockBang() {
-    if (!_hotstockBangInitialized) {
-        initHotstockBang().then(function() { _doLoadHotstockBang(); });
-        return;
-    }
     _doLoadHotstockBang();
 }
 

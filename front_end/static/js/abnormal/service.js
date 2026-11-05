@@ -4,7 +4,6 @@ var abnormalCalcHistory = [];
 var abnormalCalcActiveRequestId = 0;
 var abnormalDate = '';          // 当前选中交易日
 var abnormalDateList = null;    // 交易日列表（最近30个）
-var abnormalDateInitialized = false;
 
 // 外部数据源 unusual_type 到可读描述的映射
 var UNUSUAL_TYPE_MAP = {
@@ -55,9 +54,8 @@ function switchAbnormalTab(tab) {
 // ===== 交易日日期栏（最近30个交易日） =====
 
 async function fetchAbnormalTradingDays() {
-    var res = await fetch('/api/trading-days?count=30');
-    var result = await res.json();
-    abnormalDateList = result.data.trading_days;
+    var cache = await getDateLists();
+    abnormalDateList = cache.trading_days;
     return abnormalDateList;
 }
 
@@ -82,10 +80,11 @@ function selectAbnormalDate(date) {
 }
 
 async function initAbnormalDateBar() {
-    if (!abnormalDateInitialized) {
-        abnormalDateInitialized = true;
-        abnormalDateList = await fetchAbnormalTradingDays();
-        abnormalDate = abnormalDateList[abnormalDateList.length - 1];  // 默认最新交易日
+    var prevLatest = abnormalDateList ? abnormalDateList[abnormalDateList.length - 1] : '';
+    abnormalDateList = await fetchAbnormalTradingDays();
+    var latest = abnormalDateList[abnormalDateList.length - 1];
+    if (!abnormalDate || abnormalDate === prevLatest) {
+        abnormalDate = latest;
     }
     // 每次进入页面都重新渲染：loadAbnormalTabs() 会用 innerHTML 重建日期栏 DOM，需重新写入
     renderAbnormalDateBar(abnormalDate);

@@ -76,14 +76,9 @@ function loadSelfReview(manual) {
 }
 
 function loadSRDates() {
-    return fetch('/api/trading-days?count=30')
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (!res || res.success === false) {
-                _srDateList = [];
-            } else {
-                _srDateList = res.data.trading_days || [];
-            }
+    return getDateLists()
+        .then(function(cache) {
+            _srDateList = cache.trading_days || [];
             return _srDateList;
         })
         .catch(function() {

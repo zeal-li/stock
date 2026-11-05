@@ -68,6 +68,7 @@ function clearAllCaches() {
         localStorage.removeItem('announceCache');
         localStorage.removeItem('earningsCache');
         localStorage.removeItem('unlockCache');
+        localStorage.removeItem('dateListCache');
     } catch(e) {}
     // 刷新页面上的列表（从已空的缓存重新加载）
     try { loadPickedStocks(); } catch(e) {}
@@ -86,6 +87,43 @@ function initTradingDayCache() {
         .catch(function() {
             _tradingDayResult = null;  // 降级：仅用周末判断
         });
+}
+
+// ---- 日期列表统一缓存（自然日 + 交易日） ----
+// 后端提供两种日期列表：交易日列表（/api/trading-days，排除周末节假日）与
+// 自然日列表（/api/hotstock-bang-dates，含周末节假日，供热股榜使用）。
+// 各功能页的日期栏统一从这里取，按天缓存到 localStorage：跨天后重新请求后端，
+// 同一天内各页签复用同一份缓存，不再各自请求。
+var DATE_LIST_CACHE_KEY = 'dateListCache';
+
+function _todayStr() {
+    var now = new Date();
+    return now.getFullYear() + '-' +
+        String(now.getMonth() + 1).padStart(2, '0') + '-' +
+        String(now.getDate()).padStart(2, '0');
+}
+
+async function getDateLists() {
+    var raw = localStorage.getItem(DATE_LIST_CACHE_KEY);
+    var cached = raw ? JSON.parse(raw) : null;
+
+    var today = _todayStr();
+    if (cached && cached.cached_at === today && cached.trading_days && cached.calendar_days) {
+        return cached;
+    }
+
+    var tdRes = await fetch('/api/trading-days?count=30');
+    var cdRes = await fetch('/api/hotstock-bang-dates?count=30');
+    var tdData = await tdRes.json();
+    var cdData = await cdRes.json();
+
+    var fresh = {
+        cached_at: today,
+        trading_days: tdData.data.trading_days,
+        calendar_days: cdData.data.dates
+    };
+    localStorage.setItem(DATE_LIST_CACHE_KEY, JSON.stringify(fresh));
+    return fresh;
 }
 
 // ---- 判断当日是否是交易日 ----

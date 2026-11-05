@@ -3,7 +3,6 @@
 
 var _lianbanBangDateList = null;
 var _lianbanBangDate = '';
-var _lianbanBangInitialized = false;
 var _lianbanBangCache = {};  // code -> 当前榜单 row（供异动分析弹窗取数）
 
 function fmtLianbanBangAmt(v) {
@@ -23,9 +22,8 @@ function fmtLianbanBangPct(v) {
 // ==================== 交易日历 ====================
 
 async function fetchLianbanBangTradingDays() {
-    var res = await fetch('/api/trading-days?count=30');
-    var result = await res.json();
-    _lianbanBangDateList = result.data.trading_days;
+    var cache = await getDateLists();
+    _lianbanBangDateList = cache.trading_days;
     return _lianbanBangDateList;
 }
 
@@ -51,20 +49,18 @@ function selectLianbanBangDate(date) {
 // ==================== 初始化 ====================
 
 async function initLianbanBang() {
-    if (_lianbanBangInitialized) return;
-    _lianbanBangInitialized = true;
+    var prevLatest = _lianbanBangDateList ? _lianbanBangDateList[_lianbanBangDateList.length - 1] : '';
     _lianbanBangDateList = await fetchLianbanBangTradingDays();
-    _lianbanBangDate = _lianbanBangDateList[_lianbanBangDateList.length - 1];
+    var latest = _lianbanBangDateList[_lianbanBangDateList.length - 1];
+    if (!_lianbanBangDate || _lianbanBangDate === prevLatest) {
+        _lianbanBangDate = latest;
+    }
     renderLianbanBangDateBar(_lianbanBangDate);
 }
 
 // ==================== 数据加载 ====================
 
 function loadLianbanBang() {
-    if (!_lianbanBangInitialized) {
-        initLianbanBang().then(function() { _doLoadLianbanBang(); });
-        return;
-    }
     _doLoadLianbanBang();
 }
 

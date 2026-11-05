@@ -6,13 +6,11 @@ var _currentSectorCode = null;
 var _currentSectorName = null;
 var _sectorFundDate = '';          // 当前选中交易日
 var _sectorFundDateList = null;    // 交易日列表（最近30个）
-var _sectorFundInitialized = false;
 
 async function loadSectorFund(type, period) {
     _sectorFundType = type || _sectorFundType;
     _sectorFundPeriod = period || _sectorFundPeriod;
 
-    if (!_sectorFundInitialized) await initSectorFund();
     if (!_sectorFundDate) return;
 
     // 仅在容器为空时显示 loading，刷新时保留已有数据避免闪烁
@@ -47,9 +45,8 @@ async function loadSectorFund(type, period) {
 }
 
 async function fetchSectorTradingDays() {
-    var res = await fetch('/api/trading-days?count=30');
-    var result = await res.json();
-    _sectorFundDateList = result.data.trading_days;
+    var cache = await getDateLists();
+    _sectorFundDateList = cache.trading_days;
     return _sectorFundDateList;
 }
 
@@ -74,10 +71,12 @@ function selectSectorDate(date) {
 }
 
 async function initSectorFund() {
-    if (_sectorFundInitialized) return;
-    _sectorFundInitialized = true;
+    var prevLatest = _sectorFundDateList ? _sectorFundDateList[_sectorFundDateList.length - 1] : '';
     _sectorFundDateList = await fetchSectorTradingDays();
-    _sectorFundDate = _sectorFundDateList[_sectorFundDateList.length - 1];  // 默认最新交易日
+    var latest = _sectorFundDateList[_sectorFundDateList.length - 1];
+    if (!_sectorFundDate || _sectorFundDate === prevLatest) {
+        _sectorFundDate = latest;
+    }
     renderSectorDateBar(_sectorFundDate);
 }
 

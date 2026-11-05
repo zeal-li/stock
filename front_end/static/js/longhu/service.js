@@ -41,7 +41,6 @@ function toggleLHBDetail(idx) {
 
 var lhbCurrentDate = '';
 var lhbCurrentTab = 'all';
-var _lhbInitialized = false;
 var _lhbDateList = null;
 var _lhbCurrentData = [];   // 当前日期的全部股票数据（含 buy_seats/sell_seats）
 
@@ -99,9 +98,8 @@ function _getFilteredList(tab) {
 // ==================== 交易日历 ====================
 
 async function fetchTradingDays() {
-    var res = await fetch('/api/trading-days?count=30');
-    var result = await res.json();
-    _lhbDateList = result.data.trading_days;
+    var cache = await getDateLists();
+    _lhbDateList = cache.trading_days;
     return _lhbDateList;
 }
 
@@ -179,11 +177,12 @@ function _updateAllTabLabels() {
 // ==================== 初始化 ====================
 
 async function initLHB() {
-    if (_lhbInitialized) return;
-    _lhbInitialized = true;
-
+    var prevLatest = _lhbDateList ? _lhbDateList[_lhbDateList.length - 1] : '';
     _lhbDateList = await fetchTradingDays();
-    lhbCurrentDate = _lhbDateList[_lhbDateList.length - 1];  // 默认选中最新交易日
+    var latest = _lhbDateList[_lhbDateList.length - 1];
+    if (!lhbCurrentDate || lhbCurrentDate === prevLatest) {
+        lhbCurrentDate = latest;
+    }
     renderLHBDateBar(lhbCurrentDate);
 }
 
@@ -289,7 +288,6 @@ async function loadLonghuBang(tradeDate) {
     var container = document.getElementById('longhuContent');
     if (!container) return;
 
-    if (!lhbCurrentDate) await initLHB();
     var isManual = !!tradeDate;
     var date = tradeDate || lhbCurrentDate;
     if (!date) return;

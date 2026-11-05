@@ -80,9 +80,8 @@ function getIndexColors(indexData) {
 // ==================== 日期栏 ====================
 
 async function fetchMoneyFlowTradingDays() {
-    var res = await fetch('/api/trading-days?count=30');
-    var result = await res.json();
-    return result.data.trading_days;
+    var cache = await getDateLists();
+    return cache.trading_days;
 }
 
 function renderMoneyFlowDateBar(activeDate) {
@@ -105,9 +104,10 @@ function selectMoneyFlowDate(date) {
 }
 
 async function initMoneyFlowDateBar() {
+    var prevLatest = _moneyFlowLatestDate;
     _moneyFlowDateList = await fetchMoneyFlowTradingDays();
     _moneyFlowLatestDate = _moneyFlowDateList[_moneyFlowDateList.length - 1];
-    if (!_moneyFlowDate) _moneyFlowDate = _moneyFlowLatestDate;
+    if (!_moneyFlowDate || _moneyFlowDate === prevLatest) _moneyFlowDate = _moneyFlowLatestDate;
     renderMoneyFlowDateBar(_moneyFlowDate);
 }
 
@@ -767,7 +767,7 @@ async function loadMoneyFlowHistory(date) {
 }
 
 async function loadIndexWithChart(date) {
-    if (!_moneyFlowDateList) await initMoneyFlowDateBar();
+    await initMoneyFlowDateBar();
     var d = date || _moneyFlowDate;
     if (!d || d === _moneyFlowLatestDate) {
         await loadMoneyFlowRealtime();
