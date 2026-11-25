@@ -811,11 +811,6 @@ body {
     z-index: 1;
 }
 
-/* 连板榜由外层统一滚动，表头不吸顶 */
-.lb-rank-table thead {
-    position: static;
-}
-
 .lhb-table th {
     padding: 10px 8px;
     text-align: left;
