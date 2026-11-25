@@ -806,9 +806,6 @@ body {
 
 .lhb-table thead {
     background: #0f3460;
-    position: sticky;
-    top: 0;
-    z-index: 1;
 }
 
 .lhb-table th {
@@ -873,20 +870,6 @@ body {
 /* 龙虎榜席位详情行 */
 .lhb-detail td {
     border-bottom: 1px solid #0f3460;
-}
-
-/* 龙虎榜卡片内的滚动条美化 */
-#longhuContent::-webkit-scrollbar {
-    width: 4px;
-}
-
-#longhuContent::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-#longhuContent::-webkit-scrollbar-thumb {
-    background: #0f3460;
-    border-radius: 2px;
 }
 
 .change-up {
