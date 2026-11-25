@@ -46,6 +46,27 @@ var USER_TYPE_MAP = {
     101: 'root'
 };
 
+// ---- 资金流向每日快照缓存（按交易日，供日期回看与成交额折线图共用） ----
+var MONEY_FLOW_DAILY_CACHE_KEY = 'moneyFlowTurnoverCache';
+
+function getMoneyFlowDailyCache() {
+    var raw = localStorage.getItem(MONEY_FLOW_DAILY_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+}
+
+function saveMoneyFlowDailyCache(cache) {
+    localStorage.setItem(MONEY_FLOW_DAILY_CACHE_KEY, JSON.stringify(cache));
+}
+
+function pruneMoneyFlowDailyCache(tradingDays) {
+    var cache = getMoneyFlowDailyCache();
+    var kept = {};
+    tradingDays.forEach(function(date) {
+        if (cache[date] !== undefined) kept[date] = cache[date];
+    });
+    saveMoneyFlowDailyCache(kept);
+}
+
 // 根据用户类型数字返回展示名称，未知类型返回空字符串
 function getUserTypeName(userType) {
     return USER_TYPE_MAP[userType] || '';
@@ -69,6 +90,7 @@ function clearAllCaches() {
         localStorage.removeItem('earningsCache');
         localStorage.removeItem('unlockCache');
         localStorage.removeItem('dateListCache');
+        localStorage.removeItem(MONEY_FLOW_DAILY_CACHE_KEY);
     } catch(e) {}
     // 刷新页面上的列表（从已空的缓存重新加载）
     try { loadPickedStocks(); } catch(e) {}
@@ -122,6 +144,7 @@ async function getDateLists() {
         trading_days: tdData.data.trading_days,
         calendar_days: cdData.data.dates
     };
+    pruneMoneyFlowDailyCache(fresh.trading_days);
     localStorage.setItem(DATE_LIST_CACHE_KEY, JSON.stringify(fresh));
     return fresh;
 }

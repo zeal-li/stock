@@ -5,6 +5,124 @@ var _moneyFlowDate = '';
 var _moneyFlowDateList = null;
 var _moneyFlowLatestDate = '';
 
+// ==================== 页签切换 & 当日成交额走势 ====================
+
+var currentMoneyFlowTab = 'overview';
+
+function isMoneyFlowDateCacheable(date, latestDay) {
+    return date !== latestDay || _todayStr() > latestDay;
+}
+
+function switchMoneyFlowTab(tab) {
+    currentMoneyFlowTab = tab;
+    document.querySelectorAll('[data-money-flow-tab]').forEach(function(el) {
+        el.classList.toggle('active', el.getAttribute('data-money-flow-tab') === tab);
+    });
+    document.getElementById('moneyFlowTabOverview').style.display = tab === 'overview' ? 'block' : 'none';
+    document.getElementById('moneyFlowTabTurnover').style.display = tab === 'turnover' ? 'block' : 'none';
+    if (tab === 'overview') {
+        [minuteChart, turnoverChart, distributionChart, marginChart].forEach(function(chart) {
+            if (chart) chart.resize();
+        });
+    } else {
+        loadDailyTurnover();
+    }
+}
+
+function renderDailyTurnoverChart(dates, values) {
+    const ctx = document.getElementById('dailyTurnoverChart').getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(233, 69, 96, 0.28)');
+    gradient.addColorStop(1, 'rgba(233, 69, 96, 0)');
+
+    if (dailyTurnoverChart) dailyTurnoverChart.destroy();
+    dailyTurnoverChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: dates.map(function(date) { return date.slice(5); }),
+            datasets: [{
+                data: values,
+                borderColor: '#e94560',
+                backgroundColor: gradient,
+                borderWidth: 2,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                tension: 0.25,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { left: 10, right: 10 } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    mode: 'index', intersect: false,
+                    backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
+                    callbacks: {
+                        title: function(items) { return dates[items[0].dataIndex]; },
+                        label: function(item) { return '当日成交额: ' + Number(item.raw).toFixed(2) + '亿'; }
+                    }
+                }
+            },
+            scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#888', font: { size: 10 }, autoSkip: true, maxTicksLimit: 12, maxRotation: 0 } },
+                y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(v) { return Number(v).toFixed(0) + '亿'; } }, afterFit: function(scale) { scale.width = 60; } }
+            },
+            interaction: { mode: 'index', intersect: false }
+        }
+    });
+}
+
+async function loadDailyTurnover() {
+    const meta = document.getElementById('dailyTurnoverMeta');
+    meta.textContent = '加载中...';
+    try {
+        const tradingDays = await fetchMoneyFlowTradingDays();
+        const latestDay = tradingDays[tradingDays.length - 1];
+        const cache = getMoneyFlowDailyCache();
+        const values = {};
+        const missing = [];
+        tradingDays.forEach(function(date) {
+            const snapshot = cache[date];
+            if (isMoneyFlowDateCacheable(date, latestDay) && snapshot !== undefined) {
+                values[date] = Number((snapshot.turnover.data.header.turnover / 1e8).toFixed(2));
+            } else {
+                missing.push(date);
+            }
+        });
+
+        const fetched = await Promise.all(missing.map(async function(date) {
+            const res = await fetch('/api/money-flow-daily?date=' + encodeURIComponent(date));
+            const result = await res.json();
+            return {date: date, snapshot: result.data};
+        }));
+        fetched.forEach(function(item) {
+            const snapshot = item.snapshot;
+            if (!snapshot) return;
+            values[item.date] = Number((snapshot.turnover.data.header.turnover / 1e8).toFixed(2));
+            if (isMoneyFlowDateCacheable(item.date, latestDay)) {
+                cache[item.date] = snapshot;
+            } else {
+                delete cache[item.date];
+            }
+        });
+        saveMoneyFlowDailyCache(cache);
+
+        const dates = tradingDays.filter(function(date) { return values[date] !== undefined; });
+        if (!dates.length) throw new Error('暂无成交额数据');
+        const series = dates.map(function(date) { return values[date]; });
+        renderDailyTurnoverChart(dates, series);
+        const latest = series[series.length - 1];
+        const max = Math.max.apply(null, series);
+        const maxDate = dates[series.indexOf(max)];
+        meta.textContent = '近' + dates.length + '个交易日 | 最新 ' + latest.toFixed(2) + '亿 | 最高 ' + max.toFixed(2) + '亿（' + maxDate + '）';
+    } catch (err) {
+        meta.textContent = '成交额数据加载失败：' + err.message;
+    }
+}
+
 function generateFlowSlots() {
     const slots = [];
     for (let h = 9, m = 30; h < 12; ) {
@@ -727,10 +845,40 @@ async function loadMoneyFlowRealtime() {
     }
 }
 
+function renderMoneyFlowSnapshot(snap) {
+    const indexCard = document.getElementById('index-card');
+    let indexData = null, indexDataSZ = null;
+    if (snap.indices && snap.indices.success && snap.indices.data && snap.indices.data.length > 0) {
+        indexData = snap.indices.data[0];
+        if (snap.indices.data.length > 1) indexDataSZ = snap.indices.data[1];
+    }
+    if (!indexData) {
+        indexCard.innerHTML = '<div class="error">暂无该日指数数据</div>';
+        return;
+    }
+
+    buildMoneyFlowHTML(indexData, indexDataSZ);
+    const colors = getIndexColors(indexData);
+
+    renderTurnoverHeader(snap.turnover || { success: false });
+    renderFundFlow(snap.fund_flow || { success: false });
+    renderDistribution(snap.distribution || { success: false });
+    renderMargin(snap.margin || { success: false });
+    renderFear(snap.fear_index || { success: false });
+    renderRisk(snap.risk_index || { success: false });
+    renderMinute(snap.sh_minute || { success: false }, snap.turnover || { success: false }, colors.gradientColor, colors.lineColor);
+}
+
 async function loadMoneyFlowHistory(date) {
     const indexCard = document.getElementById('index-card');
-    indexCard.innerHTML = '<div class="loading">正在加载 ' + date + ' 数据...</div>';
+    const cache = getMoneyFlowDailyCache();
+    const cached = cache[date];
+    if (cached !== undefined) {
+        renderMoneyFlowSnapshot(cached);
+        return;
+    }
 
+    indexCard.innerHTML = '<div class="loading">正在加载 ' + date + ' 数据...</div>';
     try {
         const res = await fetch('/api/money-flow-daily?date=' + encodeURIComponent(date));
         const result = await res.json();
@@ -740,27 +888,11 @@ async function loadMoneyFlowHistory(date) {
             return;
         }
         const snap = result.data;
-
-        let indexData = null, indexDataSZ = null;
-        if (snap.indices && snap.indices.success && snap.indices.data && snap.indices.data.length > 0) {
-            indexData = snap.indices.data[0];
-            if (snap.indices.data.length > 1) indexDataSZ = snap.indices.data[1];
+        if (isMoneyFlowDateCacheable(date, _moneyFlowLatestDate)) {
+            cache[date] = snap;
+            saveMoneyFlowDailyCache(cache);
         }
-        if (!indexData) {
-            indexCard.innerHTML = '<div class="error">暂无该日指数数据</div>';
-            return;
-        }
-
-        buildMoneyFlowHTML(indexData, indexDataSZ);
-        const colors = getIndexColors(indexData);
-
-        renderTurnoverHeader(snap.turnover || { success: false });
-        renderFundFlow(snap.fund_flow || { success: false });
-        renderDistribution(snap.distribution || { success: false });
-        renderMargin(snap.margin || { success: false });
-        renderFear(snap.fear_index || { success: false });
-        renderRisk(snap.risk_index || { success: false });
-        renderMinute(snap.sh_minute || { success: false }, snap.turnover || { success: false }, colors.gradientColor, colors.lineColor);
+        renderMoneyFlowSnapshot(snap);
     } catch (error) {
         indexCard.innerHTML = '<div class="error">加载失败</div>';
     }

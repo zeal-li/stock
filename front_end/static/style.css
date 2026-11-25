@@ -608,6 +608,25 @@ body {
     max-height: 150px;
 }
 
+/* 资金流向页签内容切换 */
+.money-flow-tab-content {
+    display: none;
+}
+
+.money-flow-tab-content.active {
+    display: block;
+}
+
+.daily-turnover-chart-box {
+    position: relative;
+    height: 420px;
+}
+
+.daily-turnover-chart-box canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
 .chart-title {
     font-size: 13px;
     color: #888;
@@ -1103,6 +1122,10 @@ body {
 
     .chart-box canvas {
         max-height: 120px;
+    }
+
+    .daily-turnover-chart-box {
+        height: 300px;
     }
 
     .stats-cards {
