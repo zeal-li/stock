@@ -3,6 +3,8 @@
 
 var _lianbanBangDateList = null;
 var _lianbanBangDate = '';
+var _lianbanBangTab = 'rank';
+var _lianbanBangList = [];   // 当前日期榜单，供两个页签共享渲染
 var _lianbanBangCache = {};  // code -> 当前榜单 row（供异动分析弹窗取数）
 
 function fmtLianbanBangAmt(v) {
@@ -58,6 +60,32 @@ async function initLianbanBang() {
     renderLianbanBangDateBar(_lianbanBangDate);
 }
 
+// ==================== 页签切换 ====================
+
+function selectLianbanBangTab(tab) {
+    _lianbanBangTab = tab;
+    var bar = document.getElementById('lianbanBangTabBar');
+    if (bar) {
+        var tabs = bar.querySelectorAll('.lhb-tab');
+        for (var i = 0; i < tabs.length; i++) {
+            tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tab);
+        }
+    }
+    if (_lianbanBangList.length) {
+        _renderLianbanBangCurrent();
+    } else {
+        loadLianbanBang();
+    }
+}
+
+function _renderLianbanBangCurrent() {
+    if (_lianbanBangTab === 'ladder') {
+        renderLianbanBangLadder(_lianbanBangList);
+    } else {
+        renderLianbanBangTable(_lianbanBangList);
+    }
+}
+
 // ==================== 数据加载 ====================
 
 function loadLianbanBang() {
@@ -77,10 +105,12 @@ function _doLoadLianbanBang() {
                 return;
             }
             if (!res.list || res.list.length === 0) {
+                _lianbanBangList = [];
                 container.innerHTML = '<div class="error">暂无该日数据</div>';
                 return;
             }
-            renderLianbanBangTable(res.list);
+            _lianbanBangList = res.list;
+            _renderLianbanBangCurrent();
         })
         .catch(function() {
             container.innerHTML = '<div class="error">连板榜加载失败</div>';
@@ -141,6 +171,62 @@ function renderLianbanBangTable(list) {
     }
 
     html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+// ==================== 连板天梯渲染 ====================
+
+function renderLianbanBangLadder(list) {
+    var container = document.getElementById('lianbanBangContent');
+    var grouped = {};
+    var maxLbc = 0;
+    var lbCount = 0;
+
+    for (var i = 0; i < list.length; i++) {
+        var row = list[i];
+        var lbc = row.lbc || 1;
+        if (!grouped[lbc]) grouped[lbc] = [];
+        grouped[lbc].push(row);
+        if (lbc > 1) lbCount++;
+        if (lbc > maxLbc) maxLbc = lbc;
+    }
+
+    var tiers = Object.keys(grouped).map(function(k) { return Number(k); }).sort(function(a, b) { return b - a; });
+    var dateText = _lianbanBangDate.slice(5).replace('-', '月') + '日';
+
+    var html = '<div class="lb-ladder">';
+    html += '<div class="lb-ladder-head">';
+    html += '<span class="lb-ladder-date">' + dateText + '</span>';
+    html += '<span class="lb-ladder-title">连板天梯</span>';
+    html += '<span class="lb-ladder-note">公开数据，仅作参考，不构成投资建议</span>';
+    html += '</div>';
+    html += '<div class="lb-ladder-summary">涨停 <b>' + list.length + '</b> 家<span class="lb-ladder-sep">·</span>连板 <b>' + lbCount + '</b> 家<span class="lb-ladder-sep">·</span>最高 <b>' + maxLbc + '</b> 板</div>';
+
+    for (var t = 0; t < tiers.length; t++) {
+        var level = tiers[t];
+        var cards = grouped[level].slice().sort(function(a, b) {
+            return String(a.fbt || '').localeCompare(String(b.fbt || ''));
+        });
+        html += '<div class="lb-ladder-tier">';
+        html += '<div class="lb-ladder-tier-label">' + (level === 1 ? '首板' : level + '板') + '</div>';
+        html += '<div class="lb-ladder-tier-cards">';
+        for (var j = 0; j < cards.length; j++) {
+            var card = cards[j];
+            var name = card.name || card.code;
+            html += '<div class="lb-ladder-card" title="' + name + ' ' + card.code + '" onclick="KlinePopup.open(\'' + card.code + '\',\'' + guessMarket(card.code) + '\',\'' + name + '\')">';
+            html += '<div class="lb-ladder-card-time">' + (card.fbt || '--') + '</div>';
+            html += '<div class="lb-ladder-card-name">' + name + '</div>';
+            html += '<div class="lb-ladder-card-industry">' + (card.industry || '--') + '</div>';
+            html += '<div class="lb-ladder-card-fund">封单金额 <b>' + fmtLianbanBangAmt(card.fund) + '</b></div>';
+            if (card.zbc > 0) {
+                html += '<div class="lb-ladder-card-badge" title="炸板 ' + card.zbc + ' 次">炸</div>';
+            }
+            html += '</div>';
+        }
+        html += '</div></div>';
+    }
+
+    html += '</div>';
     container.innerHTML = html;
 }
 

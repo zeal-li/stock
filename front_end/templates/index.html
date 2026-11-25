@@ -237,6 +237,10 @@
                 <div class="page-header">
                     <h1 class="page-title">📈 连板榜</h1>
                 </div>
+                <div id="lianbanBangTabBar" style="display:flex;gap:6px;margin-bottom:10px;">
+                    <span class="lhb-tab active" data-tab="rank" onclick="selectLianbanBangTab('rank')">排行榜</span>
+                    <span class="lhb-tab" data-tab="ladder" onclick="selectLianbanBangTab('ladder')">连板天梯</span>
+                </div>
                 <div id="lianbanBangDateBar" style="display:flex;gap:4px;margin-bottom:14px;flex-wrap:wrap;"></div>
                 <div class="index-card" style="padding:18px;">
                     <div id="lianbanBangContent" style="max-height:650px; overflow-y:auto;">

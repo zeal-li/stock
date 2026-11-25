@@ -1802,3 +1802,133 @@ body {
     color: #6b7590;
 }
 
+/* ========== 连板榜 - 连板天梯 ========== */
+.lb-ladder {
+    padding: 2px 0 4px;
+}
+.lb-ladder-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+.lb-ladder-date {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+}
+.lb-ladder-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #e94560;
+}
+.lb-ladder-note {
+    font-size: 12px;
+    color: #8b8b9e;
+}
+.lb-ladder-summary {
+    font-size: 12px;
+    color: #8b8b9e;
+    margin-bottom: 12px;
+}
+.lb-ladder-summary b {
+    font-size: 13px;
+    color: #fbbf24;
+}
+.lb-ladder-sep {
+    margin: 0 10px;
+    color: #3b4a6b;
+}
+.lb-ladder-tier {
+    display: flex;
+    align-items: stretch;
+    border-top: 1px solid rgba(15, 52, 96, 0.6);
+}
+.lb-ladder-tier:last-child {
+    border-bottom: 1px solid rgba(15, 52, 96, 0.6);
+}
+.lb-ladder-tier-label {
+    flex: 0 0 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 6px 0;
+    background: #2f6fed;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 4px 0 0 4px;
+}
+.lb-ladder-tier-cards {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+    gap: 6px;
+    padding: 6px;
+}
+.lb-ladder-card {
+    position: relative;
+    min-height: 78px;
+    padding: 6px 4px 5px;
+    text-align: center;
+    background: #1e2b4d;
+    border: 1px solid #2a3a60;
+    border-radius: 5px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: background 0.15s, border-color 0.15s;
+}
+.lb-ladder-card:hover {
+    background: #26365e;
+    border-color: #4d7cfe;
+}
+.lb-ladder-card-time {
+    font-size: 10px;
+    line-height: 1.2;
+    color: #8b8b9e;
+}
+.lb-ladder-card-name {
+    margin: 3px 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lb-ladder-card-industry {
+    display: inline-block;
+    max-width: 100%;
+    padding: 0 4px;
+    font-size: 10px;
+    color: #8bb9ff;
+    background: rgba(77, 159, 255, 0.12);
+    border-radius: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lb-ladder-card-fund {
+    margin-top: 4px;
+    font-size: 10px;
+    color: #8b8b9e;
+    white-space: nowrap;
+}
+.lb-ladder-card-fund b {
+    font-size: 11px;
+    color: #e94560;
+}
+.lb-ladder-card-badge {
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 14px;
+    color: #fff;
+    background: #e94560;
+    border-radius: 0 4px 0 4px;
+}
+
