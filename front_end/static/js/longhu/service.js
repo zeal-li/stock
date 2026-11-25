@@ -28,15 +28,12 @@ function getLHBColor(v) {
 function toggleLHBDetail(idx) {
     var detailRow = document.getElementById('lhb-detail-' + idx);
     if (!detailRow) return;
-    if (detailRow.style.display === 'none' || detailRow.style.display === '') {
-        var allDetails = document.querySelectorAll('.lhb-detail');
-        for (var d = 0; d < allDetails.length; d++) {
-            allDetails[d].style.display = 'none';
-        }
-        detailRow.style.display = 'table-row';
-    } else {
-        detailRow.style.display = 'none';
+    var willShow = !detailRow.classList.contains('show');
+    var allDetails = document.querySelectorAll('.lhb-detail');
+    for (var d = 0; d < allDetails.length; d++) {
+        allDetails[d].classList.remove('show');
     }
+    if (willShow) detailRow.classList.add('show');
 }
 
 var lhbCurrentDate = '';
@@ -237,7 +234,7 @@ function renderLonghuTable(data, tradeDate, tab) {
         html += '</tr>';
 
         // 展开的详情行：买卖席位明细
-        html += '<tr class="lhb-detail" id="lhb-detail-' + i + '" style="display:none;">';
+        html += '<tr class="lhb-detail" id="lhb-detail-' + i + '">';
         html += '<td colspan="9" style="padding:0;">';
         html += '<div style="display:flex; gap:16px; padding:10px 12px; background:#0d1b33; border-radius:4px; margin:4px 0;">';
 

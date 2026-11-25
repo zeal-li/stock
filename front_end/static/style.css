@@ -798,8 +798,24 @@ body {
 }
 
 /* 龙虎榜表格 */
+#page-longhu,
+#page-lianban_bang {
+    overflow-x: auto;
+}
+
+#page-longhu > .index-card,
+#page-lianban_bang > .index-card,
+#longhuContent,
+#lianbanBangContent {
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+}
+
 .lhb-table {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
     border-collapse: collapse;
     font-size: 13px;
 }
@@ -868,6 +884,12 @@ body {
 }
 
 /* 龙虎榜席位详情行 */
+.lhb-detail {
+    display: none;
+}
+.lhb-detail.show {
+    display: table-row;
+}
 .lhb-detail td {
     border-bottom: 1px solid #0f3460;
 }
