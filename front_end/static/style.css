@@ -799,14 +799,16 @@ body {
 
 /* 龙虎榜表格 */
 #page-longhu,
-#page-lianban_bang {
+#page-lianban_bang,
+#page-hotstock-bang {
     overflow-x: auto;
 }
 
 #page-longhu > .index-card,
 #page-lianban_bang > .index-card,
 #longhuContent,
-#lianbanBangContent {
+#lianbanBangContent,
+#hotstockBangList {
     box-sizing: border-box;
     width: max-content;
     min-width: 100%;
