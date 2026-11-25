@@ -123,7 +123,7 @@ function loadPrediction() {
             groupOrder.forEach(function(mark) {
                 var items = groups[mark];
                 if (!items.length) return;
-                html += '<div class="index-card" style="margin-bottom:12px;">';
+                html += '<div class="index-card abnormal-table-card" style="margin-bottom:12px;">';
                 html += '<h3 style="margin-bottom:12px;color:#e94560;">' + mark + '（' + items.length + '只）</h3>';
                 html += '<div class="data-table"><table><thead><tr>' +
                     '<th>代码</th><th>名称</th><th>最新涨幅</th>' +
@@ -194,7 +194,7 @@ function loadMonitor() {
                     '</div>';
             }
 
-            var html = statsHtml + '<div class="index-card"><div class="data-table"><table><thead><tr>' +
+            var html = statsHtml + '<div class="index-card abnormal-table-card"><div class="data-table"><table><thead><tr>' +
                 '<th>代码</th><th>名称</th><th>类型</th><th>起始日</th>' +
                 '<th>截止日</th><th>剩余天数</th><th>异动原因</th>' +
                 '</tr></thead><tbody>';

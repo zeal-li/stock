@@ -815,6 +815,47 @@ body {
     max-width: none;
 }
 
+#page-unlock-list,
+#page-earnings,
+#page-announce,
+#page-abnormal,
+#page-user-manage {
+    overflow-x: auto;
+}
+
+#page-unlock-list > .index-card,
+#unlockListContent,
+#page-earnings > .index-card,
+#earningsContent,
+#page-announce > .index-card,
+#announceContent,
+#abnormalTabContent .abnormal-table-card,
+#page-user-manage > .index-card,
+#userManageContent,
+#unlockListContent .data-table,
+#earningsContent .data-table,
+#announceContent .data-table,
+#abnormalTabContent .abnormal-table-card .data-table,
+#userManageContent .data-table,
+#unlockListContent .data-table table,
+#earningsContent .data-table table,
+#announceContent .data-table table,
+#abnormalTabContent .abnormal-table-card .data-table table,
+#userManageContent .data-table table {
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+}
+
+#unlockListContent .data-table,
+#earningsContent .data-table,
+#announceContent .data-table,
+#abnormalTabContent .abnormal-table-card .data-table,
+#userManageContent .data-table {
+    overflow-x: visible;
+}
+
 .lhb-table {
     width: max-content;
     min-width: 100%;
