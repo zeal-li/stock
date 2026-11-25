@@ -29,11 +29,12 @@ function switchMoneyFlowTab(tab) {
     }
 }
 
-function renderDailyTurnoverChart(dates, values) {
+function renderDailyTurnoverChart(dates, values, flows) {
     const ctx = document.getElementById('dailyTurnoverChart').getContext('2d');
     const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-    gradient.addColorStop(0, 'rgba(233, 69, 96, 0.28)');
-    gradient.addColorStop(1, 'rgba(233, 69, 96, 0)');
+    gradient.addColorStop(0, 'rgba(96, 165, 250, 0.28)');
+    gradient.addColorStop(1, 'rgba(96, 165, 250, 0)');
+    const maxFlow = Math.max.apply(null, flows.map(function(v) { return Math.abs(v); }).concat([1])) * 1.1;
 
     if (dailyTurnoverChart) dailyTurnoverChart.destroy();
     dailyTurnoverChart = new Chart(ctx, {
@@ -41,14 +42,37 @@ function renderDailyTurnoverChart(dates, values) {
         data: {
             labels: dates.map(function(date) { return date.slice(5); }),
             datasets: [{
+                label: '当日成交额',
                 data: values,
-                borderColor: '#e94560',
+                borderColor: '#60a5fa',
                 backgroundColor: gradient,
                 borderWidth: 2,
                 pointRadius: 2,
                 pointHoverRadius: 5,
                 tension: 0.25,
-                fill: true
+                fill: true,
+                yAxisID: 'y'
+            }, {
+                label: '大盘资金净流入',
+                data: flows,
+                borderColor: '#fbbf24',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                tension: 0.25,
+                fill: false,
+                yAxisID: 'y1'
+            }, {
+                data: Array(dates.length).fill(0),
+                borderColor: 'rgba(255,255,255,0.2)',
+                borderWidth: 1,
+                borderDash: [4, 4],
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                fill: false,
+                yAxisID: 'y1',
+                order: 2
             }]
         },
         options: {
@@ -56,23 +80,38 @@ function renderDailyTurnoverChart(dates, values) {
             maintainAspectRatio: false,
             layout: { padding: { left: 10, right: 10 } },
             plugins: {
-                legend: { display: false },
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: { color: '#888', font: { size: 10 }, boxWidth: 12, padding: 8, filter: function(item) { return item.datasetIndex !== 2; } }
+                },
                 tooltip: {
                     mode: 'index', intersect: false,
                     backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
+                    filter: function(item) { return item.datasetIndex !== 2; },
                     callbacks: {
                         title: function(items) { return dates[items[0].dataIndex]; },
-                        label: function(item) { return '当日成交额: ' + Number(item.raw).toFixed(2) + '亿'; }
+                        label: function(item) {
+                            const v = Number(item.raw);
+                            if (item.datasetIndex === 1) return '大盘资金净流入: ' + (v >= 0 ? '+' : '') + v.toFixed(2) + '亿';
+                            return '当日成交额: ' + v.toFixed(2) + '亿';
+                        }
                     }
                 }
             },
             scales: {
                 x: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#888', font: { size: 10 }, autoSkip: true, maxTicksLimit: 12, maxRotation: 0 } },
-                y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(v) { return Number(v).toFixed(0) + '亿'; } }, afterFit: function(scale) { scale.width = 60; } }
+                y: { grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#888', font: { size: 10 }, callback: function(v) { return Number(v).toFixed(0) + '亿'; } }, afterFit: function(scale) { scale.width = 60; } },
+                y1: { position: 'right', min: -maxFlow, max: maxFlow, grid: { display: false }, ticks: { color: '#fbbf24', font: { size: 10 }, callback: function(v) { return (v >= 0 ? '+' : '') + Number(v).toFixed(0) + '亿'; } }, afterFit: function(scale) { scale.width = 60; } }
             },
             interaction: { mode: 'index', intersect: false }
         }
     });
+}
+
+function getDailyNetFlow(snapshot) {
+    const flows = snapshot.fund_flow.data.flows;
+    return Number(flows[flows.length - 1].toFixed(2));
 }
 
 async function loadDailyTurnover() {
@@ -83,11 +122,13 @@ async function loadDailyTurnover() {
         const latestDay = tradingDays[tradingDays.length - 1];
         const cache = getMoneyFlowDailyCache();
         const values = {};
+        const flows = {};
         const missing = [];
         tradingDays.forEach(function(date) {
             const snapshot = cache[date];
             if (isMoneyFlowDateCacheable(date, latestDay) && snapshot !== undefined) {
                 values[date] = Number((snapshot.turnover.data.header.turnover / 1e8).toFixed(2));
+                flows[date] = getDailyNetFlow(snapshot);
             } else {
                 missing.push(date);
             }
@@ -102,6 +143,7 @@ async function loadDailyTurnover() {
             const snapshot = item.snapshot;
             if (!snapshot) return;
             values[item.date] = Number((snapshot.turnover.data.header.turnover / 1e8).toFixed(2));
+            flows[item.date] = getDailyNetFlow(snapshot);
             if (isMoneyFlowDateCacheable(item.date, latestDay)) {
                 cache[item.date] = snapshot;
             } else {
@@ -113,11 +155,13 @@ async function loadDailyTurnover() {
         const dates = tradingDays.filter(function(date) { return values[date] !== undefined; });
         if (!dates.length) throw new Error('暂无成交额数据');
         const series = dates.map(function(date) { return values[date]; });
-        renderDailyTurnoverChart(dates, series);
+        const flowSeries = dates.map(function(date) { return flows[date]; });
+        renderDailyTurnoverChart(dates, series, flowSeries);
         const latest = series[series.length - 1];
         const max = Math.max.apply(null, series);
         const maxDate = dates[series.indexOf(max)];
-        meta.textContent = '近' + dates.length + '个交易日 | 最新 ' + latest.toFixed(2) + '亿 | 最高 ' + max.toFixed(2) + '亿（' + maxDate + '）';
+        const latestFlow = flowSeries[flowSeries.length - 1];
+        meta.textContent = '近' + dates.length + '个交易日 | 最新成交额 ' + latest.toFixed(2) + '亿 | 最高 ' + max.toFixed(2) + '亿（' + maxDate + '） | 最新净流入 ' + (latestFlow >= 0 ? '+' : '') + latestFlow.toFixed(2) + '亿';
     } catch (err) {
         meta.textContent = '成交额数据加载失败：' + err.message;
     }
