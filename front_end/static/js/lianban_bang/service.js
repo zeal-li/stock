@@ -123,7 +123,7 @@ function renderLianbanBangTable(list) {
     var container = document.getElementById('lianbanBangContent');
     _lianbanBangCache = {};
     var html = '<div style="margin-bottom:8px;font-size:12px;color:#888;">共 <b style="color:#fbbf24;">' + list.length + '</b> 只涨停股（按连板数降序）</div>';
-    html += '<table class="lhb-table">';
+    html += '<table class="lhb-table lb-rank-table">';
     html += '<thead><tr>';
     html += '<th style="width:70px;text-align:center;">连板</th>';
     html += '<th style="width:120px;">股票</th>';
