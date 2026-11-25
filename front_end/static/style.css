@@ -856,6 +856,34 @@ body {
     overflow-x: visible;
 }
 
+#page-watchlist {
+    overflow-x: auto;
+}
+
+#watchlist-tab-watchlist > .index-card,
+#watchlistStocks,
+#watchlist-tab-etf .etf-fund-layout > .index-card,
+#etfContent,
+#watchlist-tab-holdings > .index-card,
+#holdingsContent,
+#watchlistStocks .data-table,
+#etfContent .data-table,
+#holdingsContent .data-table,
+#watchlistStocks .data-table table,
+#etfContent .data-table table,
+#holdingsContent .data-table table {
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+}
+
+#watchlistStocks .data-table,
+#etfContent .data-table,
+#holdingsContent .data-table {
+    overflow-x: visible;
+}
+
 .lhb-table {
     width: max-content;
     min-width: 100%;
