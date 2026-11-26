@@ -31,10 +31,17 @@ function switchMoneyFlowTab(tab) {
 
 function getDailyIndexValues(snapshot) {
     const indices = snapshot.indices.data;
-    return {sh: Number(indices[0].price), sz: Number(indices[1].price)};
+    const sh = pickIndexByCode(indices, '000001');
+    const sz = pickIndexByCode(indices, '399001');
+    const cyb = pickIndexByCode(indices, '399006');
+    return {
+        sh: Number(sh.price),
+        sz: Number(sz.price),
+        cyb: cyb ? Number(cyb.price) : null
+    };
 }
 
-function renderIndexTrendChart(dates, shValues, szValues) {
+function renderIndexTrendChart(dates, shValues, szValues, cybValues) {
     const ctx = document.getElementById('indexTrendChart').getContext('2d');
 
     if (indexTrendChart) indexTrendChart.destroy();
@@ -45,7 +52,18 @@ function renderIndexTrendChart(dates, shValues, szValues) {
             datasets: [{
                 label: '上证指数',
                 data: shValues,
-                borderColor: '#e94560',
+                borderColor: '#a78bfa',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                tension: 0.25,
+                fill: false,
+                yAxisID: 'y'
+            }, {
+                label: '创业板指',
+                data: cybValues,
+                borderColor: '#fb923c',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 pointRadius: 2,
@@ -56,7 +74,7 @@ function renderIndexTrendChart(dates, shValues, szValues) {
             }, {
                 label: '深证成指',
                 data: szValues,
-                borderColor: '#4ade80',
+                borderColor: '#22d3ee',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 pointRadius: 2,
@@ -222,6 +240,7 @@ async function loadDailyTurnover() {
         const flows = {};
         const sh = {};
         const sz = {};
+        const cyb = {};
         const missing = [];
         tradingDays.forEach(function(date) {
             const snapshot = cache[date];
@@ -233,6 +252,7 @@ async function loadDailyTurnover() {
                 const idx = getDailyIndexValues(snapshot);
                 sh[date] = idx.sh;
                 sz[date] = idx.sz;
+                cyb[date] = idx.cyb;
             } else {
                 missing.push(date);
             }
@@ -253,6 +273,7 @@ async function loadDailyTurnover() {
             const idx = getDailyIndexValues(snapshot);
             sh[item.date] = idx.sh;
             sz[item.date] = idx.sz;
+            cyb[item.date] = idx.cyb;
             if (isMoneyFlowDateCacheable(item.date, latestDay)) {
                 cache[item.date] = snapshot;
             } else {
@@ -265,7 +286,10 @@ async function loadDailyTurnover() {
         if (!dates.length) throw new Error('暂无成交额数据');
         const series = dates.map(function(date) { return values[date]; });
         const flowSeries = dates.map(function(date) { return flows[date]; });
-        renderIndexTrendChart(dates, dates.map(function(date) { return sh[date]; }), dates.map(function(date) { return sz[date]; }));
+        renderIndexTrendChart(dates,
+            dates.map(function(date) { return sh[date]; }),
+            dates.map(function(date) { return sz[date]; }),
+            dates.map(function(date) { return cyb[date] === undefined ? null : cyb[date]; }));
         renderDailyTurnoverChart(dates, series, dates.map(function(date) { return changes[date]; }), dates.map(function(date) { return prevs[date]; }));
         renderDailyNetFlowChart(dates, flowSeries);
         const latest = series[series.length - 1];
@@ -273,7 +297,10 @@ async function loadDailyTurnover() {
         const maxDate = dates[series.indexOf(max)];
         const latestFlow = flowSeries[flowSeries.length - 1];
         meta.textContent = '近' + dates.length + '个交易日 | 最新成交额 ' + latest.toFixed(2) + '亿 | 最高 ' + max.toFixed(2) + '亿（' + maxDate + '） | 最新净流入 ' + (latestFlow >= 0 ? '+' : '') + latestFlow.toFixed(2) + '亿';
-        document.getElementById('indexTrendMeta').textContent = '最新 上证 ' + sh[dates[dates.length - 1]].toFixed(2) + ' | 深证 ' + sz[dates[dates.length - 1]].toFixed(2);
+        const latestCyb = cyb[dates[dates.length - 1]];
+        document.getElementById('indexTrendMeta').textContent = '最新 上证 ' + sh[dates[dates.length - 1]].toFixed(2) +
+            ' | 深证 ' + sz[dates[dates.length - 1]].toFixed(2) +
+            (latestCyb != null ? ' | 创业板 ' + latestCyb.toFixed(2) : '');
     } catch (err) {
         meta.textContent = '成交额数据加载失败：' + err.message;
     }
