@@ -61,17 +61,6 @@ function renderIndexTrendChart(dates, shValues, szValues, cybValues) {
                 fill: false,
                 yAxisID: 'y'
             }, {
-                label: '创业板指',
-                data: cybValues,
-                borderColor: '#fb923c',
-                backgroundColor: 'transparent',
-                borderWidth: 2,
-                pointRadius: 2,
-                pointHoverRadius: 5,
-                tension: 0.25,
-                fill: false,
-                yAxisID: 'y'
-            }, {
                 label: '深证成指',
                 data: szValues,
                 borderColor: '#22d3ee',
@@ -82,6 +71,17 @@ function renderIndexTrendChart(dates, shValues, szValues, cybValues) {
                 tension: 0.25,
                 fill: false,
                 yAxisID: 'y1'
+            }, {
+                label: '创业板指',
+                data: cybValues,
+                borderColor: '#fb923c',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 2,
+                pointHoverRadius: 5,
+                tension: 0.25,
+                fill: false,
+                yAxisID: 'y'
             }]
         },
         options: {
