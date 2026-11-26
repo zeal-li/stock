@@ -5,9 +5,9 @@ from money_flow.storage import save_field, get_field
 
 
 def _fetch_and_cache_major_indices():
-    """抓取沪深指数行情并写入缓存（走 common.http.get_realtime_quotes_ulist）"""
+    """抓取上证/深证/创业板指数行情并写入缓存（走 common.http.get_realtime_quotes_ulist）"""
     try:
-        quotes = get_realtime_quotes_ulist('1.000001,0.399001')
+        quotes = get_realtime_quotes_ulist('1.000001,0.399001,0.399006')
         if quotes:
             data = []
             for q in quotes.values():

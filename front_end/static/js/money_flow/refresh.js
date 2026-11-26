@@ -36,7 +36,7 @@ async function refreshRealtimeData() {
             if (idxData.success && idxData.data.length > 0) {
                 const card = document.getElementById('index-card');
                 // 上证
-                const d = idxData.data[0];
+                const d = pickIndexByCode(idxData.data, '000001');
                 const isUp = (d.change || '').startsWith('+');
                 const color = isUp ? '#e94560' : '#4ade80';
                 const priceEl = card && card.querySelector('.index-sh-price');
@@ -44,14 +44,24 @@ async function refreshRealtimeData() {
                 if (priceEl) { priceEl.innerText = d.price || '--'; priceEl.style.color = color; }
                 if (changeEl) { changeEl.innerText = (d.change || '') + ' ' + (d.change_value || ''); changeEl.className = 'index-change index-sh-change ' + (isUp ? 'up' : 'down'); }
                 // 深证
-                if (idxData.data.length > 1) {
-                    const d2 = idxData.data[1];
+                const d2 = pickIndexByCode(idxData.data, '399001');
+                if (d2) {
                     const isUp2 = (d2.change || '').startsWith('+');
                     const color2 = isUp2 ? '#e94560' : '#4ade80';
                     const priceEl2 = card && card.querySelector('.index-sz-price');
                     const changeEl2 = card && card.querySelector('.index-sz-change');
                     if (priceEl2) { priceEl2.innerText = d2.price || '--'; priceEl2.style.color = color2; }
                     if (changeEl2) { changeEl2.innerText = (d2.change || '') + ' ' + (d2.change_value || ''); changeEl2.className = 'index-change index-sz-change ' + (isUp2 ? 'up' : 'down'); }
+                }
+                // 创业板
+                const d3 = pickIndexByCode(idxData.data, '399006');
+                if (d3) {
+                    const isUp3 = (d3.change || '').startsWith('+');
+                    const color3 = isUp3 ? '#e94560' : '#4ade80';
+                    const priceEl3 = card && card.querySelector('.index-cyb-price');
+                    const changeEl3 = card && card.querySelector('.index-cyb-change');
+                    if (priceEl3) { priceEl3.innerText = d3.price || '--'; priceEl3.style.color = color3; }
+                    if (changeEl3) { changeEl3.innerText = (d3.change || '') + ' ' + (d3.change_value || ''); changeEl3.className = 'index-change index-cyb-change ' + (isUp3 ? 'up' : 'down'); }
                 }
             }
 

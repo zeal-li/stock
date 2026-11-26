@@ -387,7 +387,14 @@ async function initMoneyFlowDateBar() {
 
 // ==================== HTML 构建 ====================
 
-function buildMoneyFlowHTML(indexData, indexDataSZ) {
+function pickIndexByCode(indices, code) {
+    for (var i = 0; i < indices.length; i++) {
+        if (indices[i].code === code) return indices[i];
+    }
+    return null;
+}
+
+function buildMoneyFlowHTML(indexData, indexDataSZ, indexDataCYB) {
     const colors = getIndexColors(indexData);
     const changeClass = colors.lineColor === '#e94560' ? 'up' : 'down';
 
@@ -395,6 +402,10 @@ function buildMoneyFlowHTML(indexData, indexDataSZ) {
     var szIsUp = indexDataSZ && indexDataSZ.change.startsWith('+');
     var szColor = szIsUp ? '#e94560' : '#4ade80';
     var szChangeClass = szIsUp ? 'up' : 'down';
+
+    var cybIsUp = indexDataCYB && indexDataCYB.change.startsWith('+');
+    var cybColor = cybIsUp ? '#e94560' : '#4ade80';
+    var cybChangeClass = cybIsUp ? 'up' : 'down';
 
     document.getElementById('index-card').innerHTML = `
             <div class="index-header">
@@ -406,10 +417,14 @@ function buildMoneyFlowHTML(indexData, indexDataSZ) {
                     <span class="index-name">${szName}</span>
                     <span class="index-price index-sz-price" style="color: ${szColor};">${indexDataSZ.price}</span>
                     <span class="index-change index-sz-change ${szChangeClass}">${indexDataSZ.change} ${indexDataSZ.change_value}</span>
+                    ` : '') + (indexDataCYB ? `
+                    <span class="index-name">创业板</span>
+                    <span class="index-price index-cyb-price" style="color: ${cybColor};">${indexDataCYB.price}</span>
+                    <span class="index-change index-cyb-change ${cybChangeClass}">${indexDataCYB.change} ${indexDataCYB.change_value}</span>
                     ` : '') + `
-                    <span id="marketBreadth" style="font-size: 12px; color: #888;"></span>
                 </div>
             </div>
+            <div id="marketBreadth" style="font-size: 13px; color: #888; margin-bottom: 10px;"></div>
             <div style="display: flex; gap: 15px; font-size: 13px; color: #888; margin-bottom: 6px;">
                 <span id="headerTurnover">加载中...</span>
                 <span id="headerFlow"></span>
@@ -954,10 +969,11 @@ async function loadMoneyFlowRealtime() {
         const indexRes = await fetch('/api/major-indices');
         const indexResult = await indexRes.json();
 
-        let indexData = null, indexDataSZ = null;
-        if (indexResult.success && indexResult.data.length > 0) {
-            indexData = indexResult.data[0];
-            if (indexResult.data.length > 1) indexDataSZ = indexResult.data[1];
+        let indexData = null, indexDataSZ = null, indexDataCYB = null;
+        if (indexResult.success && indexResult.data) {
+            indexData = pickIndexByCode(indexResult.data, '000001');
+            indexDataSZ = pickIndexByCode(indexResult.data, '399001');
+            indexDataCYB = pickIndexByCode(indexResult.data, '399006');
         }
 
         if (!indexData) {
@@ -965,7 +981,7 @@ async function loadMoneyFlowRealtime() {
             return;
         }
 
-        buildMoneyFlowHTML(indexData, indexDataSZ);
+        buildMoneyFlowHTML(indexData, indexDataSZ, indexDataCYB);
         const colors = getIndexColors(indexData);
 
         fetch('/api/turnover-minute').then(res => res.json()).then(renderTurnoverHeader)
@@ -1003,17 +1019,18 @@ async function loadMoneyFlowRealtime() {
 
 function renderMoneyFlowSnapshot(snap) {
     const indexCard = document.getElementById('index-card');
-    let indexData = null, indexDataSZ = null;
-    if (snap.indices && snap.indices.success && snap.indices.data && snap.indices.data.length > 0) {
-        indexData = snap.indices.data[0];
-        if (snap.indices.data.length > 1) indexDataSZ = snap.indices.data[1];
+    let indexData = null, indexDataSZ = null, indexDataCYB = null;
+    if (snap.indices && snap.indices.success && snap.indices.data) {
+        indexData = pickIndexByCode(snap.indices.data, '000001');
+        indexDataSZ = pickIndexByCode(snap.indices.data, '399001');
+        indexDataCYB = pickIndexByCode(snap.indices.data, '399006');
     }
     if (!indexData) {
         indexCard.innerHTML = '<div class="error">暂无该日指数数据</div>';
         return;
     }
 
-    buildMoneyFlowHTML(indexData, indexDataSZ);
+    buildMoneyFlowHTML(indexData, indexDataSZ, indexDataCYB);
     const colors = getIndexColors(indexData);
 
     renderTurnoverHeader(snap.turnover || { success: false });
