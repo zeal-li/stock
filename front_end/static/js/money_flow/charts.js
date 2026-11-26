@@ -91,7 +91,7 @@ function renderIndexTrendChart(dates, shValues, szValues) {
     });
 }
 
-function renderDailyTurnoverChart(dates, values) {
+function renderDailyTurnoverChart(dates, values, changes, prevs) {
     const ctx = document.getElementById('dailyTurnoverChart').getContext('2d');
     const gradient = ctx.createLinearGradient(0, 0, 0, 280);
     gradient.addColorStop(0, 'rgba(96, 165, 250, 0.28)');
@@ -125,7 +125,15 @@ function renderDailyTurnoverChart(dates, values) {
                     backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
                     callbacks: {
                         title: function(items) { return dates[items[0].dataIndex]; },
-                        label: function(item) { return '当日成交额: ' + Number(item.raw).toFixed(2) + '亿'; }
+                        label: function(item) {
+                            const v = Number(item.raw);
+                            const lines = ['当日成交额: ' + v.toFixed(2) + '亿'];
+                            const change = Number(changes[item.dataIndex]) / 1e8;
+                            const prev = Number(prevs[item.dataIndex]) / 1e8;
+                            const pct = prev ? change / prev * 100 : 0;
+                            lines.push('较前日: ' + (change >= 0 ? '+' : '') + change.toFixed(2) + '亿 (' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)');
+                            return lines;
+                        }
                     }
                 }
             },
@@ -209,6 +217,8 @@ async function loadDailyTurnover() {
         const latestDay = tradingDays[tradingDays.length - 1];
         const cache = getMoneyFlowDailyCache();
         const values = {};
+        const changes = {};
+        const prevs = {};
         const flows = {};
         const sh = {};
         const sz = {};
@@ -217,6 +227,8 @@ async function loadDailyTurnover() {
             const snapshot = cache[date];
             if (isMoneyFlowDateCacheable(date, latestDay) && snapshot !== undefined) {
                 values[date] = Number((snapshot.turnover.data.header.turnover / 1e8).toFixed(2));
+                changes[date] = snapshot.turnover.data.header.turnover_change;
+                prevs[date] = snapshot.turnover.data.header.turnover_pre;
                 flows[date] = getDailyNetFlow(snapshot);
                 const idx = getDailyIndexValues(snapshot);
                 sh[date] = idx.sh;
@@ -235,6 +247,8 @@ async function loadDailyTurnover() {
             const snapshot = item.snapshot;
             if (!snapshot) return;
             values[item.date] = Number((snapshot.turnover.data.header.turnover / 1e8).toFixed(2));
+            changes[item.date] = snapshot.turnover.data.header.turnover_change;
+            prevs[item.date] = snapshot.turnover.data.header.turnover_pre;
             flows[item.date] = getDailyNetFlow(snapshot);
             const idx = getDailyIndexValues(snapshot);
             sh[item.date] = idx.sh;
@@ -252,7 +266,7 @@ async function loadDailyTurnover() {
         const series = dates.map(function(date) { return values[date]; });
         const flowSeries = dates.map(function(date) { return flows[date]; });
         renderIndexTrendChart(dates, dates.map(function(date) { return sh[date]; }), dates.map(function(date) { return sz[date]; }));
-        renderDailyTurnoverChart(dates, series);
+        renderDailyTurnoverChart(dates, series, dates.map(function(date) { return changes[date]; }), dates.map(function(date) { return prevs[date]; }));
         renderDailyNetFlowChart(dates, flowSeries);
         const latest = series[series.length - 1];
         const max = Math.max.apply(null, series);
