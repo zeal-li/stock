@@ -34,14 +34,17 @@ function getDailyIndexValues(snapshot) {
     const sh = pickIndexByCode(indices, '000001');
     const sz = pickIndexByCode(indices, '399001');
     const cyb = pickIndexByCode(indices, '399006');
+    const pack = function(item) {
+        return {price: Number(item.price), change: item.change, change_value: item.change_value};
+    };
     return {
-        sh: Number(sh.price),
-        sz: Number(sz.price),
-        cyb: cyb ? Number(cyb.price) : null
+        sh: pack(sh),
+        sz: pack(sz),
+        cyb: cyb ? pack(cyb) : null
     };
 }
 
-function renderIndexTrendChart(dates, shValues, szValues, cybValues) {
+function renderIndexTrendChart(dates, shValues, szValues, cybValues, indexMeta) {
     const ctx = document.getElementById('indexTrendChart').getContext('2d');
 
     if (indexTrendChart) indexTrendChart.destroy();
@@ -95,7 +98,13 @@ function renderIndexTrendChart(dates, shValues, szValues, cybValues) {
                     backgroundColor: '#16213e', titleColor: '#fff', bodyColor: '#ddd', borderColor: '#0f3460', borderWidth: 1,
                     callbacks: {
                         title: function(items) { return dates[items[0].dataIndex]; },
-                        label: function(item) { return item.dataset.label + ': ' + Number(item.raw).toFixed(2); }
+                        label: function(item) {
+                            const keys = ['sh', 'sz', 'cyb'];
+                            const meta = indexMeta[item.dataIndex][keys[item.datasetIndex]];
+                            const lines = [item.dataset.label + ': ' + Number(item.raw).toFixed(2)];
+                            if (meta) lines.push('涨跌: ' + meta.change_value + ' (' + meta.change + ')');
+                            return lines;
+                        }
                     }
                 }
             },
@@ -241,6 +250,7 @@ async function loadDailyTurnover() {
         const sh = {};
         const sz = {};
         const cyb = {};
+        const indexMeta = {};
         const missing = [];
         tradingDays.forEach(function(date) {
             const snapshot = cache[date];
@@ -250,9 +260,14 @@ async function loadDailyTurnover() {
                 prevs[date] = snapshot.turnover.data.header.turnover_pre;
                 flows[date] = getDailyNetFlow(snapshot);
                 const idx = getDailyIndexValues(snapshot);
-                sh[date] = idx.sh;
-                sz[date] = idx.sz;
-                cyb[date] = idx.cyb;
+                sh[date] = idx.sh.price;
+                sz[date] = idx.sz.price;
+                cyb[date] = idx.cyb ? idx.cyb.price : null;
+                indexMeta[date] = {
+                    sh: {change: idx.sh.change, change_value: idx.sh.change_value},
+                    sz: {change: idx.sz.change, change_value: idx.sz.change_value},
+                    cyb: idx.cyb ? {change: idx.cyb.change, change_value: idx.cyb.change_value} : null
+                };
             } else {
                 missing.push(date);
             }
@@ -271,9 +286,14 @@ async function loadDailyTurnover() {
             prevs[item.date] = snapshot.turnover.data.header.turnover_pre;
             flows[item.date] = getDailyNetFlow(snapshot);
             const idx = getDailyIndexValues(snapshot);
-            sh[item.date] = idx.sh;
-            sz[item.date] = idx.sz;
-            cyb[item.date] = idx.cyb;
+            sh[item.date] = idx.sh.price;
+            sz[item.date] = idx.sz.price;
+            cyb[item.date] = idx.cyb ? idx.cyb.price : null;
+            indexMeta[item.date] = {
+                sh: {change: idx.sh.change, change_value: idx.sh.change_value},
+                sz: {change: idx.sz.change, change_value: idx.sz.change_value},
+                cyb: idx.cyb ? {change: idx.cyb.change, change_value: idx.cyb.change_value} : null
+            };
             if (isMoneyFlowDateCacheable(item.date, latestDay)) {
                 cache[item.date] = snapshot;
             } else {
@@ -289,7 +309,8 @@ async function loadDailyTurnover() {
         renderIndexTrendChart(dates,
             dates.map(function(date) { return sh[date]; }),
             dates.map(function(date) { return sz[date]; }),
-            dates.map(function(date) { return cyb[date] === undefined ? null : cyb[date]; }));
+            dates.map(function(date) { return cyb[date] === undefined ? null : cyb[date]; }),
+            dates.map(function(date) { return indexMeta[date]; }));
         renderDailyTurnoverChart(dates, series, dates.map(function(date) { return changes[date]; }), dates.map(function(date) { return prevs[date]; }));
         renderDailyNetFlowChart(dates, flowSeries);
         const latest = series[series.length - 1];
