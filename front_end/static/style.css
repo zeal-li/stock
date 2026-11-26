@@ -619,7 +619,11 @@ body {
 
 .daily-turnover-chart-box {
     position: relative;
-    height: 420px;
+    height: 280px;
+}
+
+.daily-turnover-chart-box:not(:last-child) {
+    margin-bottom: 14px;
 }
 
 .daily-turnover-chart-box canvas {
@@ -1125,7 +1129,7 @@ body {
     }
 
     .daily-turnover-chart-box {
-        height: 300px;
+        height: 220px;
     }
 
     .stats-cards {
