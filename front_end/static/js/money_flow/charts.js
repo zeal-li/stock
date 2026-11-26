@@ -13,6 +13,39 @@ function isMoneyFlowDateCacheable(date, latestDay) {
     return date !== latestDay || _todayStr() > latestDay;
 }
 
+var linkedTooltipPlugin = {
+    id: 'linkedTooltip',
+    afterEvent: function(chart, args) {
+        const event = args.event;
+        if (event.type !== 'mousemove' && event.type !== 'mouseout') return;
+        const charts = [indexTrendChart, dailyTurnoverChart, dailyNetFlowChart].filter(Boolean);
+        if (charts.length < 3) return;
+
+        let index = null;
+        if (event.type === 'mousemove') {
+            const active = chart.getElementsAtEventForMode(event, 'index', {intersect: false}, true);
+            if (active.length) index = active[0].index;
+        }
+
+        charts.forEach(function(target) {
+            if (target === chart) return;
+            if (index === null) {
+                target.setActiveElements([]);
+                target.tooltip.setActiveElements([], {x: 0, y: 0});
+            } else {
+                const active = [];
+                target.data.datasets.forEach(function(dataset, datasetIndex) {
+                    if (!dataset.hidden) active.push({datasetIndex: datasetIndex, index: index});
+                });
+                const point = {x: target.scales.x.getPixelForValue(index), y: target.chartArea.top};
+                target.setActiveElements(active);
+                target.tooltip.setActiveElements(active, point);
+            }
+            target.update('none');
+        });
+    }
+};
+
 function switchMoneyFlowTab(tab) {
     currentMoneyFlowTab = tab;
     document.querySelectorAll('[data-money-flow-tab]').forEach(function(el) {
@@ -50,6 +83,7 @@ function renderIndexTrendChart(dates, shValues, szValues, cybValues, indexMeta) 
     if (indexTrendChart) indexTrendChart.destroy();
     indexTrendChart = new Chart(ctx, {
         type: 'line',
+        plugins: [linkedTooltipPlugin],
         data: {
             labels: dates.map(function(date) { return date.slice(5); }),
             datasets: [{
@@ -127,6 +161,7 @@ function renderDailyTurnoverChart(dates, values, changes, prevs) {
     if (dailyTurnoverChart) dailyTurnoverChart.destroy();
     dailyTurnoverChart = new Chart(ctx, {
         type: 'line',
+        plugins: [linkedTooltipPlugin],
         data: {
             labels: dates.map(function(date) { return date.slice(5); }),
             datasets: [{
@@ -180,6 +215,7 @@ function renderDailyNetFlowChart(dates, flows) {
     if (dailyNetFlowChart) dailyNetFlowChart.destroy();
     dailyNetFlowChart = new Chart(ctx, {
         type: 'line',
+        plugins: [linkedTooltipPlugin],
         data: {
             labels: dates.map(function(date) { return date.slice(5); }),
             datasets: [{
