@@ -232,6 +232,8 @@ function renderLianbanBangLadder(list) {
             html += '<div class="lb-ladder-card-time">' + (card.fbt || '--') + '</div>';
             html += '<div class="lb-ladder-card-name">' + name + '</div>';
             html += '<div class="lb-ladder-card-industry">' + (card.industry || '--') + '</div>';
+            html += '<div class="lb-ladder-card-price">现价 <b>' + (card.price != null ? card.price.toFixed(2) : '--') + '</b></div>';
+            html += '<div class="lb-ladder-card-turnover">换手 <b>' + (card.turnover != null ? card.turnover.toFixed(2) + '%' : '--') + '</b></div>';
             html += '<div class="lb-ladder-card-cap">流通市值 <b>' + fmtLianbanBangAmt(card.float_cap) + '</b></div>';
             html += '<div class="lb-ladder-card-fund">封单金额 <b>' + fmtLianbanBangAmt(card.fund) + '</b></div>';
             if (card.zbc > 0) {
