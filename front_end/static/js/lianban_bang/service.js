@@ -207,8 +207,23 @@ function renderLianbanBangLadder(list) {
         var cards = grouped[level].slice().sort(function(a, b) {
             return String(a.fbt || '').localeCompare(String(b.fbt || ''));
         });
+        var zhabanCount = 0;
+        var zhabanTimes = 0;
+        for (var k = 0; k < cards.length; k++) {
+            var times = Number(cards[k].zbc);
+            if (times > 0) {
+                zhabanCount++;
+                zhabanTimes += times;
+            }
+        }
+        var levelName = level === 1 ? '首板' : level + '板';
+        var zhabanTitle = zhabanCount > 0 ? '炸板 ' + zhabanCount + ' 家 / 累计 ' + zhabanTimes + ' 次' : '无炸板';
         html += '<div class="lb-ladder-tier">';
-        html += '<div class="lb-ladder-tier-label">' + (level === 1 ? '首板' : level + '板') + '</div>';
+        html += '<div class="lb-ladder-tier-label" title="' + zhabanTitle + '">';
+        html += '<span class="lb-ladder-tier-name">' + levelName + '</span>';
+        html += '<span class="lb-ladder-tier-stat"><b>' + cards.length + '</b>家</span>';
+        html += '<span class="lb-ladder-tier-stat' + (zhabanCount > 0 ? ' is-zhaban' : '') + '">炸板 <b>' + zhabanCount + '</b></span>';
+        html += '</div>';
         html += '<div class="lb-ladder-tier-cards">';
         for (var j = 0; j < cards.length; j++) {
             var card = cards[j];
