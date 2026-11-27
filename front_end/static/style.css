@@ -1990,7 +1990,7 @@ body {
 }
 .lb-ladder-card {
     position: relative;
-    min-height: 78px;
+    min-height: 92px;
     padding: 6px 4px 5px;
     text-align: center;
     background: #1e2b4d;
@@ -2030,15 +2030,20 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.lb-ladder-card-fund {
+.lb-ladder-card-fund,
+.lb-ladder-card-cap {
     margin-top: 4px;
     font-size: 10px;
     color: #8b8b9e;
     white-space: nowrap;
 }
-.lb-ladder-card-fund b {
+.lb-ladder-card-fund b,
+.lb-ladder-card-cap b {
     font-size: 11px;
     color: #e94560;
+}
+.lb-ladder-card-cap b {
+    color: #8bb9ff;
 }
 .lb-ladder-card-badge {
     position: absolute;
